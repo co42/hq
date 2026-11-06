@@ -1,5 +1,16 @@
 # Release notes
 
+## v7.1 · 2026-11-06
+
+**Performance**: at rest HQ went from about 40% CPU and 430 MB to under 1% and about 80 MB, with nothing changed on screen.
+- Working faces sway and cards breathe on the system's animation server: HQ no longer redraws them dozens of times a second.
+- The sky is drawn once per mood: no more memory spike of about 250 MB at launch and at each mood change.
+- A session's tool calls no longer redraw the page, nor does a GitHub poll that changed nothing.
+- With two working sessions on one task, its row's face changes at the next redraw (within 30 s), not at each tool call.
+
+**For contributors**
+- `tools/perf.sh --check` holds HQ to CPU and memory budgets; `tools/perf-lint.sh` flags per-frame redraws and drawing through SwiftUI's GPU renderer.
+
 ## v7 · 2026-11-06
 
 **Pull requests**
