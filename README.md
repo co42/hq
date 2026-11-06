@@ -120,4 +120,4 @@ Read [PLAN.md](PLAN.md) (architecture, model, decisions) before changing how HQ 
 
 ## License
 
-[MIT](LICENSE). HQ started from [bama](https://github.com/daveebbelaar/bama)'s macOS app and agent-cli templates (MIT), and bundles [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) to draw diagrams in notes.
+[MIT](LICENSE). HQ started from [bama](https://github.com/daveebbelaar/bama)'s macOS app and agent-cli templates (MIT), and bundles [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) to draw diagrams in notes: their notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

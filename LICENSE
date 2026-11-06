@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Third-party code
-
-HQ started from the macOS app and agent-cli templates of bama
-(https://github.com/daveebbelaar/bama), under the MIT License:
-Copyright (c) 2026 Dave Ebbelaar. The permission notice above applies to those
-portions as well.
-
-Vendor/mermaid holds Mermaid (https://github.com/mermaid-js/mermaid), under the
-MIT License; its notice is in Vendor/mermaid/LICENSE.
