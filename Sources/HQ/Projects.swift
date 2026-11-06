@@ -87,7 +87,7 @@ extension AppModel {
         for session in sessions where !session.cwd.isEmpty
         && tasks(of: session.id).contains(where: { $0.project.map(Self.projectKey) == key }) {
             let entry = counts[session.cwd] ?? (0, .distantPast)
-            counts[session.cwd] = (entry.count + 1, max(entry.last, session.status.lastActivity))
+            counts[session.cwd] = (entry.count + 1, max(entry.last, lastActivity(session)))
         }
         return counts.max { ($0.value.count, $0.value.last) < ($1.value.count, $1.value.last) }
             .map { ($0.key as NSString).abbreviatingWithTildeInPath }

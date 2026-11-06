@@ -309,10 +309,22 @@ class LabelStripView: NSView {
     private func isTag(_ label: Label) -> Bool { label.icon === Self.tagIcon && label.color != nil }
 
     private func width(_ label: Label) -> CGFloat {
-        let text = ceil((label.text as NSString).size(withAttributes: [.font: font]).width)
+        let text = textWidth(label.text)
         let mark = isTag(label) ? Metric.labelDot : Metric.pillIcon
         let icon = label.icon == nil ? 0 : mark + (label.text.isEmpty ? 0 : Space.xs + 1)
         return text + icon + (label.color == nil ? 0 : Metric.pillPadding * 2)
+    }
+
+    /// Text widths by font size, measured once: rows lay out and draw their chips on every update.
+    private static var textWidths: [String: CGFloat] = [:]
+
+    private func textWidth(_ text: String) -> CGFloat {
+        let key = "\(font.pointSize) \(text)"
+        if let width = Self.textWidths[key] { return width }
+        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        if Self.textWidths.count >= 2000 { Self.textWidths.removeAll() }
+        Self.textWidths[key] = width
+        return width
     }
 
     /// Every chip, side by side.
@@ -763,7 +775,7 @@ final class FacesCell: NSTableCellView {
 
     func show(model: AppModel, id: Int, folded: Bool) {
         // One face: the session that matters most; the tooltip names them all.
-        let sessions = AppModel.byImportance(model.sessions(on: id, withSubtasks: folded, includeEnded: true))
+        let sessions = model.byImportance(model.sessions(on: id, withSubtasks: folded, includeEnded: true))
         faces.faces = sessions.map { session in
             FaceStackView.Face(spec: session.face, badge: session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil,
                                label: "\(session.name), \(session.isRunning ? session.status.title.lowercased() : "ended")" + (session.status.isNew ? ", new" : ""),

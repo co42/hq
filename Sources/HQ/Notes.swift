@@ -56,6 +56,7 @@ extension AppModel {
             let files = Dictionary(
                 (result.files.filter { !recent.contains($0.path ?? "") } + self.files.filter { recent.contains($0.path ?? "") }).map { ($0.id, $0) },
                 uniquingKeysWith: { _, mine in mine }).values.sorted { $0.id < $1.id }
+            LaunchLog.mark("vault")
             readingVault = true
             if self.tasks != tasks { self.tasks = tasks }
             if self.files != files { self.files = files }

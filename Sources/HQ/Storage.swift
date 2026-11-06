@@ -248,6 +248,18 @@ final class Storage {
 }
 
 /// Lines in ~/Library/Logs/HQ/<name>, to see afterwards what happened in the user's HQ. Never in a test run.
+/// HQ_LAUNCH_LOG=1: when each step of the launch happened, as `launch <step> <seconds since 1970>` (tools/launch.sh).
+enum LaunchLog {
+    private static let enabled = ProcessInfo.processInfo.environment["HQ_LAUNCH_LOG"] == "1"
+    private static var marked: Set<String> = []
+
+    static func mark(_ step: String) {
+        guard enabled, marked.insert(step).inserted else { return }
+        print("launch \(step) \(Date.now.timeIntervalSince1970)")
+        fflush(stdout)
+    }
+}
+
 enum AppLog {
     static func write(_ line: String, to name: String) {
         // Test runs leave the user's logs alone: the line goes in their output.

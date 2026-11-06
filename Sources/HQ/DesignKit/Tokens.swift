@@ -333,14 +333,17 @@ enum Motion {
     static let hover = Animation.easeOut(duration: 0.08)
     /// One sway of a working session's face, left and back, in seconds.
     static let faceSway: TimeInterval = 2
+    /// Frames a second of the sway.
+    static let faceFrameRate = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     /// Quick Open fading in.
     static let appearSeconds: TimeInterval = 0.18
     /// A card that needs the user, or is done unread, glows and breathes: half a breath, from faint to bright, in seconds.
     static let blinkHalf: TimeInterval = 0.9
     /// A card rising under the pointer.
-    static let lift = Animation.smooth(duration: 0.18)
+    static let lift = Animation.smooth(duration: liftSeconds)
+    static let liftSeconds: TimeInterval = 0.18
     /// The sky changing with the day's state.
-    static let sky = Animation.easeInOut(duration: 1.4)
+    static let skySeconds: TimeInterval = 1.4
     /// The section bar's highlight gliding to the section in view, and the page scrolling there.
     static let glide = Animation.easeInOut(duration: 0.26)
     /// A clicked section holds the bar this long while the page scrolls, in seconds.

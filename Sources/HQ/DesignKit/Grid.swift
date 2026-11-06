@@ -120,7 +120,7 @@ struct GridOverlay: View {
         let probes = Array(GridProbes.shared.probes.values)
         GeometryReader { proxy in
             let origin = proxy.frame(in: .global).origin
-            Canvas { context, size in
+            Canvas { context, size in // perf: ok the grid overlay, a debug aid (APP_GRID)
                 var grid = Path()
                 for x in stride(from: 0, through: size.width, by: 8) {
                     grid.addRect(CGRect(x: x, y: 0, width: 0.5, height: size.height))

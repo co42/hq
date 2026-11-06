@@ -74,9 +74,16 @@ enum KitIcon: String, CaseIterable {
     /// Symbol sizes in AppKit rows: `.row` for row actions and type icons, `.mark` for the open arrow and pill icons.
     enum RowSize { case row, mark }
 
+    /// Made once per size and weight: rows ask on every update.
     func nsImage(_ size: RowSize, weight: NSFont.Weight = .regular) -> NSImage? {
-        nsImage?.withSymbolConfiguration(.init(pointSize: size == .row ? 11 : 10, weight: weight))
+        let key = "\(rawValue) \(size) \(weight.rawValue)"
+        if let image = Self.rowImages[key] { return image }
+        let image = nsImage?.withSymbolConfiguration(.init(pointSize: size == .row ? 11 : 10, weight: weight))
+        Self.rowImages[key] = image
+        return image
     }
+
+    private static var rowImages: [String: NSImage?] = [:]
 
     static func github(_ item: GitHubItem) -> KitIcon {
         if item.kind == .issue { return .issue }

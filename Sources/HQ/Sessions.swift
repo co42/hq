@@ -44,7 +44,19 @@ extension AppModel {
            (modal == .session(item.id) && NSApp.isActive) || (item.tty != nil && watchedTTY() == item.tty) {
             item.status.unread = false
         }
-        put(item)
+        // A tool call in a session already working moves only its last activity: kept aside, the page has nothing to redraw.
+        if let stored = session(item.id) {
+            var same = item
+            same.status.lastActivity = stored.status.lastActivity
+            if same == stored {
+                activity[item.id] = now
+            } else {
+                activity[item.id] = nil
+                put(item)
+            }
+        } else {
+            put(item)
+        }
         watchTitle(of: item)
         if let published = event.artifact { capture(published, from: item) }
         if !event.pullRequests.isEmpty { pollGitHubSoon() }
@@ -163,9 +175,26 @@ extension AppModel {
     /// Open sessions in their order, then the ended ones when asked, the latest to end first.
     /// Sessions by what matters most, for the one face a row shows: one that needs the user, one working, the latest
     /// active open one, then ended ones, latest first.
-    static func byImportance(_ sessions: [SessionItem]) -> [SessionItem] {
+    func byImportance(_ sessions: [SessionItem]) -> [SessionItem] {
         func rank(_ item: SessionItem) -> Int { !item.isRunning ? 0 : item.status.needsYou ? 3 : item.isWorking ? 2 : 1 }
-        return sessions.sorted { (rank($0), $0.status.lastActivity) > (rank($1), $1.status.lastActivity) }
+        return sessions.sorted { (rank($0), lastActivity($0)) > (rank($1), lastActivity($1)) }
+    }
+
+    /// When a session last sent a hook event, tool calls kept aside included.
+    func lastActivity(_ session: SessionItem) -> Date {
+        max(activity[session.id] ?? .distantPast, session.status.lastActivity)
+    }
+
+    /// The tool calls kept aside go into the sessions: on the clock's tick, and before a save at quit.
+    func settleActivity() {
+        guard !activity.isEmpty else { return }
+        let pending = activity
+        activity = [:]
+        for (id, date) in pending {
+            guard var item = session(id), date > item.status.lastActivity else { continue }
+            item.status.lastActivity = date
+            put(item)
+        }
     }
 
     static func openFirst(_ sessions: [SessionItem], includeEnded: Bool) -> [SessionItem] {
@@ -605,7 +634,7 @@ extension AppModel {
 
     /// Folders for Start a session: the project's own, the task's sessions', the project's sessions', then recent ones.
     func recentDirectories(for taskID: Int? = nil) -> [String] {
-        let byActivity = sessions.sorted { $0.status.lastActivity > $1.status.lastActivity }
+        let byActivity = sessions.sorted { lastActivity($0) > lastActivity($1) }
         let task = task(taskID)
         let project = project(ofTask: taskID)
         let ofTask = task.map { task in byActivity.filter { task.sessions.contains($0.id) } } ?? []
@@ -619,7 +648,7 @@ extension AppModel {
 
     /// A local clone of a repository, from the sessions that ran in one.
     func clone(of repo: String) -> String? {
-        sessions.sorted { $0.status.lastActivity > $1.status.lastActivity }
+        sessions.sorted { lastActivity($0) > lastActivity($1) }
             .first { $0.origin?.caseInsensitiveCompare(repo) == .orderedSame }?.cwd
     }
 

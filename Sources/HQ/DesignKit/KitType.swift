@@ -65,12 +65,21 @@ enum KitType {
     }
 
     /// The size a text style has at 100%, times the zoom.
-    static func size(_ style: NSFont.TextStyle) -> CGFloat { NSFont.preferredFont(forTextStyle: style).pointSize * Zoom.factor }
+    static func size(_ style: NSFont.TextStyle) -> CGFloat {
+        if let size = sizes[style] { return size }
+        let size = NSFont.preferredFont(forTextStyle: style).pointSize * Zoom.factor
+        sizes[style] = size
+        return size
+    }
 
+    /// Made once per role: views ask on every update.
     var font: Font {
+        if let font = Self.swiftFonts[self] { return font }
         let parts = parts
-        let font = Font.system(size: Self.size(parts.style), weight: parts.weight, design: parts.design)
-        return self == .meta ? font.monospacedDigit() : font
+        let plain = Font.system(size: Self.size(parts.style), weight: parts.weight, design: parts.design)
+        let font = self == .meta ? plain.monospacedDigit() : plain
+        Self.swiftFonts[self] = font
+        return font
     }
 
     /// For AppKit views (the outline, Quick Open's field, the editor): made once per role, since rows ask on every draw.
@@ -82,9 +91,15 @@ enum KitType {
     }
 
     private static var fonts: [KitType: NSFont] = [:]
+    private static var swiftFonts: [KitType: Font] = [:]
+    private static var sizes: [NSFont.TextStyle: CGFloat] = [:]
 
     /// The zoom changed: fonts are made again at the new size.
-    static func resetFonts() { fonts = [:] }
+    static func resetFonts() {
+        fonts = [:]
+        swiftFonts = [:]
+        sizes = [:]
+    }
 
     private func makeFont() -> NSFont {
         let body = Self.size(.body)

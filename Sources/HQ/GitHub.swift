@@ -126,9 +126,14 @@ final class GitHubService {
             }
             let snapshot = try GitHubQuery.parse(data, linked: linked)
             failures = 0
-            apply(snapshot)
+            let changed = snapshot.viewer != model.github?.viewer || snapshot.items != model.github?.items
+            if changed {
+                apply(snapshot)
+                Self.saveCache(snapshot)
+            }
+            // A poll that changed nothing leaves the page alone: only the Refresh button's tooltip says when.
+            model.githubAnswered = snapshot.fetchedAt
             set(nil)
-            Self.saveCache(snapshot)
         } catch {
             failures += 1
             if failures >= 3 { set(.githubFailing) }

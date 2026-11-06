@@ -41,15 +41,7 @@ struct SessionFace: View {
     }
 
     var body: some View {
-        Group {
-            if working {
-                TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-                    face(sway: FaceArt.sway(spec, at: timeline.date))
-                }
-            } else {
-                face(sway: nil)
-            }
-        }
+        FaceImage(spec: spec, ended: ended, working: working)
         .frame(width: size, height: size)
         .overlay(alignment: .bottomTrailing) {
             if let badge {
@@ -72,13 +64,19 @@ struct SessionFace: View {
         .modifier(FaceActions(session: session))
     }
 
-    private func face(sway: Double?) -> some View {
-        Canvas { context, canvas in
-            context.withCGContext { ctx in
-                FaceArt.draw(spec, in: ctx, rect: CGRect(origin: .zero, size: canvas), ended: ended, sway: sway)
-            }
-        }
-    }
+}
+
+/// The face itself, on Core Animation layers.
+private struct FaceImage: NSViewRepresentable {
+    let spec: FaceSpec
+    let ended: Bool
+    let working: Bool
+
+    func makeNSView(context: Context) -> FaceView { FaceView() }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: FaceView, context: Context) -> CGSize? { proposal.replacingUnspecifiedDimensions() }
+
+    func updateNSView(_ view: FaceView, context: Context) { view.show(spec, ended: ended, working: working) }
 }
 
 /// A click AppKit handles on the press: it acts at once, where SwiftUI would wait out a row's double-click.
@@ -152,7 +150,7 @@ struct FaceStack: View {
 /// Faces for AppKit cells (the outline's faces column): overlapping, with badges, or a dashed square.
 /// A working session's head sways, unless Reduce Motion is on.
 final class FaceStackView: NSView {
-    struct Face {
+    struct Face: Equatable {
         var spec: FaceSpec
         var badge: FaceArt.Badge?
         var label: String
@@ -163,13 +161,16 @@ final class FaceStackView: NSView {
 
     var faces: [Face] = [] {
         didSet {
-            needsDisplay = true
             toolTip = faces.isEmpty ? "No session on this task" : faces.map(\.label).joined(separator: "\n")
+            guard faces != oldValue else { return }
+            needsDisplay = true
             setAccessibilityLabel(faces.isEmpty ? "No session" : faces.map(\.label).joined(separator: "; "))
-            animate()
+            updateTiles()
         }
     }
-    private var link: CADisplayLink?
+    /// The faces shown, each on its tile, the later ones over the earlier.
+    private var tiles: [FaceTile] = []
+    var faceLayers: [FaceLayer] { tiles.map(\.face) }
     var size = Metric.faceRow
     var limit = 3
     /// "+n" after the faces past the limit; off where the column holds `limit` faces only.
@@ -192,6 +193,7 @@ final class FaceStackView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
     }
@@ -200,24 +202,49 @@ final class FaceStackView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        animate()
+        updateTiles()
+        if window != nil { for tile in tiles { tile.face.resume() } }
     }
 
-    /// Redraws at 30 fps while a shown face works.
-    private func animate() {
-        let moving = window != nil && faces.prefix(limit).contains { $0.working }
-        if moving, link == nil {
-            let link = displayLink(target: self, selector: #selector(tick))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
-            link.add(to: .main, forMode: .common)
-            self.link = link
-        } else if !moving, let link {
-            link.invalidate()
-            self.link = nil
+    override func layout() {
+        super.layout()
+        updateTiles()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateTiles()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateTiles()
+    }
+
+    /// One tile per face shown, placed and colored for the view's appearance.
+    private func updateTiles() {
+        guard let layer else { return }
+        let shown = Array(faces.prefix(limit))
+        while tiles.count > shown.count { tiles.removeLast().removeFromSuperlayer() }
+        while tiles.count < shown.count {
+            let tile = FaceTile()
+            layer.addSublayer(tile)
+            tiles.append(tile)
+        }
+        guard !shown.isEmpty else { return }
+        var ring: CGColor = .clear
+        var colors: [FaceArt.Badge: CGColor] = [:]
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            ring = Ink.contentNS.cgColor
+            colors = [.needsYou: FaceArt.color(.needsYou), .failed: FaceArt.color(.failed)]
+        }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let y = (bounds.height - size) / 2
+        for (index, face) in shown.enumerated() {
+            tiles[index].show(face, at: CGPoint(x: CGFloat(index) * size * 0.7, y: y), size: size, ringed: index > 0, content: ring,
+                              badge: face.badge.flatMap { colors[$0] }, scale: scale)
         }
     }
-
-    @objc private func tick() { needsDisplay = true }
 
     override func cursorUpdate(with event: NSEvent) {
         if clickable { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
@@ -260,18 +287,8 @@ final class FaceStackView: NSView {
             ctx.strokePath()
             return
         }
+        // The faces are layers (`FaceTile`); what's left is the "+n".
         let step = size * 0.7
-        let ring = Ink.contentNS.cgColor
-        for (index, face) in faces.prefix(limit).enumerated() {
-            let rect = CGRect(x: CGFloat(index) * step, y: y, width: size, height: size)
-            if index > 0 {
-                ctx.addPath(RoundedRectangle(cornerRadius: (size + 2) * FaceArt.corner, style: .continuous).path(in: rect.insetBy(dx: -1, dy: -1)).cgPath)
-                ctx.setFillColor(ring)
-                ctx.fillPath()
-            }
-            FaceArt.draw(face.spec, in: ctx, rect: rect, ended: face.ended, sway: link != nil && face.working ? FaceArt.sway(face.spec, at: .now) : nil)
-            if let badge = face.badge { FaceArt.drawBadge(badge, in: ctx, rect: rect, ring: ring) }
-        }
         if faces.count > limit, showsMore {
             let text = NSAttributedString(string: "+\(faces.count - limit)", attributes: [
                 .font: KitType.meta.nsFont, .foregroundColor: NSColor.secondaryLabelColor,

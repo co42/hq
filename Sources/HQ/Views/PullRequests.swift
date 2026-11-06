@@ -15,17 +15,7 @@ struct PullRequestsSection: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionHeader(title: PageSection.pullRequests.title, count: model.search.isEmpty ? "\(total)" : "\(shown) of \(total)",
                           open: model.sectionOpen(.pullRequests), tile: (PageSection.pullRequests.icon, Ink.section(.pullRequests))) {
-                if let fetched = model.github?.fetchedAt {
-                    // When GitHub last answered: in the tooltip, not on the page. A spinner on it while HQ asks.
-                    Button { model.refreshGitHub() } label: {
-                        HeaderIcon(icon: .reload)
-                            .opacity(model.githubPolling ? 0 : 1)
-                            .overlay { if model.githubPolling { ProgressView().controlSize(.small) } }
-                    }
-                    .disabled(model.githubPolling)
-                    .help("Refresh: ask GitHub now. \(Self.updated(fetched, now: model.now)); HQ asks every minute while it's in front")
-                    .accessibilityLabel(model.githubPolling ? "Refreshing" : "Refresh")
-                }
+                if model.github != nil { RefreshButton() }
                 Button { NSWorkspace.shared.open(URL(string: "https://github.com/pulls")!) } label: { HeaderIcon(icon: .openExternal) }
                     .help("Open your pull requests on github.com")
                     .accessibilityLabel("Open GitHub")
@@ -65,6 +55,24 @@ struct PullRequestsSection: View {
     }
 
     /// "Updated just now", "Updated 3 minutes ago".
+    /// When GitHub last answered: in the tooltip, not on the page. A spinner on it while HQ asks.
+    /// Its own view: a poll that changed nothing redraws only this.
+    private struct RefreshButton: View {
+        @Environment(AppModel.self) private var model
+
+        var body: some View {
+            let fetched = model.githubUpdated ?? model.now
+            Button { model.refreshGitHub() } label: {
+                HeaderIcon(icon: .reload)
+                    .opacity(model.githubPolling ? 0 : 1)
+                    .overlay { if model.githubPolling { ProgressView().controlSize(.small) } }
+            }
+            .disabled(model.githubPolling)
+            .help("Refresh: ask GitHub now. \(PullRequestsSection.updated(fetched, now: model.now)); HQ asks every minute while it's in front")
+            .accessibilityLabel(model.githubPolling ? "Refreshing" : "Refresh")
+        }
+    }
+
     static func updated(_ fetched: Date, now: Date) -> String {
         guard now.timeIntervalSince(fetched) >= 60 else { return "Updated just now" }
         let formatter = RelativeDateTimeFormatter()
@@ -239,7 +247,7 @@ struct PRRow: View {
         let waits = model.waitsForReview(item)
         let fresh = model.isNew(.github(item.url))
         let task = model.tasks(linking: item.url).first
-        let sessions = AppModel.byImportance(model.sessions(onPullRequest: item, includeEnded: true))
+        let sessions = model.byImportance(model.sessions(onPullRequest: item, includeEnded: true))
         HStack(spacing: Space.sm) {
                 RowLead(needsYou: waits, isNew: fresh) {
                     FaceStack(sessions: Array(sessions.prefix(1)), size: Metric.faceRow, limit: 1)

@@ -1448,6 +1448,35 @@ extension UITest {
 
     /// 500 tasks and 30 sessions: the outline builds only what's in view, rows stay true to the
     /// model when scrolled to, and no update or scroll holds the main thread for long.
+    /// Working faces sway and cards breathe on the render server: HQ's main thread rests meanwhile.
+    static func idle(_ model: AppModel, _ ui: Driver) async {
+        model.selectSection(nil)
+        await ui.settle(1)
+        let faces = ui.findAll(FaceView.self).map(\.face) + ui.findAll(FaceStackView.self).flatMap(\.faceLayers)
+        let working = faces.filter(\.isWorking)
+        check("working faces are on the page", !working.isEmpty, "\(faces.count) faces")
+        check("each working face sways on the render server", working.allSatisfy(\.sways), "\(working.filter { !$0.sways }.count) of \(working.count) still")
+        let breathing = ui.findAll(BreathingView.self)
+        check("a card that needs the user breathes on the render server", !breathing.isEmpty && breathing.allSatisfy(\.breathes),
+              "\(breathing.count) breathing, \(breathing.filter { !$0.breathes }.count) without their animation")
+        let before = Self.mainThreadCPU()
+        await ui.settle(2)
+        let used = Self.mainThreadCPU() - before
+        check("the main thread rests while faces sway and cards breathe", used < 0.1, String(format: "%.0f ms of CPU in 2 s", used * 1000))
+    }
+
+    /// CPU time the main thread has used, in seconds.
+    static func mainThreadCPU() -> Double {
+        let thread = pthread_mach_thread_np(pthread_self())
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { thread_info(thread, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(info.user_time.seconds + info.system_time.seconds) + Double(info.user_time.microseconds + info.system_time.microseconds) / 1_000_000
+    }
+
     static func performance(_ model: AppModel, _ ui: Driver) async {
         // A baseline: the small page scrolled the same way, before the large seed.
         var baseline: Stall.Result?
@@ -1648,6 +1677,13 @@ extension Driver {
             return nil
         }
         return window.contentView.flatMap(search)
+    }
+
+    func findAll<T: NSView>(_ type: T.Type) -> [T] {
+        func search(_ view: NSView) -> [T] {
+            ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap(search)
+        }
+        return window.contentView.map(search) ?? []
     }
 
     /// The middle of a card, in window coordinates, scrolled into view.

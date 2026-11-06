@@ -217,6 +217,9 @@ final class AppModel {
     }
     /// GitHub is being asked: the PR section's Refresh turns into a spinner.
     var githubPolling = false
+    /// When GitHub last answered, when that's later than `github`: a poll that changed nothing sets only this.
+    var githubAnswered: Date?
+    var githubUpdated: Date? { [githubAnswered, github?.fetchedAt].compactMap(\.self).max() }
     /// Files and Artifacts shows pinned items only, remembered.
     var pinnedOnly = UserDefaults.standard.bool(forKey: "files.pinnedOnly") {
         didSet { remember(pinnedOnly, as: "files.pinnedOnly") }
@@ -318,6 +321,8 @@ final class AppModel {
     @ObservationIgnored var closingTerminals: [Int32: String] = [:]
     /// Running sessions' transcripts, watched for a /rename.
     @ObservationIgnored var titleWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    /// Hook events that moved only a session's last activity, by session: not in `sessions` yet (`settleActivity`).
+    @ObservationIgnored var activity: [String: Date] = [:]
     /// Sessions whose transcript changed, read again in a moment.
     @ObservationIgnored var titleReads: Set<String> = []
     @ObservationIgnored var sessionSave: Task<Void, Never>?
@@ -383,6 +388,7 @@ final class AppModel {
         }
         clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect().sink { [weak self] date in
             MainActor.assumeIsolated {
+                self?.settleActivity()
                 self?.now = date
                 self?.rollDoneTasks()
             }
@@ -547,7 +553,8 @@ final class AppModel {
     func syncMenu() {
         MenuState.shared.update(model: self)
         let count = needsYouCount
-        NSApp?.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+        let badge = count > 0 ? "\(count)" : nil
+        if NSApp?.dockTile.badgeLabel != badge { NSApp?.dockTile.badgeLabel = badge }
     }
 }
 

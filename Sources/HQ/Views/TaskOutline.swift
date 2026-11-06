@@ -545,6 +545,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             DispatchQueue.main.async { [weak self] in self?.beginEditing(edit.id, caretAtEnd: edit.caretAtEnd, caret: caret, retry: false) }
         }
         verifyRows()
+        if !model.tasks.isEmpty { LaunchLog.mark("tasks") }
         reportHeight()
     }
 

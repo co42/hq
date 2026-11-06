@@ -19,9 +19,26 @@ enum FaceArt {
         }
     }
 
+    /// A face's parts, back to front: the head's sway, the background and the body stay.
+    nonisolated enum Part: CaseIterable {
+        case background, headBack, body, head
+
+        var sways: Bool { self == .headBack || self == .head }
+    }
+
     static let grid: CGFloat = 40
     /// The squircle's corner, 30% of the side.
     static let corner: CGFloat = 0.3
+
+    /// One part of a `size` face, still and unclipped, with its top left at `origin` on the grid.
+    static func draw(_ part: Part, of spec: FaceSpec, size: CGFloat, in ctx: CGContext, origin: CGPoint = .zero) {
+        let scale = size / grid
+        ctx.saveGState()
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: origin.x, y: origin.y)
+        Painter(ctx: ctx, spec: spec, detail: Detail(size: size), scale: scale).paint(part)
+        ctx.restoreGState()
+    }
 
     /// `sway`: where a working session's head is in its sway, 0 to 1; nil draws it still.
     static func draw(_ spec: FaceSpec, in ctx: CGContext, rect: CGRect, ended: Bool = false, sway: Double? = nil) {
@@ -118,16 +135,24 @@ private struct Painter {
     }
 
     func paint() {
-        background()
-        moving {
+        for part in FaceArt.Part.allCases {
+            if part.sways { moving { paint(part) } } else { paint(part) }
+        }
+    }
+
+    func paint(_ part: FaceArt.Part) {
+        switch part {
+        case .background:
+            background()
+        case .headBack:
             if spec.headwear == .hood { fill(hoodBack, hat) }
             hairBack()
-        }
-        fill(shoulders, FacePalette.clothes[spec.clothes])
-        // A collar line, so light clothes on a light background still read.
-        if detail == .full { strokePath(collar, FacePalette.black, width: 0.8, alpha: 0.12) }
-        fill(neck, skin)
-        moving {
+        case .body:
+            fill(shoulders, FacePalette.clothes[spec.clothes])
+            // A collar line, so light clothes on a light background still read.
+            if detail == .full { strokePath(collar, FacePalette.black, width: 0.8, alpha: 0.12) }
+            fill(neck, skin)
+        case .head:
             fill(ears, skin)
             fill(headShape, skin)
             if detail == .full { cheeks() }

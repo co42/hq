@@ -168,7 +168,7 @@ struct GitHubSettings: View {
                 }
             }
             LabeledContent("Last update") {
-                Text(model.github.map { $0.fetchedAt.formatted(.relative(presentation: .named)) } ?? "Not yet")
+                Text(model.githubUpdated.map { $0.formatted(.relative(presentation: .named)) } ?? "Not yet")
                     .foregroundStyle(.secondary)
             }
         } footer: {

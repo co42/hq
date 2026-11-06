@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var editorObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LaunchLog.mark("launched")
         Self.shared = self
         SessionFace.doubleClick = { [weak model] id in model?.openFace(id) }
         SessionFace.click = { [weak model] id in if let menu = model?.faceMenu(id) { FaceMenu.show(menu, id, .zero, nil) } }
@@ -140,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// The self-test's result becomes the exit code, after a normal quit.
     func applicationWillTerminate(_ notification: Notification) {
+        model.settleActivity()
         model.saveSessionsNow()
         if SelfTest.requested || UITest.requested { exit(SelfTest.exitCode) }
     }
@@ -154,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func adopt(_ window: NSWindow) {
         guard mainWindow !== window else { return }
         mainWindow = window
+        LaunchLog.mark("window")
         model.window = window
         window.delegate = self
         if Store.isOverridden { Store.moveToTestScreen(window) }

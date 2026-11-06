@@ -59,7 +59,7 @@ enum UITest {
             // UITEST_ONLY=a,b runs those groups alone.
             let only = ProcessInfo.processInfo.environment["UITEST_ONLY"].flatMap { $0.isEmpty ? nil : Set($0.split(separator: ",").map(String.init)) }
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
-                ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
+                ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
                 ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
             ]
