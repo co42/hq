@@ -1,0 +1,8 @@
+{
+  "name": "hq",
+  "owner": { "name": "co42" },
+  "metadata": { "description": "HQ, a Mac control panel for Claude Code sessions: hooks and skills." },
+  "plugins": [
+    { "name": "hq", "source": "./plugin", "description": "HQ hooks and skills" }
+  ]
+}

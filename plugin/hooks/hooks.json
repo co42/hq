@@ -1,0 +1,18 @@
+{
+  "description": "Every event goes to HQ through `hq hook`, which always exits 0 within 2 s.",
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion|ExitPlanMode", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "Notification": [{ "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "Elicitation": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "StopFailure": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PreCompact": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "PostCompact": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/hq hook", "timeout": 2 }] }]
+  }
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+# The hq CLI on the plugin PATH. The real binary is linked by build.sh.
+exec "$HOME/.local/bin/hq" "$@"

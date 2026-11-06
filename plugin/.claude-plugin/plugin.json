@@ -1,0 +1,8 @@
+{
+  "name": "hq",
+  "version": "0.6.9",
+  "description": "Reports Claude Code sessions and their artifacts to HQ, and teaches Claude the hq command for the cockpit: tasks, the Backlog, files and links.",
+  "author": {
+    "name": "co42"
+  }
+}

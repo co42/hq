@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>io.github.co42.hq</string>
+<key>CFBundleName</key><string>HQ</string>
+<key>CFBundleDisplayName</key><string>HQ</string>
+<key>CFBundleExecutable</key><string>HQ</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
+<key>CFBundleIconName</key><string>AppIcon</string>
+<key>NSAppleEventsUsageDescription</key><string>HQ brings your Claude sessions forward in Ghostty and opens new tabs to start or resume them.</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1</string>
+<key>CFBundleVersion</key><string>__BUILD__</string>
+<key>LSMinimumSystemVersion</key><string>27.0</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>UTExportedTypeDeclarations</key>
+<array>
+  <dict><key>UTTypeIdentifier</key><string>io.github.co42.hq.session</string><key>UTTypeDescription</key><string>HQ session</string><key>UTTypeConformsTo</key><array><string>public.data</string></array></dict>
+  <dict><key>UTTypeIdentifier</key><string>io.github.co42.hq.task</string><key>UTTypeDescription</key><string>HQ task</string><key>UTTypeConformsTo</key><array><string>public.data</string></array></dict>
+  <dict><key>UTTypeIdentifier</key><string>io.github.co42.hq.item</string><key>UTTypeDescription</key><string>HQ file, artifact or pull request</string><key>UTTypeConformsTo</key><array><string>public.data</string></array></dict>
+</array>
+</dict></plist>

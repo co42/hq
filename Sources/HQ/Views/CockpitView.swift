@@ -1,0 +1,417 @@
+import AppKit
+import HQKit
+import SwiftUI
+
+/// The one page (DESIGN.md §4): the day's title, then pull requests, sessions, files and artifacts, tasks and the
+/// Backlog, top to bottom, on a canvas with the sky at its top; the section bar floats over it in glass.
+struct CockpitView: View {
+    @Environment(AppModel.self) private var model
+    /// The scroll view's visible width: a legacy scroller takes some of the window's.
+    @State private var visible: CGFloat = 0
+    /// The SwiftUI section with the keyboard.
+    @FocusState private var keyboard: PageSection?
+    /// Each section's top in the scroll view, and the section in view: only the section bar reads it, so scrolling never redraws the page.
+    @State private var tops = SectionTops()
+
+    /// The column's leading inset and width: centered on the 4 pt grid, at most `pageMax` wide.
+    static func column(_ visible: CGFloat) -> (inset: CGFloat, width: CGFloat) {
+        let margin = visible < Metric.narrowWindow ? Metric.pageMarginNarrow : Metric.pageMargin
+        let inset = max(margin, ((visible - Metric.pageMax) / 2 / 4).rounded(.down) * 4)
+        return (inset, max(min(visible - inset * 2, Metric.pageMax), 0))
+    }
+
+    var body: some View {
+        @Bindable var model = model
+        let column = Self.column(visible)
+        ScrollViewReader { scroller in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.xxl + Space.xs) {
+                    PageTitle()
+                    PullRequestsSection(width: column.width)
+                        .sectionKeys(.pullRequests, focus: $keyboard)
+                        .modifier(SectionTop(section: .pullRequests, tops: tops))
+                    SessionsSection(width: column.width)
+                        .modifier(SectionTop(section: .sessions, tops: tops))
+                    FilesSection(width: column.width)
+                        .sectionKeys(.files, focus: $keyboard)
+                        .modifier(SectionTop(section: .files, tops: tops))
+                    TasksSection(width: column.width)
+                        .modifier(SectionTop(section: .tasks, tops: tops))
+                }
+                .frame(width: column.width, alignment: .leading)
+                .padding(.leading, column.inset)
+                .padding(.top, Metric.pageTitleTop)
+                .padding(.bottom, Space.section)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectSection(nil) }
+                .gridArea("page", inset: 0)
+                .handCursors()
+                .controlSize(Zoom.controlSize(model.zoom))
+                .id(model.zoom)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.width } action: { _, width in
+                if abs(width - visible) >= 1 { visible = width }
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentSize.height > geometry.visibleRect.height + 1 && geometry.visibleRect.maxY >= geometry.contentSize.height - 2
+            } action: { _, bottom in
+                tops.atBottom = bottom
+                tops.update()
+            }
+            // The keyboard selected a row out of view: the page brings it in.
+            .onChange(of: model.scrollTarget) { _, target in
+                guard let target else { return }
+                model.scrollTarget = nil
+                scroller.scrollTo(target)
+            }
+            .safeAreaBar(edge: .top, spacing: 0) {
+                VStack(spacing: Space.sm) {
+                    SectionBar(tops: tops) { section in
+                        tops.hold(section)
+                        withAnimation(Motion.glide) { scroller.scrollTo(SectionTop.id(section), anchor: .top) }
+                    }
+                    if let problem = model.problem {
+                        InlineBanner(message: problem.message, detail: problem.detail, actionTitle: problem.fixTitle) { model.fix(problem) }
+                            .frame(width: column.width)
+                            .padding(.leading, column.inset)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, Space.sm)
+            }
+        }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                Ink.content
+                SkyView(mood: model.skyMood)
+            }
+            .ignoresSafeArea()
+        }
+        .navigationTitle("HQ")
+        .toolbar(removing: .title)
+        .toolbar { CockpitToolbar() }
+        .searchable(text: $model.search, placement: .toolbar, prompt: "Search")
+        .sheet(isPresented: Binding(get: { model.modal != nil }, set: { if !$0 { model.closeModal() } })) {
+            ModalHost()
+        }
+        .sheet(isPresented: $model.showSetup) { SetupSheet().handCursors() }
+    }
+}
+
+/// Where each section starts in the scroll view, unobserved, and the section in view, which the section bar observes.
+@Observable final class SectionTops {
+    @ObservationIgnored var tops: [PageSection: CGFloat] = [:]
+    /// The page scrolls and shows its end: the last section can't reach the line.
+    @ObservationIgnored var atBottom = false
+    /// A click on the bar holds its section while the page scrolls there.
+    @ObservationIgnored private var heldUntil = Date.distantPast
+    var current: PageSection = .pullRequests
+
+    /// The section in view: the last one whose top passed under the section bar, or the last section at the page's end.
+    func update() {
+        guard Date.now >= heldUntil else { return }
+        let line = Metric.skyHeight / 3
+        let now = atBottom ? PageSection.tasks : PageSection.allCases.last { (tops[$0] ?? .infinity) <= line } ?? .pullRequests
+        if now != current { current = now }
+    }
+
+    func hold(_ section: PageSection) {
+        current = section
+        heldUntil = .now + Motion.holdSeconds
+    }
+}
+
+/// Reports a section's top as the page scrolls; the section bar follows the section in view.
+private struct SectionTop: ViewModifier {
+    let section: PageSection
+    let tops: SectionTops
+
+    static func id(_ section: PageSection) -> String { "section:\(section.rawValue)" }
+
+    func body(content: Content) -> some View {
+        content
+            .id(Self.id(section))
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { top in
+                tops.tops[section] = top
+                tops.update()
+            }
+    }
+}
+
+/// The page's title: the day, big, and one quiet line on what's going on.
+private struct PageTitle: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                Text(model.now.formatted(.dateTime.weekday(.wide)))
+                    .kitType(.largeTitle)
+                Text(model.now.formatted(.dateTime.day().month(.wide)))
+                    .kitType(.largeTitleLight)
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            Text(model.daySummary)
+                .kitType(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .contentTransition(.numericText())
+        }
+        .frame(height: Metric.pageTitle, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .gridProbe("page-title", area: "page")
+    }
+}
+
+/// The floating section bar (DESIGN.md §3): every section with its attention dot, the one in view highlighted.
+/// A click scrolls to it. Glass: it floats over the page as the toolbar does.
+private struct SectionBar: View {
+    let tops: SectionTops
+    let go: (PageSection) -> Void
+    @Environment(AppModel.self) private var model
+    @Namespace private var glide
+
+    var body: some View {
+        let current = tops.current
+        GlassEffectContainer {
+            HStack(spacing: Metric.lineGap) {
+                ForEach(PageSection.allCases, id: \.self) { section in
+                    let tone = model.attention(in: section)
+                    Button { go(section) } label: {
+                        HStack(spacing: Space.xs + 2) {
+                            section.icon.image
+                                .imageScale(.small)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(current == section ? AnyShapeStyle(Ink.section(section)) : AnyShapeStyle(.secondary))
+                            Text(section.shortTitle)
+                                .kitType(current == section ? .titleStrong : .title)
+                                .foregroundStyle(current == section ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                            if let tone {
+                                Circle()
+                                    .fill(tone == .needsYou ? Ink.needsYou : Ink.unread)
+                                    .frame(width: Metric.attentionDot, height: Metric.attentionDot)
+                            }
+                        }
+                        .padding(.horizontal, Space.md)
+                        .frame(height: Metric.sectionBarItem)
+                        .background {
+                            if current == section {
+                                Capsule()
+                                    .fill(Ink.barSelection)
+                                    .matchedGeometryEffect(id: "current", in: glide)
+                            }
+                        }
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerStyle(.link)
+                    .help("Go to \(section.title)" + (tone == .needsYou ? ": something needs you" : tone == .new ? ": something is new" : ""))
+                    .accessibilityLabel(section.title)
+                    .accessibilityAddTraits(current == section ? .isSelected : [])
+                }
+            }
+            .padding(Metric.lineGap)
+            // Not interactive: a bar this wide stretching on each click reads as wobble.
+            .glassEffect(.regular, in: Capsule())
+            .animation(Motion.glide, value: current)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// The toolbar (DESIGN.md §3): the counts as glass lights, Review Next prominent, then Mark All Seen and New.
+struct CockpitToolbar: ToolbarContent {
+    @Environment(AppModel.self) private var model
+
+    var body: some ToolbarContent {
+        ToolbarItem(id: "title", placement: .navigation) {
+            CountLights()
+        }
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarItem(id: "review-next", placement: .primaryAction) {
+            Button("Review Next") { model.reviewNext() }
+                .buttonStyle(.glassProminent)
+                .tint(model.needsYouCount > 0 ? Ink.needsYou : Ink.accent)
+                .clickable()
+                .disabled(model.attentionQueue.isEmpty)
+                .help("Open the next item that needs you or is new (⌘J)")
+        }
+        .sharedBackgroundVisibility(.hidden)
+        ToolbarSpacer(.fixed, placement: .primaryAction)
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button("Mark All Seen", icon: .markSeen) { model.markAllSeen() }
+                .clickable()
+                .disabled(model.newCount == 0)
+                .help("Mark everything new as seen (⇧⌘J)")
+            Menu {
+                Button("New Task") { model.focusQuickAdd(.overview) }
+                Button("New File…") { model.beginNewFile() }
+                Button("New Session…") { model.beginStart() }
+            } label: {
+                Label("New", icon: .new)
+            }
+            .menuIndicator(.hidden)
+            .clickable()
+            .help("New task (⌘N), file or session")
+        }
+    }
+}
+
+/// "8 need you" and "5 new" as small tinted glass lights; "All clear" when both are zero. A click is Review Next;
+/// the tooltip says what they count.
+private struct CountLights: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let needs = model.needsYouCount
+        let fresh = model.newCount
+        GlassEffectContainer(spacing: Space.xs) {
+            HStack(spacing: Space.xs + 2) {
+                if needs == 0 && fresh == 0 {
+                    Label("All clear", icon: .checkPassed)
+                        .labelStyle(.titleAndIcon)
+                        .kitType(.titleStrong)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, Space.md)
+                        .frame(height: Metric.headerControl)
+                        .glassEffect(.regular, in: Capsule())
+                }
+                if needs > 0 { light("\(needs) need\(needs == 1 ? "s" : "") you", tint: Ink.needsYou) }
+                if fresh > 0 { light("\(fresh) new", tint: Ink.unread) }
+            }
+        }
+        .fixedSize()
+        // Apart from Review Next, which sits right after it.
+        .padding(.trailing, Space.md)
+        .help(model.attentionSummary)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func light(_ text: String, tint: Color) -> some View {
+        Button { model.reviewNext() } label: {
+            Text(text)
+                .kitType(.titleStrong)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .foregroundStyle(Ink.onTile)
+                .padding(.horizontal, Space.md)
+                .frame(height: Metric.headerControl)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pointerStyle(.link)
+        .glassEffect(.regular.tint(tint).interactive(), in: Capsule())
+    }
+}
+
+extension AppModel {
+    /// The sky's mood: warm while something needs the user, blue with news, calm otherwise.
+    var skyMood: SkyMood {
+        if needsYouCount > 0 { return .needsYou }
+        return newCount > 0 ? .news : .calm
+    }
+
+    /// What needs the user, or is new, in a section: the section bar's dot.
+    func attention(in section: PageSection) -> AttentionTag.Tone? {
+        let routes = attentionQueue.filter { route in
+            switch (section, route) {
+            case (.pullRequests, .github), (.sessions, .session), (.files, .file), (.files, .artifact), (.tasks, .task): true
+            default: false
+            }
+        }
+        if routes.contains(where: needsYou) { return .needsYou }
+        return routes.isEmpty ? nil : .new
+    }
+
+    /// "3 working · 2 wait for your review · 8 tasks open": one line under the day.
+    var daySummary: String {
+        let working = gridSessions.filter { $0.isRunning && ($0.status.state == .working || $0.status.state == .compacting) }.count
+        let waiting = reviewRequests.filter(waitsForReview).count
+        let open = taskTree.top(.overview).filter { task($0)?.status != .done }.count
+        var parts: [String] = []
+        if working > 0 { parts.append("\(working) session\(working == 1 ? "" : "s") working") }
+        if waiting > 0 { parts.append("\(waiting) pull request\(waiting == 1 ? "" : "s") wait\(waiting == 1 ? "s" : "") for your review") }
+        if open > 0 { parts.append("\(open) task\(open == 1 ? "" : "s") open") }
+        return parts.isEmpty ? "A quiet day: nothing running, nothing open." : parts.joined(separator: " · ")
+    }
+}
+
+
+// MARK: Sessions
+
+struct SessionsSection: View {
+    let width: CGFloat
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let shown = model.filteredGrid
+        VStack(alignment: .leading, spacing: Space.md) {
+            SectionHeader(title: PageSection.sessions.title, count: model.search.isEmpty ? "\(shown.count)" : "\(shown.count) of \(model.gridSessions.count)",
+                          open: model.sectionOpen(.sessions), tile: (PageSection.sessions.icon, Ink.section(.sessions))) {
+                let others = model.hiddenSessions.count + model.closedSessions.count
+                Button { model.open(.hiddenAndClosed) } label: { HeaderIcon(icon: .hide, count: others) }
+                    .disabled(others == 0)
+                    .help("Hidden and Closed: show hidden sessions and resume closed ones")
+                    .accessibilityLabel("Hidden and Closed, \(others)")
+                Button { model.beginStart() } label: { HeaderIcon(icon: .new) }
+                    .help("New Session: start a Claude session in Ghostty (⇧⌘N)")
+                    .accessibilityLabel("New Session")
+            }
+            .gridProbe("sessions-header", area: "page")
+            if model.folded.contains(.sessions) {
+                EmptyView()
+            } else if model.gridSessions.isEmpty {
+                EmptySection(title: "No Sessions", message: "Sessions you start with the hq plugin show up here.") {
+                    Button("New Session…") { model.beginStart() }
+                }
+            } else if shown.isEmpty {
+                EmptySection(title: "No Matching Sessions", message: "No session matches “\(model.search)”.") { EmptyView() }
+            } else {
+                SessionGrid(sessions: shown, width: width)
+            }
+        }
+    }
+}
+
+/// An empty state where the content would be, at the content's width.
+struct EmptySection<Actions: View>: View {
+    let title: String
+    let message: String
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Metric.lineGap) {
+                Text(title).kitType(.titleStrong)
+                Text(message).kitType(.callout).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: Space.sm)
+            actions
+        }
+        .padding(Space.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surface()
+        .gridProbe("empty-\(title)", area: "page")
+    }
+}
+
+extension AppModel {
+    /// The grid, filtered by the search field.
+    var filteredGrid: [SessionItem] {
+        guard !search.isEmpty else { return gridSessions }
+        return gridSessions.filter { $0.searchText.localizedStandardContains(search) }
+    }
+
+    /// File › New Task: the quick-add line of a list takes the keyboard (its list unfolds first).
+    func focusQuickAdd(_ list: TaskList) {
+        closeModal()
+        showWindow()
+        if list == .backlog { backlogOpen = true } else { folded.remove(.tasks) }
+        quickAddFocus = list
+    }
+}
