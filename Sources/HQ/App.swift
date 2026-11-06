@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         LaunchLog.mark("launched")
         Self.shared = self
         SessionFace.doubleClick = { [weak model] id in model?.openFace(id) }
-        SessionFace.click = { [weak model] id in if let menu = model?.faceMenu(id) { FaceMenu.show(menu, id, .zero, nil) } }
+        SessionFace.click = { [weak model] id, view in if let menu = model?.faceMenu(id) { FaceMenu.showUnder(view, menu, id) } }
         // The socket lives with the app, not the window: hooks reach HQ even while its window is closed.
         AgentRouter.model = model
         AgentSocket.listen { AgentRouter.handle($0) }

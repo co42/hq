@@ -135,8 +135,7 @@ extension AppModel {
             add(.task(id))
             for output in outputs(ofTask: id) { add(output) }
         }
-        // Hidden sessions and PRs no row shows still count.
-        for session in hiddenSessions { add(.session(session.id)) }
+        // PRs no row shows still count.
         for item in github?.items ?? [] where waitsForReview(item) { add(.github(item.url)) }
         return routes
     }

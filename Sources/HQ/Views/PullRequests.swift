@@ -55,7 +55,7 @@ struct PullRequestsSection: View {
     }
 
     /// "Updated just now", "Updated 3 minutes ago".
-    /// When GitHub last answered: in the tooltip, not on the page. A spinner on it while HQ asks.
+    /// When GitHub last answered: in the tooltip, not on the page. It turns while HQ asks.
     /// Its own view: a poll that changed nothing redraws only this.
     private struct RefreshButton: View {
         @Environment(AppModel.self) private var model
@@ -64,8 +64,7 @@ struct PullRequestsSection: View {
             let fetched = model.githubUpdated ?? model.now
             Button { model.refreshGitHub() } label: {
                 HeaderIcon(icon: .reload)
-                    .opacity(model.githubPolling ? 0 : 1)
-                    .overlay { if model.githubPolling { ProgressView().controlSize(.small) } }
+                    .symbolEffect(.rotate, isActive: model.githubPolling)
             }
             .disabled(model.githubPolling)
             .help("Refresh: ask GitHub now. \(PullRequestsSection.updated(fetched, now: model.now)); HQ asks every minute while it's in front")
@@ -236,6 +235,19 @@ struct RowLead<Faces: View, Icon: View>: View {
     }
 }
 
+/// "registry #418 · julien · asked 2h ago". Its own view: the clock's tick redraws only this line.
+private struct PRByline: View {
+    let item: GitHubItem
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Text("\(item.reference) · \(item.author) · \(PRRow.when(item, now: model.now))")
+            .kitType(.secondary)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+    }
+}
+
 /// A PR row: its title in the middle; its status and its task's key in fixed columns on the right.
 struct PRRow: View {
     let item: GitHubItem
@@ -250,9 +262,19 @@ struct PRRow: View {
         let sessions = model.byImportance(model.sessions(onPullRequest: item, includeEnded: true))
         HStack(spacing: Space.sm) {
                 RowLead(needsYou: waits, isNew: fresh) {
+                    // As a task's faces: a click shows the first session's menu, or starts one.
                     FaceStack(sessions: Array(sessions.prefix(1)), size: Metric.faceRow, limit: 1)
-                        .overlay { if sessions.isEmpty { ClickTarget { model.beginStart(pullRequest: item) } } }
-                        .help(sessions.isEmpty ? "Start a review session" : sessions.map(\.name).joined(separator: "\n") + "\nClick the face for its session's menu")
+                        .overlay {
+                            ClickTarget { view in
+                                if let first = sessions.first, let menu = model.faceMenu(first.id, pullRequest: item) {
+                                    FaceMenu.showUnder(view, menu, first.id)
+                                } else {
+                                    model.beginStart(pullRequest: item)
+                                }
+                            }
+                        }
+                        .help(sessions.isEmpty ? "Start a session on it" : sessions.map(\.name).joined(separator: "\n") + "\nClick the face for its session's menu")
+                        .uiTestAnchor("pr-face:\(item.number)")
                 } icon: {
                     GitHubStateIcon.tile(item)
                 }
@@ -260,10 +282,7 @@ struct PRRow: View {
                     Text(item.title)
                         .kitType(waits || fresh ? .titleStrong : .title)
                         .lineLimit(1)
-                    Text("\(item.reference) · \(item.author)")
-                        .kitType(.secondary)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    PRByline(item: item)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: Metric.lineGap) {
@@ -314,6 +333,13 @@ struct PRRow: View {
         case .changesRequested: return by("Changes requested")
         case .required, .none: return "Review required"
         }
+    }
+
+    /// "asked 2h ago" in Reviews, "updated just now" in Yours.
+    static func when(_ item: GitHubItem, now: Date) -> String {
+        let (what, date): (String, Date) = item.mine ? ("updated", item.updatedAt)
+            : item.reviewRequestedAt.map { ("asked", $0) } ?? item.myReviewAt.map { ("reviewed", $0) } ?? ("updated", item.updatedAt)
+        return now.timeIntervalSince(date) < 60 ? "\(what) just now" : "\(what) \(Elapsed.short(from: date, to: now)) ago"
     }
 
     static func checksText(_ item: GitHubItem) -> String {

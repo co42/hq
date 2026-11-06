@@ -353,11 +353,11 @@ struct SessionsSection: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionHeader(title: PageSection.sessions.title, count: model.search.isEmpty ? "\(shown.count)" : "\(shown.count) of \(model.gridSessions.count)",
                           open: model.sectionOpen(.sessions), tile: (PageSection.sessions.icon, Ink.section(.sessions))) {
-                let others = model.hiddenSessions.count + model.closedSessions.count
-                Button { model.open(.hiddenAndClosed) } label: { HeaderIcon(icon: .hide, count: others) }
-                    .disabled(others == 0)
-                    .help("Hidden and Closed: show hidden sessions and resume closed ones")
-                    .accessibilityLabel("Hidden and Closed, \(others)")
+                let closed = model.closedSessions.count
+                Button { model.open(.closedSessions) } label: { HeaderIcon(icon: .closedSessions, count: closed) }
+                    .disabled(closed == 0)
+                    .help("Closed Sessions: resume one closed in the last 14 days")
+                    .accessibilityLabel("Closed Sessions, \(closed)")
                 Button { model.beginStart() } label: { HeaderIcon(icon: .new) }
                     .help("New Session: start a Claude session in Ghostty (⇧⌘N)")
                     .accessibilityLabel("New Session")

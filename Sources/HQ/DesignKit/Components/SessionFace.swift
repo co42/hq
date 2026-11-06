@@ -8,8 +8,8 @@ import SwiftUI
 struct SessionFace: View {
     /// Set once by the app: what a double-click on a session's face does.
     static var doubleClick: ((String) -> Void)?
-    /// Set once by the app: a click on a session's face.
-    static var click: ((String) -> Void)?
+    /// Set once by the app: a click on a session's face, with the view it landed on.
+    static var click: ((String, NSView?) -> Void)?
 
     let spec: FaceSpec
     /// The session it shows, when it shows one.
@@ -56,7 +56,7 @@ struct SessionFace: View {
                     .accessibilityHidden(true)
             }
         }
-        .overlay { if let session, Self.click != nil { ClickTarget { Self.click?(session) } } }
+        .overlay { if let session, Self.click != nil { ClickTarget { Self.click?(session, $0) } } }
         .pointerStyle(session == nil || Self.click == nil ? nil : .link)
         .help(session == nil ? label ?? "" : "\(label ?? "Session"): click for its menu")
         .accessibilityElement()
@@ -80,18 +80,20 @@ private struct FaceImage: NSViewRepresentable {
 }
 
 /// A click AppKit handles on the press: it acts at once, where SwiftUI would wait out a row's double-click.
+/// The action gets the view clicked, to show a menu under it.
 struct ClickTarget: NSViewRepresentable {
-    let action: () -> Void
+    let action: (NSView) -> Void
 
     func makeNSView(context: Context) -> Target { Target() }
 
     func updateNSView(_ view: Target, context: Context) { view.action = action }
 
     final class Target: NSView {
-        var action: (() -> Void)?
+        var action: ((NSView) -> Void)?
 
+        override var isFlipped: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func mouseDown(with event: NSEvent) { action?() }
+        override func mouseDown(with event: NSEvent) { action?(self) }
         override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
     }
 }
@@ -104,7 +106,7 @@ private struct FaceActions: ViewModifier {
         if let session, SessionFace.click != nil {
             content
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAction { SessionFace.click?(session) }
+                .accessibilityAction { SessionFace.click?(session, nil) }
                 .accessibilityAction(named: "Focus") { SessionFace.doubleClick?(session) }
         } else {
             content

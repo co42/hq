@@ -3,7 +3,7 @@ import HQKit
 
 /// Sample data for snapshots and tests (`APP_SEED=1` with APP_STORE in /tmp): the mockup's day.
 /// Sessions in every state, tasks with subtasks, types, tags and projects, descriptions with
-/// checkboxes and code, the Backlog, PRs in every state, files, artifacts, hidden and closed
+/// checkboxes and code, the Backlog, PRs in every state, files, artifacts, closed
 /// sessions. `APP_SEED=large` adds 500 tasks and 30 sessions.
 enum SeedData {
     static var requested: Bool { ["1", "large"].contains(ProcessInfo.processInfo.environment["APP_SEED"] ?? "") }
@@ -34,12 +34,12 @@ enum SeedData {
         try? "## Chunk cache eviction\nThe chunk cache grows **without bound** during long pushes. Evict least recently used chunks, keep the chunks of files in flight.\n\n1. A byte budget for `ChunkCache`, 2 GB by default\n2. LRU eviction that skips pinned chunks\n3. Metrics for evictions and cache size\n4. A test: a 10 GB push under a 512 MB budget\n"
             .write(toFile: plan, atomically: true, encoding: .utf8)
         func session(_ id: String, _ name: String, _ state: SessionState, minutes: Double, repo: String, branch: String,
-                     order: Double, unread: Bool = false, hidden: Bool = false, closed: Date? = nil, started: Double = 120,
+                     order: Double, unread: Bool = false, closed: Date? = nil, started: Double = 120,
                      last: String? = nil, configure: (inout SessionItem) -> Void = { _ in }) -> SessionItem {
             var item = SessionItem(id: id, customName: name, status: SessionStatus(state: state, unread: unread, since: ago(minutes)),
                                    cwd: "~/code/\(repo)", repo: repo, branch: branch, origin: "acme/\(repo)",
                                    started: ago(started), tty: closed == nil ? "/dev/ttys0\(Int(order) + 10)" : nil, lastMessage: last,
-                                   order: order, hidden: hidden, closedAt: closed)
+                                   order: order, closedAt: closed)
             configure(&item)
             return item
         }
@@ -59,9 +59,9 @@ enum SeedData {
                     last: "Mockup published, waiting for your review."),
             session(s6, "Reading highlights export", .failed, minutes: 18, repo: "home-scripts", branch: "highlights-export", order: 6,
                     last: "Fetching the last 30 days of highlights from the reading app.") { $0.error = "API error 529, overloaded" },
-            session(s4, "CDN chunk bridge prefetch", .working, minutes: 2, repo: "static-cdn", branch: "chunk-bridge-prefetch", order: 7, hidden: true,
+            session(s4, "CDN chunk bridge prefetch", .ended, minutes: 30, repo: "static-cdn", branch: "chunk-bridge-prefetch", order: 7, closed: ago(30),
                     last: "Running the sweep again with 4 MB and 8 MB windows."),
-            session(s7, "Weekly infra notes", .idle, minutes: 60, repo: "infra", branch: "main", order: 8, hidden: true,
+            session(s7, "Weekly infra notes", .ended, minutes: 90, repo: "infra", branch: "main", order: 8, closed: ago(90),
                     last: "Notes for the weekly infra sync are in the vault."),
             session(e1, "CDN pull cron analysis", .ended, minutes: 260, repo: "static-cdn", branch: "main", order: 9, closed: ago(260),
                     last: "Analysis done and published."),

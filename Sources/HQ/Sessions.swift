@@ -76,7 +76,6 @@ extension AppModel {
         if event.source == "clear", let pid = event.pid,
            let replaced = sessions.filter({ $0.pid == pid && $0.id != event.sessionID }).max(by: { $0.status.since < $1.status.since }) {
             item.order = replaced.order
-            item.hidden = replaced.hidden
         }
         return item
     }
@@ -146,10 +145,6 @@ extension AppModel {
     /// The grid, in the user's order.
     var gridSessions: [SessionItem] {
         sessions.filter(\.onGrid).sorted { ($0.order, $0.started) < ($1.order, $1.started) }
-    }
-
-    var hiddenSessions: [SessionItem] {
-        sessions.filter { $0.hidden && $0.closedAt == nil }.sorted { $0.order < $1.order }
     }
 
     /// Closed in the last 14 days, newest first.
@@ -375,15 +370,6 @@ extension AppModel {
         registerUndo("Move Session") { $0.restoreOrder(current) }
     }
 
-    /// Hide keeps the session running, off the grid.
-    func setHidden(_ id: String, _ hidden: Bool) {
-        guard var item = session(id), item.hidden != hidden else { return }
-        item.hidden = hidden
-        if !hidden { item.order = nextGridOrder }
-        put(item)
-        registerUndo(hidden ? "Hide Session" : "Show Session") { $0.setHidden(id, !hidden) }
-    }
-
     /// Close Session: a running session gets `/exit` and Return in its terminal.
     /// Close Session: /exit in its terminal, then the terminal closes once Claude has quit.
     func closeSession(_ id: String) {
@@ -536,7 +522,6 @@ extension AppModel {
     func resume(_ id: SessionItem.ID) {
         guard var item = session(id), !item.isRunning else { return }
         item.closedAt = nil
-        item.hidden = false
         item.order = nextGridOrder
         put(item)
         newTab(in: item.cwd, command: item.resumeCommand) { _ in }

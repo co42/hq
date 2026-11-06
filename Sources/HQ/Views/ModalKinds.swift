@@ -612,6 +612,7 @@ struct ArtifactReader: View {
             ArtifactWebView(url: artifact.id, standIn: Self.standIn(artifact), state: $load, reloads: model.artifactReloads,
                             onTitle: { model.setArtifactTitle(artifact.id, $0) })
                 .overlay { overlay }
+                .reportsLoading(load, page: artifact.id.absoluteString)
                 .uiTestAnchor("artifact-page")
                 // Only the page is white: the sky shows behind the line above it.
                 .background(Ink.text)
@@ -652,6 +653,28 @@ extension AppModel {
     }
 }
 
+extension View {
+    /// Tells the modal's Reload that this page loads.
+    func reportsLoading(_ load: ArtifactLoad, page: String) -> some View {
+        modifier(LoadingReport(loading: load == .loading, page: page))
+    }
+}
+
+private struct LoadingReport: ViewModifier {
+    let loading: Bool
+    let page: String
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: loading, initial: true) { _, loading in
+                let next = loading ? page : model.loadingPage == page ? nil : model.loadingPage
+                if model.loadingPage != next { model.loadingPage = next }
+            }
+            .onDisappear { if model.loadingPage == page { model.loadingPage = nil } }
+    }
+}
+
 // MARK: GitHub
 
 struct GitHubModal: View {
@@ -678,7 +701,7 @@ struct GitHubModal: View {
                 }
                 if model.waitsForReview(item) {
                     HStack(spacing: Space.md) {
-                        Text("\(item.author) asked for your review \(item.updatedAt.formatted(.relative(presentation: .named)))")
+                        Text("\(item.author) asked for your review \(item.reviewAskedAt.formatted(.relative(presentation: .named)))")
                             .kitType(.titleStrong).foregroundStyle(Ink.needsYouText).lineLimit(1)
                         Spacer(minLength: Space.sm)
                         Button("Start Review Session…") { model.beginStart(pullRequest: item, push: true) }
@@ -699,6 +722,7 @@ struct GitHubModal: View {
             if let url = URL(string: item.url) {
                 GitHubWebView(url: url, standIn: Self.standIn(item), state: $load, reloads: model.artifactReloads)
                     .overlay { overlay(url) }
+                    .reportsLoading(load, page: item.url)
                     .uiTestAnchor("github-page")
                     .background(Ink.text)
             }
@@ -871,23 +895,18 @@ struct StartSessionForm: View {
     }
 }
 
-// MARK: Hidden and Closed
+// MARK: Closed Sessions
 
-struct HiddenClosedModal: View {
+struct ClosedSessionsModal: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         ModalPage {
-            ModalGroup(title: "Hidden from the overview, still open") {
-                rows(model.hiddenSessions, action: "Show") { model.setHidden($0, false) }
-            }
-            ModalGroup(title: "Closed in the last 14 days") {
-                rows(model.closedSessions, action: "Resume") { model.open($0) }
-            }
+            ModalGroup(title: "Closed in the last 14 days") { rows(model.closedSessions) }
         }
     }
 
-    private func rows(_ sessions: [SessionItem], action: String, perform: @escaping (String) -> Void) -> some View {
+    private func rows(_ sessions: [SessionItem]) -> some View {
         ModalBox {
             ForEach(sessions) { session in
                 HStack(spacing: Space.sm) {
@@ -899,8 +918,8 @@ struct HiddenClosedModal: View {
                     .clickable()
                     Text(session.closedAt.map { "Closed " + $0.formatted(.relative(presentation: .named)) } ?? session.status.title)
                         .kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
-                    Button(action) { perform(session.id) }
-                        .help(action == "Show" ? "Put it back on the grid" : "Resume it in a new Ghostty tab")
+                    Button("Resume") { model.open(session.id) }
+                        .help("Resume it in a new Ghostty tab")
                 }
                 .kitType(.title)
                 .padding(.horizontal, Space.md)

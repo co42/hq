@@ -14,7 +14,7 @@ struct ModalHost: View {
 
     var body: some View {
         let route = route
-        let small = route == .start || route == .hiddenAndClosed
+        let small = route == .start || route == .closedSessions
         let size = small ? Metric.modalMin
             : CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
                      height: max(Metric.modalMin.height, (model.windowSize.height * Metric.modalShare).rounded()))
@@ -29,7 +29,7 @@ struct ModalHost: View {
                     if let artifact = model.artifacts.first(where: { $0.id == url }) { ArtifactReader(artifact: artifact).id(url) } else { gone }
                 case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
                 case .start: StartSessionForm()
-                case .hiddenAndClosed: HiddenClosedModal()
+                case .closedSessions: ClosedSessionsModal()
                 case nil: EmptyView()
                 }
             }
@@ -106,7 +106,7 @@ private struct ModalHeader: View {
                 .padding(.leading, Space.xs)
             Spacer(minLength: Space.sm)
             let more = model.moreToLookAt
-            if more > 0, route != .start, route != .hiddenAndClosed {
+            if more > 0, route != .start, route != .closedSessions {
                 Text("\(more) more to look at").kitType(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 Button("Next") { model.reviewNext() }
                     .buttonStyle(.glassProminent)
@@ -134,7 +134,7 @@ private struct ModalHeader: View {
         case .artifact: "Artifact"
         case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
         case .start: "Start a Session"
-        case .hiddenAndClosed: "Hidden and Closed"
+        case .closedSessions: "Closed Sessions"
         case nil: ""
         }
     }
@@ -166,10 +166,6 @@ private struct ModalActions: View {
             }
         case .session(let id):
             if let session = model.session(id) {
-                if session.closedAt == nil {
-                    Button(session.hidden ? "Show on Overview" : "Hide") { model.setHidden(id, !session.hidden) }
-                        .help(session.hidden ? "Put the card back on the grid" : "Take the card off the grid; the session keeps running")
-                }
                 if session.isRunning, session.tty != nil {
                     Button("Close Session") { model.closeSession(id) }
                         .help("Type /exit in its terminal, then close the terminal")
@@ -196,19 +192,13 @@ private struct ModalActions: View {
                 }
             }
         case .artifact(let url):
-            Button("Reload", icon: .reload) { model.artifactReloads += 1 }
-                .clickable()
-                .labelStyle(.iconOnly)
-                .help("Load the page again (⌘R)")
+            ReloadButton(page: url.absoluteString)
             CopyLinkButton(link: url.absoluteString)
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
                 .help("Open the artifact in the browser (⇧⌘O)")
         case .github(let url):
             if let item = model.githubItem(url) {
-                Button("Reload", icon: .reload) { model.artifactReloads += 1 }
-                    .clickable()
-                    .labelStyle(.iconOnly)
-                    .help("Load the page again (⌘R)")
+                ReloadButton(page: url)
                 CopyLinkButton(link: url)
                 if model.waitsForReview(item) {
                     Button("Mark Reviewed") { model.markReviewed(url) }
@@ -219,29 +209,56 @@ private struct ModalActions: View {
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
             }
-        case .start, .hiddenAndClosed, nil:
+        case .start, .closedSessions, nil:
             EmptyView()
         }
     }
 }
 
-/// Copies the open item's link; a checkmark says it's done.
+/// Loads the page again; it turns while the page loads.
+private struct ReloadButton: View {
+    let page: String
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let loading = model.loadingPage == page
+        Button("Reload", icon: .reload) { model.artifactReloads += 1 }
+            .clickable()
+            .labelStyle(.iconOnly)
+            .symbolEffect(.rotate, isActive: loading)
+            .help(loading ? "Loading…" : "Load the page again (⌘R)")
+            .accessibilityValue(loading ? "Loading" : "")
+            .uiTestAnchor("reload")
+    }
+}
+
+/// Copies the open item's link; a checkmark says it's done. As wide either way: the glass doesn't move.
 private struct CopyLinkButton: View {
     let link: String
     @State private var copied = false
 
     var body: some View {
-        Button("Copy Link", icon: copied ? .copied : .link) {
+        Button {
             Pasteboard.copy(link)
             copied = true
             Task {
-                try? await Task.sleep(for: .seconds(1.5))
+                try? await Task.sleep(for: .seconds(Motion.copiedSeconds))
                 copied = false
+            }
+        } label: {
+            Label {
+                Text("Copy Link")
+            } icon: {
+                ZStack {
+                    KitIcon.link.image.hidden()
+                    KitIcon.copied.image.hidden()
+                    (copied ? KitIcon.copied : KitIcon.link).image
+                        .contentTransition(.symbolEffect(.replace))
+                }
             }
         }
         .clickable()
         .labelStyle(.iconOnly)
-        .contentTransition(.symbolEffect(.replace))
         .help(copied ? "Copied" : "Copy the link (⇧⌘C)")
         .accessibilityLabel(copied ? "Link Copied" : "Copy Link")
         .uiTestAnchor("copy-link")

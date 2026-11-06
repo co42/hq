@@ -9,8 +9,7 @@ enum KitIcon: String, CaseIterable {
     case addTask = "plus.circle.fill"
     case markSeen = "checkmark.circle"
     case search = "magnifyingglass"
-    case hide = "eye.slash"
-    case show = "eye"
+    case closedSessions = "clock.arrow.circlepath"
     case disclosure = "chevron.right"
     // Section tiles
     case sessions = "sparkles"

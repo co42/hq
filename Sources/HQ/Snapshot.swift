@@ -86,7 +86,7 @@ enum Snapshot {
             Page(name: "modal-pr", capture: .sheet, settle: 0.5) { reset($0); $0.open(.github(pr)) },
             Page(name: "modal-review", capture: .sheet, settle: 0.5) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
             Page(name: "modal-start", capture: .sheet) { reset($0); $0.beginStart(task: 13) },
-            Page(name: "modal-hidden", capture: .sheet) { reset($0); $0.open(.hiddenAndClosed) },
+            Page(name: "modal-closed", capture: .sheet) { reset($0); $0.open(.closedSessions) },
             Page(name: "modal-back", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(13))

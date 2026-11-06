@@ -170,10 +170,6 @@ enum SelfTest {
         model.undoManager?.undo()
         try? await Task.sleep(for: .milliseconds(100))
         check("Undo puts the cards back", model.gridSessions.map(\.id) == order, "\(model.gridSessions.map { $0.id.prefix(4) })")
-        model.setHidden(id, true)
-        check("Hide takes the card off the grid, the session keeps running", !model.gridSessions.contains { $0.id == id } && model.hiddenSessions.contains { $0.id == id })
-        model.setHidden(id, false)
-        check("Show puts it back at the end", model.gridSessions.last?.id == id)
         hook("SessionEnd", id, #","reason":"prompt_input_exit""#)
         check("an ended session leaves the grid for Closed", !model.gridSessions.contains { $0.id == id } && model.closedSessions.first?.id == id)
         let before = model.ghosttyLog.count
@@ -613,14 +609,39 @@ enum SelfTest {
             check("a task the user changes themselves is no longer blue", !model.isNew(.task(mine)))
             model.setStatus(mine, .todo)
             if let other = model.sessions.first(where: { $0.id != session })?.id {
-                agent("task edit", ["task": "T-\(mine)", "project": "Registry", "type": "chore", "_session": other])
-                check("an edit from another session doesn't link it to the task", model.task(mine)?.sessions.contains(other) == false)
-                agent("task move", ["task": "T-\(mine)", "status": "doing", "_session": other])
+                let refused = (agent("task edit", ["task": "T-\(mine)", "project": "Registry", "_session": other])["error"] as? JSONObject) ?? [:]
+                check("a session's edit of a task it isn't on is refused, naming the task", refused["code"] as? String == "not_mine"
+                      && (refused["message"] as? String ?? "").contains("Pair on this") && model.task(mine)?.project == nil, "\(refused)")
+                let moveRefused = (agent("task move", ["task": "T-\(mine)", "status": "doing", "_session": other])["error"] as? JSONObject)?["code"] as? String
+                check("and so is a move", moveRefused == "not_mine" && model.task(mine)?.status == .todo)
+                agent("task edit", ["task": "T-\(mine)", "project": "Registry", "type": "chore", "not-mine": "true", "_session": other])
+                check("--not-mine lets it through, without linking the session", model.task(mine)?.project == "Registry"
+                      && model.task(mine)?.sessions.contains(other) == false)
+                agent("task move", ["task": "T-\(mine)", "status": "doing", "not-mine": "true", "_session": other])
                 check("starting the task links the session", model.task(mine)?.sessions.contains(other) == true)
+                agent("task edit", ["task": "T-\(mine)", "type": "feature", "_session": other])
+                check("then it's the session's: no flag needed", model.task(mine)?.type == .feature)
+                agent("task edit", ["task": "T-\(mine)", "type": "chore"])
+                check("a terminal needs no flag", model.task(mine)?.type == .chore)
             }
         }
         let sub = agent("task add", ["title": "Part of it", "parent": key])
         check("task add --parent makes a subtask", sub["parent"] as? String == key && model.taskTree.children(of: id).count == 1)
+        // A wrong move is recorded and undone: the session's task under its own, as the EP session did.
+        if let stray = TaskItem.key(agent("task add", ["title": "Stray", "_session": session])["id"] as? String ?? "") {
+            let before = model.task(stray)
+            agent("task edit", ["task": "T-\(stray)", "parent": key, "_session": session])
+            check("a session moves its own task under another of its own", model.task(stray)?.parent == id)
+            let history = agent("task history", ["task": "T-\(stray)"])
+            let changes = ((history["edits"] as? [JSONObject])?.first?["changes"] as? [String]) ?? []
+            check("task history shows the move: the parent, old → new", changes.contains("parent none → \(key)"), "\(history)")
+            let asked = agent("task undo", ["task": "T-\(stray)"])
+            check("task undo without --yes only says what it would put back", asked["wouldRevert"] != nil && model.task(stray)?.parent == id)
+            agent("task undo", ["task": "T-\(stray)", "yes": "true"])
+            check("task undo --yes puts the task back where it was", model.task(stray)?.parent == nil && model.task(stray)?.list == before?.list
+                  && model.task(stray)?.order == before?.order, "\(String(describing: model.task(stray)?.parent))")
+            agent("task delete", ["task": "T-\(stray)", "yes": "true"])
+        }
         let refused = agent("task move", ["task": key, "status": "review"])
         check("review needs a reason", (refused["error"] as? JSONObject)?["code"] as? String == "usage")
         agent("task move", ["task": key, "status": "review", "reason": "PR #418 is ready"])
@@ -655,6 +676,20 @@ enum SelfTest {
             model.undoManager?.undo()
             try? await Task.sleep(for: .milliseconds(100))
             check("Undo brings it back", model.file(made.id) != nil && FileManager.default.fileExists(atPath: path))
+            let asked = agent("file delete", ["file": made.id])
+            check("file delete without --yes only says what it would delete", asked["wouldDelete"] as? String == made.id && model.file(made.id) != nil)
+            agent("file delete", ["file": made.id, "yes": "true"])
+            check("file delete --yes moves the note to the Trash", model.file(made.id) == nil && !FileManager.default.fileExists(atPath: path))
+        }
+        // task delete takes the task and its subtasks, only with --yes.
+        if let parent = agent("task add", ["title": "Delete me"])["id"] as? String,
+           let child = agent("task add", ["title": "Delete me too", "parent": parent])["id"] as? String {
+            let asked = agent("task delete", ["task": parent])
+            check("task delete without --yes only says what it would delete", asked["wouldDelete"] as? [String] == [parent, child]
+                  && model.task(TaskItem.key(parent)) != nil)
+            let deleted = agent("task delete", ["task": parent, "yes": "true"])
+            check("task delete --yes deletes the task and its subtasks", deleted["deleted"] as? [String] == [parent, child]
+                  && model.task(TaskItem.key(parent)) == nil && model.task(TaskItem.key(child)) == nil)
         }
 
         // A session started with a first message: a prompt file any shell reads whole.

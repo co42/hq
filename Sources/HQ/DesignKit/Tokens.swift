@@ -350,6 +350,8 @@ enum Motion {
     static let holdSeconds: TimeInterval = 0.7
     /// A status glyph that changed: a short spring, in seconds.
     static let popSeconds: TimeInterval = 0.34
+    /// "Copied" on what a click copied (Copy Link, a task's key), in seconds.
+    static let copiedSeconds: TimeInterval = 1.5
 
     /// Runs AppKit row and item changes with no animation when `still` asks for it (HQ ignores Reduce Motion, DESIGN.md §12).
     @MainActor static func appKit(still: Bool = false, _ changes: () -> Void) {

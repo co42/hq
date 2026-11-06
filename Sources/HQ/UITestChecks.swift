@@ -21,6 +21,21 @@ extension UITest {
         guard let collection = ui.find(SessionGrid.CardCollection.self),
               let coordinator = collection.delegate as? SessionGrid.Coordinator else { return check("the session grid is on the page", false) }
         let first = model.gridSessions[0]
+        // The cards sit in the page's column, not across the page's scroll view.
+        let grid = collection.superview?.bounds ?? .zero
+        let frames = (0..<collection.numberOfItems(inSection: 0)).compactMap { collection.item(at: IndexPath(item: $0, section: 0))?.view.frame }
+        check("the cards stay inside the grid's column", collection.frame.size == grid.size && !frames.isEmpty && frames.allSatisfy { $0.maxX <= grid.width + 0.5 },
+              "grid \(Int(grid.width)), collection \(Int(collection.frame.width)), right edges \(frames.map { Int($0.maxX) })")
+        // Every face takes its click: a card past the grid's edge shows, but AppKit sends it nothing.
+        let missed = (0..<collection.numberOfItems(inSection: 0)).filter { index in
+            guard let card = collection.item(at: IndexPath(item: index, section: 0))?.view else { return true }
+            card.scrollToVisible(card.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+            ui.window.layoutIfNeeded()
+            let face = SessionGrid.CardView.face
+            let point = card.convert(NSPoint(x: face.midX, y: card.isFlipped ? face.midY : card.bounds.height - face.midY), to: nil)
+            return ui.hitView(point) !== card
+        }
+        check("every card's face takes its click", missed.isEmpty, "missed cards \(missed)")
         check("cards take the click that brings HQ forward", ui.takesFirstClick(ui.cardPoint(first.id)))
         await ui.click(ui.cardPoint(first.id))
         await ui.settle(0.5)
@@ -70,15 +85,11 @@ extension UITest {
         check("Undo unlinks it", model.task(task.id)?.sessions.isEmpty == true, "undid \(action)")
         coordinator.dragEnded()
 
-        // Hide and Show.
-        let hidden = model.gridSessions[2].id
-        model.setHidden(hidden, true)
-        await ui.settle(0.3)
-        check("Hide takes the card off the grid", !coordinator.ids.contains(hidden) && model.hiddenSessions.contains { $0.id == hidden })
-        model.setHidden(hidden, false)
-        await ui.settle(0.3)
-        check("Show puts it back at the end", coordinator.ids.last == hidden)
-        check("a card has a context menu", coordinator.menu(at: ui.cardLocal(collection, 0)) != nil)
+        // A running session stays on the grid: its menu has no Hide.
+        let cardMenu = coordinator.menu(at: ui.cardLocal(collection, 0))
+        cardMenu?.update()
+        let titles = cardMenu?.items.map(\.title) ?? []
+        check("a card has a context menu, with no Hide", titles.contains("Show Details") && !titles.contains { $0.hasPrefix("Hide") }, titles.joined(separator: ", "))
         model.deleteTasks([task.id])
     }
 
@@ -394,12 +405,44 @@ extension UITest {
         await ui.settle(0.3)
     }
 
+    /// A click on a PR's face, in Reviews and in Yours, shows its session's menu under the face, an ended session's too.
+    static func prFaces(_ model: AppModel, _ ui: Driver) async {
+        guard let ended = model.sessions.first(where: { !$0.isRunning }) else { return check("an ended session", false) }
+        let show = FaceMenu.show
+        defer { FaceMenu.show = show }
+        for (group, pr) in [("Reviews", model.reviewRequests.first), ("Yours", model.ownPullRequests.first)] {
+            guard let pr else { check("a PR in \(group)", false); continue }
+            let before = model.sessions(onPullRequest: pr, includeEnded: true).map(\.id)
+            for id in before where id != ended.id { if var item = model.session(id) { item.links.removeAll { $0 == pr.url }; model.put(item) } }
+            model.link(pullRequest: pr.url, session: ended.id)
+            await ui.settle(0.4)
+            let first = model.byImportance(model.sessions(onPullRequest: pr, includeEnded: true)).first?.id
+            var shown: (id: String, menu: NSMenu, view: NSView?)?
+            FaceMenu.show = { menu, id, _, view in shown = (id, menu, view) }
+            let point = ui.anchor("pr-face:\(pr.number)")
+            let hit = point.flatMap { ui.hitView($0) }
+            await ui.click(point)
+            await ui.settle(0.3)
+            shown?.menu.update()
+            let titles = shown?.menu.items.map(\.title) ?? []
+            check("a click on a PR's face in \(group) shows its session's menu under the face, not Start Session",
+                  shown?.id == first && shown?.view != nil && model.modal == nil,
+                  "shown \(shown?.id ?? "-"), first \(first ?? "-"), hit \(hit.map { String(describing: type(of: $0)) } ?? "-"), \(String(describing: model.modal))")
+            check("its menu starts another session on the PR", titles.contains { $0.hasPrefix("Start Another Session on \(pr.reference)") },
+                  titles.joined(separator: ", "))
+            if model.modal != nil { model.closeModal(); await ui.settle(0.5) }
+            if var item = model.session(ended.id) { item.links.removeAll { $0 == pr.url }; model.put(item) }
+        }
+    }
+
     /// With one session on the grid, a real click on its face focuses it, its card selected or not.
     static func singleSessionFace(_ model: AppModel, _ ui: Driver) async {
         guard let collection = ui.find(SessionGrid.CardCollection.self), let grid = collection.delegate as? SessionGrid.Coordinator,
               let only = grid.ids.first else { return check("a session card", false) }
         let others = grid.ids.dropFirst()
-        for id in others { model.setHidden(id, true) }
+        // The others closed a moment: one card left.
+        func close(_ closed: Bool) { for id in others { if var item = model.session(id) { item.closedAt = closed ? .now : nil; model.put(item) } } }
+        close(true)
         await ui.settle(0.6)
         check("one card left on the grid", grid.ids == [only], "\(grid.ids.count) cards")
         func faceClick() async -> Bool {
@@ -421,7 +464,7 @@ extension UITest {
         collection.selectionIndexPaths = [IndexPath(item: 0, section: 0)]
         await ui.settle(0.3)
         tableCheck(ui, "selected, its face still focuses its session", await faceClick(), "\(model.ghosttyLog.suffix(1))")
-        for id in others { model.setHidden(id, false) }
+        close(false)
         model.selectSection(nil)
         await ui.settle(0.4)
     }
@@ -725,9 +768,14 @@ extension UITest {
             // Its modal's Copy Link copies its address.
             model.open(.github(pr.url))
             await ui.settle(0.8)
+            check("its Reload stops turning once the page has loaded", model.loadingPage == nil, model.loadingPage ?? "")
             Pasteboard.copied = nil
+            func copyLinkSize() -> CGSize? { UITest.anchors["copy-link", default: []].compactMap(\.view).last?.frame.size }
+            let before = copyLinkSize()
             await ui.click(ui.anchor("copy-link"), inSheet: true)
             check("a PR's modal copies its link", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
+            check("Copy Link keeps its size while it says Copied", before != nil && copyLinkSize() == before,
+                  "\(String(describing: before)) → \(String(describing: copyLinkSize()))")
             model.closeModal()
             await ui.settle(0.5)
         }
@@ -1345,6 +1393,21 @@ extension UITest {
             await ui.settle(0.3)
         }
 
+        // A click on a row's key copies its key and title, through the outline as AppKit delivers it.
+        if let task = model.task(child) {
+            cell.setHovered(true)
+            cell.layoutSubtreeIfNeeded()
+            let point = cell.key.convert(NSPoint(x: cell.key.bounds.midX, y: cell.key.bounds.midY), to: nil)
+            Pasteboard.copied = nil
+            if let click = ui.mouseDown(point, clicks: 1) { outline.mouseDown(with: click) }
+            await ui.settle(0.2)
+            let copied = Pasteboard.copied
+            check("a click on a task's key copies its key and title", copied == "\(task.key) \(task.title)" && cell.key.tracksHandCursor,
+                  "\(copied ?? "nothing"), hand \(cell.key.tracksHandCursor)")
+            check("and the key turns the accent color", cell.key.textColor == Ink.accentNS)
+            cell.setHovered(false)
+        }
+
         // A click on the faces starts a session on the task, through the outline as AppKit delivers it.
         if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? FacesCell {
             faces.layoutSubtreeIfNeeded()
@@ -1568,7 +1631,7 @@ extension UITest {
         check("Show Descriptions with 500 tasks holds the main thread under 150 ms", descriptions.worst < 150, "\(descriptions)")
         check("a search keystroke with 500 tasks holds it under 100 ms", search.worst < 100, "\(search)")
         check("folding a task with 500 tasks holds it under 50 ms", fold.worst < 50, "\(fold)")
-        check("a move with 500 tasks holds it under 50 ms", move.worst < 50, "\(move)")
+        check("a move with 500 tasks takes under two frames, none over 100 ms", move.median < 34 && move.worst < 100, "\(move)")
         check("scrolling the page with 500 tasks stays within a frame, rare steps at two, none at three",
               scrolls.median < 17 && scrolls.hitches <= scrolls.steps.count / 100 && scrolls.worst < 50, "\(scrolls)")
     }

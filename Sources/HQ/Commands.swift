@@ -210,8 +210,6 @@ struct HQCommands: Commands {
             Button("Show Details") { if let session { model.open(.session(session)) } }
                 .disabled(session == nil)
             Divider()
-            Button(menu.sessionHidden ? "Show on Overview" : "Hide") { if let session { model.setHidden(session, !menu.sessionHidden) } }
-                .disabled(session == nil)
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)
             Divider()
@@ -225,8 +223,8 @@ struct HQCommands: Commands {
             }
             .disabled(!menu.pullRequest)
             Divider()
-            Button("Hidden and Closed") { model.open(.hiddenAndClosed) }
-                .disabled(!menu.hasHiddenOrClosed)
+            Button("Closed Sessions") { model.open(.closedSessions) }
+                .disabled(!menu.hasClosed)
         }
 
         CommandGroup(after: .pasteboard) {

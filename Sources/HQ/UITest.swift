@@ -61,7 +61,7 @@ enum UITest {
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
             ]
             for (name, run) in groups where only?.contains(name) ?? true { await run(model, ui) }
             if Store.background { check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }

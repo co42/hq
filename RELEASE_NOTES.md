@@ -1,5 +1,25 @@
 # Release notes
 
+## v8 · 2026-11-06
+
+**Pull requests**
+- Each row says when: in Reviews when your review was asked ("asked 2h ago"), in Yours when the PR last changed ("updated 5m ago").
+- A click on a row's face shows its session's menu under the face, as on a task, with Start Another Session on the PR. Ended sessions too.
+- Refresh, and Reload in a PR's or an artifact's window, turn while they load.
+- Fixed: Copy Link in a PR's or an artifact's window changed size once clicked.
+
+**Sessions**
+- No more Hide: every open session stays on the grid. The eye button is now **Closed Sessions** (a clock and its count): the sessions closed in the last 14 days, to resume one.
+- Fixed: on a wide window, a row's 4th card sat past the page's edge, and a click on its face did nothing.
+
+**Tasks**
+- A click on a task's key, at the right of its row, copies its key and title.
+
+**The hq command, and hq plugin 0.6.11**
+- `hq task delete` and `hq file delete`: their notes go to the Trash. Without `--yes` they only say what they would delete.
+- A session can't change a task it isn't on by mistake: `hq task edit`, `move` and `delete` refuse, naming the task, unless `--not-mine`.
+- `hq task history T-12` shows what sessions changed in a task through `hq`; `hq task undo T-12` puts back the latest change.
+
 ## v7.1 · 2026-11-06
 
 **Performance**: at rest HQ went from about 40% CPU and 430 MB to under 1% and about 80 MB, with nothing changed on screen.

@@ -31,6 +31,7 @@ final class SessionRecord {
     var lastMessage: String?
     var transcriptPath: String?
     var order: Double = 0
+    /// Unused: kept so the store opens without a migration.
     var hidden: Bool = false
     var closedAt: Date?
     var faceSalt: Int = 0
@@ -70,7 +71,6 @@ final class SessionRecord {
         set(\.lastMessage, item.lastMessage)
         set(\.transcriptPath, item.transcriptPath)
         set(\.order, item.order)
-        set(\.hidden, item.hidden)
         set(\.closedAt, item.closedAt)
         set(\.faceSalt, item.faceSalt)
         set(\.links, item.links)
@@ -84,7 +84,7 @@ final class SessionRecord {
                            pid: pid > 0 ? Int32(pid) : nil, tty: tty, inGhostty: inGhostty,
                            tool: tool, toolInput: toolInput, question: question, options: options, planPath: planPath,
                            error: error, lastMessage: lastMessage, transcriptPath: transcriptPath,
-                           order: order, hidden: hidden,
+                           order: order,
                            // A session that ended before the cockpit has no closing time: its state's.
                            closedAt: closedAt ?? (state == .ended ? since : nil),
                            faceSalt: faceSalt, links: links)

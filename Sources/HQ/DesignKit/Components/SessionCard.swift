@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A session on the grid (DESIGN.md §5): a raised card on one row: its face; its name and how long it has lasted;
 /// its place and its state in a capsule. It glows when it needs the user (red when failed) or is done unread, and the
-/// glow breathes until the user looks. Hover lifts it and shows Hide.
+/// glow breathes until the user looks. Hover lifts it.
 struct SessionCard: View {
     let session: SessionItem
     let now: Date
@@ -12,7 +12,6 @@ struct SessionCard: View {
     var dropTarget = false
     /// It needs the user, or is done unread, and the user hasn't clicked it, opened it or looked at its terminal since.
     var blinking = false
-    var hide: () -> Void = {}
     @Environment(\.forcedPartState) private var forced
     @State private var hovering = false
 
@@ -64,28 +63,13 @@ struct SessionCard: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    /// How long it has lasted; Hide in its place under the pointer.
+    /// How long it has lasted.
     private var corner: some View {
         Text(session.isRunning ? Elapsed.short(from: session.status.since, to: now) : "")
             .kitType(.meta)
             .foregroundStyle(.secondary)
             .contentTransition(.numericText())
             .fixedSize()
-            .opacity(hovered ? 0 : 1)
-            .overlay(alignment: .trailing) {
-                if hovered {
-                    Button("Hide", icon: .hide, action: hide)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.plain)
-                        .imageScale(.small)
-                        .foregroundStyle(.secondary)
-                        .frame(width: Metric.rowAction + Space.xs, height: Metric.rowAction + Space.xs)
-                        .glassEffect(.regular.interactive(), in: Circle())
-                        .clickable()
-                        .help("Hide from the overview; the session keeps running")
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                }
-            }
     }
 
     /// Needs the user (orange, red when failed) or done unread (blue): the card's glow.

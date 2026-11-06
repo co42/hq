@@ -38,9 +38,7 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var transcriptPath: String?
     /// The user's place for it in the grid.
     var order: Double = 0
-    /// Off the grid while it keeps running.
-    var hidden = false
-    /// When it ended: it leaves the grid for Hidden and Closed.
+    /// When it ended: it leaves the grid for Closed Sessions.
     var closedAt: Date?
     /// Chosen once so its face differs from the other open sessions'.
     var faceSalt = 0
@@ -54,8 +52,8 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
 
     var face: FaceSpec { FaceSpec(id: id, salt: faceSalt) }
 
-    /// On the grid: open and not hidden.
-    var onGrid: Bool { closedAt == nil && !hidden }
+    /// On the grid: open.
+    var onGrid: Bool { closedAt == nil }
 
     var searchText: String { "\(name) \(repo) \(branch)" }
 
@@ -104,7 +102,7 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
 }
 
 /// A task note: <vault>/hq/tasks/T-<n>.md.
-nonisolated struct TaskItem: Identifiable, Hashable, Sendable {
+nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     var id: Int
     var title: String
     var status: TaskStatus = .todo

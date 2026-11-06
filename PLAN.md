@@ -97,7 +97,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 
 ### Session (SwiftData `SessionRecord`)
 
-A Claude `session_id` with its name (the latest of the user's rename in HQ, the name HQ gave a session it started, and a /rename in Claude Code (`custom-title`, kept as `renamed` so an old one never comes back over a later rename in HQ); else Claude's `ai-title`, else the first prompt), state, cwd, repo, branch, origin, pid and tty, and the cockpit's fields: `order`, `hidden`, `closedAt`, `faceSalt`, `links` (PR URLs it printed). Ended (SessionEnd other than `clear`, or the pid exits) sets `closedAt`; Resume clears it and appends the session to the grid.
+A Claude `session_id` with its name (the latest of the user's rename in HQ, the name HQ gave a session it started, and a /rename in Claude Code (`custom-title`, kept as `renamed` so an old one never comes back over a later rename in HQ); else Claude's `ai-title`, else the first prompt), state, cwd, repo, branch, origin, pid and tty, and the cockpit's fields: `order`, `closedAt`, `faceSalt`, `links` (PR URLs it printed). Ended (SessionEnd other than `clear`, or the pid exits) sets `closedAt`; Resume clears it and appends the session to the grid.
 
 Task ↔ session links live in the task notes (`sessions:`), many to many. They are made by `hq` commands from a session, Start Session on a task, a task dropped on a card, and Link to… in a modal.
 
@@ -152,10 +152,14 @@ hq task edit T-n [--title …] [--body -] [--type t] [--project p] [--add-tag t]
 hq task show T-n                               # parents, description, subtasks, links
 hq task link T-n <url | T-m | session id | path>
 hq task unlink T-n <the same item>
+hq task delete T-n [--yes]                     # with its subtasks, to the Trash; without --yes: what it would delete
+hq task history T-n                            # what sessions changed in it through hq, the last 30 days
+hq task undo T-n [--yes]                       # put back every task its latest hq change touched
 hq link <url | path> T-n
 hq file new "Title" [--task T-n] [--body -]
 hq file write <path> --body - [--append]
 hq file show <path>
+hq file delete <path> [--yes]                  # to the Trash; without --yes: what it would delete
 hq artifact add <url> --title t [--date d] [--task T-n]     # one HQ didn't capture; a ?sk= share key is dropped
 hq session new "Name" [--task T-n] [--cwd dir] [--message -]
 hq hook                                        # used by the plugin
@@ -175,9 +179,9 @@ Steps 0 to 13 are done; step 14 ships.
 3. The data layer: vault keys and the migration with its backup, the store's new fields and records, `AppModel`'s cockpit state, seed data that mirrors the mockup (`APP_SEED=1`, `APP_SEED=large`).
 4. Faces: `SessionFace` in DesignKit, three levels of detail, the gallery page `faces`.
 5. The cockpit shell: one window, the toolbar, the page and its empty states, menus, Quick Open, the Dock menu.
-6. Session cards: the grid, drag to reorder, a task dropped on a card, Hide, Hidden and Closed, Resume, Close.
+6. Session cards: the grid, drag to reorder, a task dropped on a card, Closed Sessions, Resume, Close.
 7. The outline: rows, keys, descriptions, quick add, filters, drag and drop, the done rule.
-8. The modal: the sheet, Back and Next, the task, session, file, artifact, start and hidden kinds, the markdown viewer and editor.
+8. The modal: the sheet, Back and Next, the task, session, file, artifact, start and closed-sessions kinds, the markdown viewer and editor.
 9. GitHub: the poller, the PR section, PR and issue modals, links.
 10. Attention: seen and changes, the toolbar's counts, Review Next, Mark All Seen, the Dock badge; starting a session end to end.
 11. CLI, hooks, skills; plugin 0.5.0.

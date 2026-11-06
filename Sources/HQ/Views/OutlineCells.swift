@@ -452,6 +452,36 @@ final class ProjectButton: LabelStripView {
 }
 
 /// A task's line, and its description under it when shown.
+/// A task's key: a click copies the key and the title, as Copy Key and Title does, and it turns the accent color a moment.
+final class KeyField: NSTextField {
+    var copied = ""
+    private var flashes = 0
+
+    override var isHidden: Bool { didSet { if isHidden != oldValue { trackHandCursor(!isHidden) } } }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard !copied.isEmpty else { return }
+        Pasteboard.copy(copied)
+        flashes += 1
+        let flash = flashes
+        textColor = Ink.accentNS
+        toolTip = "Copied"
+        NSAccessibility.post(element: self, notification: .announcementRequested,
+                             userInfo: [.announcement: "Copied \(stringValue)", .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.copiedSeconds) { [weak self] in
+            guard let self, self.flashes == flash else { return }
+            self.textColor = Ink.secondaryTextNS
+            self.toolTip = Self.help
+        }
+    }
+
+    static let help = "Click to copy the key and the title"
+}
+
 final class TaskCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("task-cell")
     /// Where the title and the description start: after the status glyph.
@@ -471,7 +501,7 @@ final class TaskCell: NSTableCellView {
     private var hasNote = false
     /// Its row is selected: the key shows, as under the pointer.
     private var selected: Bool { (superview as? NSTableRowView)?.isSelected ?? false }
-    let key = NSTextField(labelWithString: "")
+    let key = KeyField(labelWithString: "")
     private var actions: [NSButton] = []
     private(set) var descriptionHost: NSHostingView<AnyView>?
     /// The task's PRs, files, artifacts and linked tasks, on one line under the title.
@@ -513,6 +543,8 @@ final class TaskCell: NSTableCellView {
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.alignment = .right
+        key.toolTip = KeyField.help
+        key.setAccessibilityLabel("Copy key and title")
         review.tone = .needsYou
         for (icon, help, action) in [(KitIcon.new, "Add a subtask (⇧N)", #selector(addSubtask)),
                                      (.toBacklog, "Move to the Backlog (⇧⌘B)", #selector(toggleList)),
@@ -585,6 +617,7 @@ final class TaskCell: NSTableCellView {
         let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
         progress.show(below.map(\.status))
         key.stringValue = task.key
+        key.copied = "\(task.key) \(task.title)"
         let inBacklog = model.list(of: id) == .backlog
         actions[1].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
         actions[1].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
@@ -652,7 +685,7 @@ final class TaskCell: NSTableCellView {
     func button(at point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         let hit = hitTest(superview.convert(point, from: nil))
-        return hit === glyph || hit === project ? hit : nil
+        return hit === glyph || hit === project || hit === key ? hit : nil
     }
 
     override func layout() {
@@ -1387,7 +1420,7 @@ extension AppModel {
         case .artifact(let url): artifacts.first { $0.id == url }?.title ?? url.lastPathComponent
         case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? url
         case .start: "Start a session"
-        case .hiddenAndClosed: "Hidden and Closed"
+        case .closedSessions: "Closed Sessions"
         }
     }
 }

@@ -71,7 +71,7 @@ enum AgentCommands {
             let items: [JSONObject]
             switch kind {
             case "sessions":
-                items = (all ? model.sessions.sorted { $0.order < $1.order } : model.gridSessions + model.hiddenSessions).map { $0.agentJSON(model) }
+                items = (all ? model.sessions.sorted { $0.order < $1.order } : model.gridSessions).map { $0.agentJSON(model) }
             case "tasks":
                 let tree = model.taskTree
                 let overview = try args.bool("overview") ?? false
@@ -164,9 +164,10 @@ enum AgentCommands {
         AgentCommand(name: "task move", summary: "Set a task's status. Review needs --reason: what the user must check, with its link in the description.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
                               .init(name: "status", required: true, positional: true, help: "todo, doing (also brings it to Tasks), review or done (backlog: todo, in the Backlog)"),
-                              .init(name: "reason", help: "with review: one line, what the user must check")],
+                              .init(name: "reason", help: "with review: one line, what the user must check"),
+                              notMine],
                      example: "hq task move T-12 review --reason \"PR #418 is ready to merge\"") { args, model in
-            let task = try findTask(args, model)
+            let task = try ownTask(args, model)
             let raw = try args.required("status").lowercased()
             if raw == "backlog" {
                 model.setStatus(task.id, .todo)
@@ -194,9 +195,10 @@ enum AgentCommands {
                               .init(name: "project", help: "the project; empty clears it"),
                               .init(name: "add-tag", help: "tags to add, comma separated"),
                               .init(name: "remove-tag", help: "tags to remove, comma separated"),
-                              .init(name: "parent", help: "T-34: its last subtask, in its list; none: top level, in the list it's in")],
+                              .init(name: "parent", help: "T-34: its last subtask, in its list; none: top level, in the list it's in"),
+                              notMine],
                      example: "hq task edit T-12 --body - --add-tag perf") { args, model in
-            let task = try findTask(args, model)
+            let task = try ownTask(args, model)
             if let ref = args.string("parent")?.trimmingCharacters(in: .whitespaces) {
                 try moveUnder(task.id, ref, model)
             }
@@ -211,6 +213,65 @@ enum AgentCommands {
             }
             if let title = args.string("title"), !title.isEmpty { model.setTitle(task.id, title) }
             return model.task(task.id)?.agentJSON(model) ?? [:]
+        },
+        AgentCommand(name: "task delete", summary: "Delete a task and its subtasks, as Delete does in HQ: their notes go to the Trash.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12"), notMine],
+                     example: "hq task delete T-12 --yes", destructive: true) { args, model in
+            let task = try ownTask(args, model)
+            let keys = model.taskTree.subtree(of: task.id).compactMap { model.task($0)?.key }
+            let named = keys.joined(separator: ", ")
+            guard args.confirmed else { return ["wouldDelete": keys, "text": "Would delete \(named). Again with --yes to delete."] }
+            model.deleteTasks([task.id])
+            return ["deleted": keys, "text": "Deleted \(named): \(keys.count == 1 ? "its note is" : "their notes are") in the Trash."]
+        },
+        AgentCommand(name: "task history", summary: "What sessions changed in a task through hq in the last 30 days, the latest first. task undo reverts the latest.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12")],
+                     example: "hq task history T-12", readOnly: true) { args, model in
+            let ref = try args.required("task")
+            guard let id = TaskItem.key(ref) else { throw AgentError.usage("\(ref) isn't a task key: T-12") }
+            let edits = TaskEditLog.shared.edits(of: id).reversed()
+            let items: [JSONObject] = edits.map { edit in
+                let change = edit.changes.first { $0.id == id }
+                var item: JSONObject = ["at": JSON.date(edit.at), "command": edit.command, "by": model.editor(edit),
+                                        "changes": TaskEdit.fields(change?.before, change?.after), "tasks": edit.changes.map { "T-\($0.id)" }]
+                if let session = edit.session { item["session"] = session }
+                return item
+            }
+            let lines = edits.map { edit in
+                let change = edit.changes.first { $0.id == id }
+                let others = edit.changes.count - 1
+                return "\(edit.at.formatted(date: .abbreviated, time: .shortened)) · \(model.editor(edit)) · \(edit.command): "
+                    + TaskEdit.fields(change?.before, change?.after).joined(separator: ", ")
+                    + (others > 0 ? " (and \(others) other task\(others == 1 ? "" : "s"))" : "")
+            }
+            return ["edits": items, "text": lines.isEmpty ? "No change to T-\(id) through hq in the last 30 days." : lines.joined(separator: "\n")]
+        },
+        AgentCommand(name: "task undo", summary: "Undo the latest change hq made to a task: every task that command changed goes back as it was. Tasks it created or deleted stay so.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12")],
+                     example: "hq task undo T-12 --yes", destructive: true) { args, model in
+            let ref = try args.required("task")
+            guard let id = TaskItem.key(ref) else { throw AgentError.usage("\(ref) isn't a task key: T-12") }
+            guard let edit = TaskEditLog.shared.edits(of: id).last else {
+                throw AgentError.notFound("no change to T-\(id) through hq in the last 30 days")
+            }
+            let reverted = edit.changes.filter { $0.before != nil && $0.after != nil }
+            let moved = reverted.filter { change in model.task(change.id).map { !$0.sameNote(as: change.after!) } ?? true }
+            guard moved.isEmpty else {
+                let keys = moved.map { "T-\($0.id)" }.joined(separator: ", ")
+                throw AgentError.invalid("\(keys) changed again since \(edit.command) by \(model.editor(edit)): put \(moved.count == 1 ? "it" : "them") back by hand (`hq task history`)")
+            }
+            var lines = reverted.map { "T-\($0.id): " + TaskEdit.fields($0.after, $0.before).joined(separator: ", ") }
+            let created = edit.changes.filter { $0.before == nil }.map { "T-\($0.id)" }
+            let deleted = edit.changes.filter { $0.after == nil }.map { "T-\($0.id)" }
+            if !created.isEmpty { lines.append("Kept: \(created.joined(separator: ", ")), created by it (`hq task delete` removes a task)") }
+            if !deleted.isEmpty { lines.append("Still deleted: \(deleted.joined(separator: ", ")), their notes are in the Trash") }
+            let what = "\(edit.command) by \(model.editor(edit)), \(edit.at.formatted(date: .abbreviated, time: .shortened))"
+            let keys = reverted.map { "T-\($0.id)" }
+            guard args.confirmed else {
+                return ["wouldRevert": keys, "text": "Would undo \(what):\n" + lines.joined(separator: "\n") + "\nAgain with --yes to undo."]
+            }
+            model.revert(edit)
+            return ["reverted": keys, "text": "Undid \(what):\n" + lines.joined(separator: "\n")]
         },
         AgentCommand(name: "task link", summary: "Link a task to a PR or issue URL, another task, a session, a file or an artifact. It shows under the task's row.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
@@ -301,6 +362,15 @@ enum AgentCommands {
                 model.changeFile(file.id, "Link Session") { $0.sessions.append(session) }
             }
             return file.agentJSON
+        },
+        AgentCommand(name: "file delete", summary: "Delete a note, as Delete does in HQ: it goes to the Trash.",
+                     params: [.init(name: "file", required: true, positional: true, help: "the note's path, or its name (with or without .md)")],
+                     example: "hq file delete \"2026-11-03 - Push plan\" --yes", destructive: true) { args, model in
+            let ref = try args.required("file")
+            guard let file = model.file(ref: ref) else { throw AgentError.notFound("no note \(ref). Run `hq ls files`") }
+            guard args.confirmed else { return ["wouldDelete": file.id, "text": "Would delete “\(file.title)” (\(file.id)). Again with --yes to delete."] }
+            model.deleteFile(file.id)
+            return ["deleted": file.id, "text": "Deleted “\(file.title)”: its note is in the Trash."]
         },
         AgentCommand(name: "artifact add", summary: "Add a claude.ai artifact HQ didn't capture, by its URL. Again with the same URL updates it.",
                      params: [.init(name: "url", required: true, positional: true, help: "https://claude.ai/artifact/…; a ?sk= share key is dropped"),
@@ -404,6 +474,21 @@ enum AgentCommands {
         return task
     }
 
+    static let notMine = AgentCommand.Param(name: "not-mine", kind: .boolean, help: "a task this session isn't on, that the user named")
+
+    /// The task, when this session may change it: it's on it or on a task above it, or the user named it (--not-mine).
+    /// A wrong key then fails, naming the task it hit. From a terminal, or a session HQ doesn't know, anything goes.
+    private static func ownTask(_ args: Args, _ model: AppModel) throws -> TaskItem {
+        let task = try findTask(args, model)
+        guard let session = args.string(sessionArg), model.session(session) != nil, try args.bool("not-mine") != true else { return task }
+        let mine = ([task.id] + model.taskTree.ancestors(of: task.id)).contains { model.task($0)?.sessions.contains(session) == true }
+        guard mine else {
+            throw AgentError.notMine("\(task.key) is “\(task.title)”, a task this session isn't on. Check the key (`hq ls tasks`); "
+                + "if it's the one the user means, run again with --not-mine")
+        }
+        return task
+    }
+
     /// A URL, a session id or a file, linked to a task.
     private static func linkItem(_ ref: String, to id: Int, _ model: AppModel) throws {
         let route = try item(ref, model)
@@ -441,7 +526,6 @@ extension SessionItem {
         var json: JSONObject = ["id": id, "name": name, "state": status.title, "since": JSON.date(status.since),
                                 "cwd": cwd, "branch": branch, "tasks": model.tasks(of: id).map(\.key)]
         if let reason { json["reason"] = reason }
-        if hidden { json["hidden"] = true }
         if closedAt != nil { json["closed"] = true }
         return json
     }
@@ -498,7 +582,7 @@ extension AppModel {
             }
         case .task(let id): ["kind": "task", "id": "T-\(id)", "status": task(id)?.status.rawValue ?? "", "title": title(of: route)]
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
-        case .start, .hiddenAndClosed: ["kind": "other", "title": title(of: route)]
+        case .start, .closedSessions: ["kind": "other", "title": title(of: route)]
         }
     }
 }

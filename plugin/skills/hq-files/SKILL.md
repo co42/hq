@@ -18,6 +18,7 @@ hq file new "Title" [--task T-12] --body -   # create it with its markdown on st
 hq file write "<path or name>" --body -      # replace its text (the front matter stays)
 hq file write "<path or name>" --append --body "…"   # add to its end
 hq task link T-34 "<path or name>"           # show it under another task too
+hq file delete "<path or name>" --yes        # only when the user asks (without --yes: what it would delete)
 ```
 
 Pipe the markdown in, for example `printf '%s\n' '# Push path plan' '' 'The registry retries…' | hq file new "Push path plan" --task T-12 --body -`. A new note links to this session and to its task: `--task`, else the one task this session works on (pass `--task` when it works on several). It takes the task's project. Writing a note links this session to it.
@@ -37,5 +38,5 @@ Pipe the markdown in, for example `printf '%s\n' '# Push path plan' '' 'The regi
 
 ## Rules
 
-- Don't edit the front matter, move, rename or delete notes: HQ and Obsidian rely on them. A note that's no longer true gets updated; one to throw away, the user deletes in HQ.
+- Don't edit the front matter, move or rename notes: HQ and Obsidian rely on them. A note that's no longer true gets updated; one to throw away, the user deletes in HQ, or asks you to (`hq file delete`: it goes to the Trash).
 - Exit code 4 means HQ isn't running: say so and keep the content in the chat.

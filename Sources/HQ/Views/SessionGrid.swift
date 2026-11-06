@@ -333,6 +333,14 @@ struct SessionGrid: NSViewRepresentable {
         /// A drag left the grid or ended, wherever it started.
         var onDragLeft: (() -> Void)?
 
+        /// AppKit sizes a collection view and lays out its cards to its enclosing scroll view, the page's, wider than the
+        /// grid: cards past the grid's edge show but take no clicks. The grid has no scroll view, and stays its own size.
+        override var enclosingScrollView: NSScrollView? { nil }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(superview?.bounds.size ?? newSize)
+        }
+
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -394,7 +402,7 @@ struct SessionGrid: NSViewRepresentable {
         }
     }
 
-    /// One card: SwiftUI in an AppKit item. Clicks land on the collection view, except the Hide button's.
+    /// One card: SwiftUI in an AppKit item. Clicks land on the collection view.
     final class CardItem: NSCollectionViewItem {
         static let id = NSUserInterfaceItemIdentifier("session-card")
         private let host = NSHostingView(rootView: AnyView(EmptyView()))
@@ -410,7 +418,6 @@ struct SessionGrid: NSViewRepresentable {
                 host.topAnchor.constraint(equalTo: root.topAnchor),
                 host.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             ])
-            root.host = host
             view = root
         }
 
@@ -422,17 +429,14 @@ struct SessionGrid: NSViewRepresentable {
                shown.blinking == blinking { return }
             shown = (session, now, selected, dropTarget, blinking)
             let id = session.id
-            host.rootView = AnyView(SessionCard(session: session, now: now, selected: selected, dropTarget: dropTarget, blinking: blinking) { [weak model] in
-                model?.setHidden(id, true)
-            }
+            host.rootView = AnyView(SessionCard(session: session, now: now, selected: selected, dropTarget: dropTarget, blinking: blinking)
             .accessibilityHidden(true)
             .uiTestAnchor("card:\(id)"))
             guard let card = view as? CardView else { return }
             card.setAccessibilityLabel("\(session.name), \(session.reason ?? session.status.title)" + (session.status.isNew ? ", new" : ""))
             card.selected = selected
             card.press = { [weak model] in model?.open(.session(id)) }
-            card.actions = [(session.isRunning ? "Focus" : "Resume", { [weak model] in model?.open(id) }),
-                            ("Hide", { [weak model] in model?.setHidden(id, true) })]
+            card.actions = [(session.isRunning ? "Focus" : "Resume", { [weak model] in model?.open(id) })]
         }
 
     }
@@ -448,9 +452,8 @@ struct SessionGrid: NSViewRepresentable {
         }
     }
 
-    /// The card's root: the Hide button's corner goes to SwiftUI, the rest to the collection view.
+    /// The card's root: clicks go to the collection view.
     final class CardView: NSView {
-        weak var host: NSView?
         var press: () -> Void = {}
         var actions: [(name: String, run: () -> Void)] = []
 
@@ -470,18 +473,7 @@ struct SessionGrid: NSViewRepresentable {
         static var face: NSRect { NSRect(x: Space.md, y: Space.md, width: Metric.faceCard, height: Metric.faceCard) }
         private var pointerArea: NSTrackingArea?
 
-        /// The Hide button's corner goes to SwiftUI.
-        private func inHideCorner(_ local: NSPoint) -> Bool {
-            let side = Metric.rowAction + Space.md + Space.xs
-            return local.x >= bounds.width - side && local.y <= side
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard let host, frame.contains(point) else { return nil }
-            let local = convert(point, from: superview)
-            if inHideCorner(local) { return host.hitTest(local) ?? self }
-            return self
-        }
+        override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
 
         // The pointing hand over the face, which SwiftUI can't give: the card takes its clicks.
         override func updateTrackingAreas() {
@@ -505,9 +497,7 @@ struct SessionGrid: NSViewRepresentable {
         override func mouseMoved(with event: NSEvent) { pointer(event) }
 
         private func pointer(_ event: NSEvent) {
-            let local = convert(event.locationInWindow, from: nil)
-            guard !inHideCorner(local) else { return }
-            (Self.face.contains(local) ? NSCursor.pointingHand : NSCursor.arrow).set()
+            (Self.face.contains(convert(event.locationInWindow, from: nil)) ? NSCursor.pointingHand : NSCursor.arrow).set()
         }
 
         /// Over the face, as the pointer sees it.
@@ -523,13 +513,19 @@ enum FaceMenu {
     static var show: (NSMenu, String, NSPoint, NSView?) -> Void = { menu, _, point, view in
         if let view { menu.popUp(positioning: nil, at: point, in: view) } else { menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) }
     }
+
+    /// Under the face clicked, its left edges lined up, as a task's faces show it; at the pointer without a view.
+    static func showUnder(_ view: NSView?, _ menu: NSMenu, _ id: String) {
+        let point = view.map { NSPoint(x: 0, y: $0.isFlipped ? $0.bounds.maxY + Space.xs : -Space.xs) } ?? .zero
+        show(menu, id, point, view)
+    }
 }
 
 extension AppModel {
-    /// A session's menu; from a task's faces, with a new session on that task too.
-    func faceMenu(_ id: String, task: Int? = nil) -> NSMenu? {
+    /// A session's menu; from a task's or a PR's faces, with a new session on it too.
+    func faceMenu(_ id: String, task: Int? = nil, pullRequest: GitHubItem? = nil) -> NSMenu? {
         guard let session = session(id) else { return nil }
-        return NSHostingMenu(rootView: SessionMenu(session: session, task: task).environment(self))
+        return NSHostingMenu(rootView: SessionMenu(session: session, task: task, pullRequest: pullRequest).environment(self))
     }
 }
 
@@ -538,6 +534,8 @@ struct SessionMenu: View {
     let session: SessionItem
     /// From a task's faces: Start Session… on that task.
     var task: Int?
+    /// From a PR's face: a session on that PR.
+    var pullRequest: GitHubItem?
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -546,9 +544,11 @@ struct SessionMenu: View {
         if let task, let item = model.task(task) {
             Button("Start Another Session on \(item.key)…") { model.beginStart(task: task) }
         }
-        Divider()
-        Button(session.hidden ? "Show on Overview" : "Hide") { model.setHidden(session.id, !session.hidden) }
+        if let pullRequest {
+            Button("Start Another Session on \(pullRequest.reference)…") { model.beginStart(pullRequest: pullRequest) }
+        }
         if session.isRunning, session.tty != nil {
+            Divider()
             Button("Close Session") { model.closeSession(session.id) }
         }
         Divider()

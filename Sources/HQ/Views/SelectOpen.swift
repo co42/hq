@@ -66,7 +66,7 @@ extension ModalRoute {
         case .artifact(let url): "artifact:\(url.absoluteString)"
         case .github(let url): "github:\(url)"
         case .start: "start"
-        case .hiddenAndClosed: "hidden"
+        case .closedSessions: "closed"
         }
     }
 }

@@ -12,7 +12,7 @@ enum ModalRoute: Hashable {
     case artifact(URL)
     case github(String)
     case start
-    case hiddenAndClosed
+    case closedSessions
 
     /// The key its unread state goes by.
     var seenKey: String? {
@@ -21,7 +21,7 @@ enum ModalRoute: Hashable {
         case .file(let id): "file:\(id)"
         case .artifact(let url): "artifact:\(url.absoluteString)"
         case .github(let url): "gh:\(url)"
-        case .session, .start, .hiddenAndClosed: nil
+        case .session, .start, .closedSessions: nil
         }
     }
 }
@@ -277,6 +277,8 @@ final class AppModel {
     @ObservationIgnored var parkedItems: [PageSection: String] = [:]
     /// Reload on an artifact's page.
     var artifactReloads = 0
+    /// The modal page (an artifact's, a PR's) that is loading: its Reload turns.
+    var loadingPage: String?
     /// Bumped by File › Import Artifact…: the import popover opens.
     var importRequests = 0
     /// Bumped by New File: its popover opens.
@@ -567,7 +569,6 @@ final class MenuState: ObservableObject {
     @Published private(set) var taskInBacklog = false
     @Published private(set) var session: String?
     @Published private(set) var sessionRunning = false
-    @Published private(set) var sessionHidden = false
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
     @Published private(set) var canGoBack = false
     @Published private(set) var hasAttention = false
@@ -580,7 +581,7 @@ final class MenuState: ObservableObject {
     @Published private(set) var allDone = false
     @Published private(set) var sessionCanFocus = false
     @Published private(set) var sessionClosable = false
-    @Published private(set) var hasHiddenOrClosed = false
+    @Published private(set) var hasClosed = false
     @Published private(set) var github = false
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
     @Published private(set) var pinnedOnly = false
@@ -615,7 +616,6 @@ final class MenuState: ObservableObject {
         let session = model.modal == nil ? model.session(model.selectedSession) : model.session(modalSession)
         set(\.session, session?.id)
         set(\.sessionRunning, session?.isRunning ?? false)
-        set(\.sessionHidden, session?.hidden ?? false)
         set(\.sessionCanFocus, session.map { !$0.isRunning || $0.tty != nil } ?? false)
         set(\.sessionClosable, session.map { $0.isRunning && $0.tty != nil } ?? false)
         set(\.outlineKeyboard, model.modal == nil ? model.outlineKeyboard : .none)
@@ -629,7 +629,7 @@ final class MenuState: ObservableObject {
         set(\.github, model.github != nil)
         set(\.reviewFilter, model.reviewFilter)
         set(\.pinnedOnly, model.pinnedOnly)
-        set(\.hasHiddenOrClosed, !model.hiddenSessions.isEmpty || !model.closedSessions.isEmpty)
+        set(\.hasClosed, !model.closedSessions.isEmpty)
         set(\.descriptions, model.allDescriptions)
         set(\.zoom, model.zoom)
         set(\.hideDone, model.hideDone)

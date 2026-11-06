@@ -7,7 +7,7 @@ import HQKit
 ///   hq ls tasks --tag registry      run one command
 ///   hq status --json                one JSON object on stdout
 ///   hq hook                         a hook event on stdin; always exits 0, never opens the app
-/// Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 app not running.
+/// Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 app not running, 5 a task this session isn't on.
 enum AgentCLI {
     /// nil when the app should open normally.
     static func runIfRequested() -> Int32? {
@@ -102,7 +102,7 @@ enum AgentCLI {
         let error = object["error"] as? JSONObject ?? [:]
         let code = error["code"] as? String ?? "error"
         throw AgentError(code: code, message: error["message"] as? String ?? "unknown error",
-                         exit: ["usage": 2, "not_found": 3, "app_unavailable": 4][code] ?? 1)
+                         exit: ["usage": 2, "not_found": 3, "app_unavailable": 4, "not_mine": 5][code] ?? 1)
     }
 
     /// --name value, --flag, and positional values, checked against the params.
@@ -161,7 +161,7 @@ enum AgentCLI {
             lines.append("  " + command.name.padding(toLength: width, withPad: " ", startingAt: 0) + command.summary)
         }
         lines += ["", "More: hq help <command>, hq help --json (every command as a schema).",
-                  "Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 app not running."]
+                  "Exit codes: 0 ok, 1 error, 2 usage, 3 not found, 4 app not running, 5 a task this session isn't on (--not-mine)."]
         print(lines.joined(separator: "\n"))
         return 0
     }

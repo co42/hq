@@ -67,6 +67,8 @@ nonisolated struct AgentError: Error {
 
     static func usage(_ message: String) -> AgentError { AgentError(code: "usage", message: message, exit: 2) }
     static func notFound(_ message: String) -> AgentError { AgentError(code: "not_found", message: message, exit: 3) }
+    /// A task this session isn't on: refused unless --not-mine.
+    static func notMine(_ message: String) -> AgentError { AgentError(code: "not_mine", message: message, exit: 5) }
     static func invalid(_ message: String) -> AgentError { AgentError(code: "invalid", message: message, exit: 1) }
     static func unavailable(_ message: String) -> AgentError { AgentError(code: "app_unavailable", message: message, exit: 4) }
 
@@ -97,7 +99,11 @@ enum AgentRouter {
                 model.actor = nil
                 model.undoManager?.enableUndoRegistration()
             }
+            let before = command.readOnly || name == "hook" ? nil : model.tasks
             reply = ["ok": true, "result": try command.run(args, model)]
+            if let before {
+                TaskEditLog.shared.record(command: name, session: args.string(AgentCommands.sessionArg), before: before, after: model.tasks)
+            }
         } catch let error as AgentError {
             reply = error.json
         } catch {
