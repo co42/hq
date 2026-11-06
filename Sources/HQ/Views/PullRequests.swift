@@ -44,16 +44,17 @@ struct PullRequestsSection: View {
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: Metric.cardGap))
                 let searching = !model.search.isEmpty
                 layout {
-                    PRGroup(title: "Waiting for your review", items: waiting, total: model.reviewRequests.count,
+                    PRGroup(title: "Reviews", items: waiting, total: model.reviewRequests.count,
                             empty: searching ? "No match for “\(model.search)”." : "Nothing waits for your review.", filtered: searching,
                             allReviewed: !searching) {
                         @Bindable var model = model
-                        // Always there: what the user reviewed shows here even when nothing waits.
-                        Toggle("Show Reviewed", isOn: $model.showReviewed)
-                            .toggleStyle(.button)
-                            .controlSize(.small)
-                            .clickable()
-                            .help("Also list the open pull requests you already reviewed")
+                        // Always there: it brings back what it hides.
+                        FilterPicker(icon: .filter, name: "Reviews", value: model.reviewFilter.title,
+                                     active: model.reviewFilter != .notApproved, help: model.reviewFilter.help) {
+                            Picker("Reviews", selection: $model.reviewFilter) {
+                                ForEach(ReviewFilter.allCases) { Text($0.title).tag($0) }
+                            }
+                        }
                     }
                     PRGroup(title: "Yours", items: mine, total: model.ownPullRequests.count,
                             empty: searching ? "No match for “\(model.search)”." : "No open pull requests.", filtered: searching)
@@ -117,7 +118,12 @@ struct PRGroup<Accessory: View>: View {
                 Text(title).kitType(.titleStrong)
                 Text(filtered ? "\(items.count) of \(total)" : "\(total)").kitType(.meta).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                // As the sections' controls, shorter: as far from the card's edge as from its top.
                 accessory
+                    .buttonStyle(HeaderButtonStyle(compact: true))
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .padding(.trailing, -Space.xs)
             }
             .padding(.horizontal, Space.md)
             .frame(height: Metric.boxRow + Space.xs, alignment: .center)
@@ -284,10 +290,16 @@ struct PRRow: View {
         .uiTestAnchor("pr:\(item.number)")
     }
 
-    /// "Waiting for you", "Reviewed", "Draft", "Approved by noor".
+    /// "Waiting for you", "Approved by you", "You asked for changes", "Reviewed", "Draft", "Approved by noor".
     static func reviewText(_ item: GitHubItem, waits: Bool) -> String {
         func by(_ what: String) -> String { item.reviewers.isEmpty ? what : "\(what) by \(item.reviewers.joined(separator: ", "))" }
-        if item.reviewRequested || item.reviewedByMe { return waits ? "Waiting for you" : "Reviewed" }
+        if item.reviewRequested || item.reviewedByMe {
+            if waits { return "Waiting for you" }
+            if item.myReview == .approved { return "Approved by you" }
+            if item.review == .approved { return by("Approved") }
+            if item.myReview == .changesRequested { return "You asked for changes" }
+            return "Reviewed"
+        }
         if item.state == .draft { return "Draft" }
         switch item.review {
         case .approved: return by("Approved")
@@ -307,7 +319,7 @@ struct PRRow: View {
 
     private func reviewLine(waits: Bool) -> some View {
         let color: AnyShapeStyle = if item.reviewRequested || item.reviewedByMe {
-            waits ? AnyShapeStyle(Ink.needsYouText) : AnyShapeStyle(.secondary)
+            waits ? AnyShapeStyle(Ink.needsYouText) : item.approved ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary)
         } else if item.state == .draft {
             AnyShapeStyle(.secondary)
         } else {

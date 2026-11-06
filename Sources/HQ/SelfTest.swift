@@ -182,6 +182,19 @@ enum SelfTest {
               && model.ghosttyLog.last?.contains("claude --resume \(id)") == true && model.gridSessions.last?.id == id)
         hook("SessionStart", id, #","source":"resume""#)
         check("a resumed session runs again", model.session(id)?.isRunning == true && model.session(id)?.closedAt == nil)
+        // Running in no terminal HQ knows: focusing it opens its modal, which says so, instead of nothing.
+        if var lone = model.session(id) {
+            let saved = lone
+            lone.tty = nil
+            model.put(lone)
+            model.closeModal()
+            let logged = model.ghosttyLog.count
+            model.openFace(id)
+            check("a running session with no known terminal opens its modal on a face click", model.modal == .session(id)
+                  && model.ghosttyLog.count == logged, String(describing: model.modal))
+            model.closeModal()
+            model.put(saved)
+        }
         // The task dropped on a card links to its session.
         model.link(task: 45, session: id)
         check("a task dropped on a card works on its session", model.tasks(of: id).map(\.id) == [45] && model.sessions(on: 45).contains { $0.id == id })
@@ -319,6 +332,24 @@ enum SelfTest {
         let read = Vault.task(at: legacy, modified: .now)
         check("a note still on the story status reads as a todo story", read?.status == .todo && read?.type == .story, "\(String(describing: read))")
         try? FileManager.default.removeItem(at: legacy)
+        // A subtask's note read empty (downloading, mid-write) keeps its last read and its parent, then reads again.
+        let notes = FileManager.default.temporaryDirectory.appending(path: "HQ-selftest-vault-\(UUID().uuidString)")
+        let taskNotes = notes.appending(path: "hq/tasks")
+        try? FileManager.default.createDirectory(at: taskNotes, withIntermediateDirectories: true)
+        let child = taskNotes.appending(path: "T-2.md")
+        try? "---\ntitle: Parent\nlist: overview\n---\n".write(to: taskNotes.appending(path: "T-1.md"), atomically: true, encoding: .utf8)
+        try? "---\ntitle: Child\nparent: T-1\n---\n".write(to: child, atomically: true, encoding: .utf8)
+        let vault = Vault(vault: notes)
+        let first = vault.scan(Vault.Cache())
+        try? "".write(to: child, atomically: false, encoding: .utf8)
+        try? FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(5)], ofItemAtPath: child.path)
+        let early = vault.scan(first.cache)
+        check("a subtask's note read empty keeps its parent and says so", early.tasks.first { $0.id == 2 }?.parent == 1
+              && early.unreadable == ["T-2.md"], "\(early.unreadable) \(String(describing: early.tasks.first { $0.id == 2 }))")
+        try? "---\ntitle: Child, renamed\nparent: T-1\n---\n".write(to: child, atomically: true, encoding: .utf8)
+        let again = vault.scan(early.cache)
+        check("and is read again once it's whole", again.tasks.first { $0.id == 2 }?.title == "Child, renamed" && again.unreadable.isEmpty)
+        try? FileManager.default.removeItem(at: notes)
         let completions = model.titleCompletions("re")
         check("completions after # list statuses first, then projects and tags", completions.first == "review", "\(completions)")
         check("completions find projects by their dashed name", model.titleCompletions("mach").contains("Machine-Identities"), "\(model.titleCompletions("mach"))")
@@ -389,16 +420,45 @@ enum SelfTest {
                   && text.contains("Linked:\n  ") && text.contains("pull/9"), text)
             model.deleteTasks([middle.id])
         }
-        // Waiting for your review leaves out what the user reviewed, unless Show Reviewed.
+        // Reviews: what nobody approved by default, reviewed ones included; what waits; or all.
         let github = model.github
-        let showing = model.showReviewed
+        let filter = model.reviewFilter
         if model.github == nil { model.github = GitHubService.fixture() }
-        model.showReviewed = false
-        let waitingOnly = model.reviewRequests.allSatisfy(model.waitsForReview) && model.allReviewRequests.count > model.reviewRequests.count
-        model.showReviewed = true
-        check("Waiting for your review lists only what waits, the reviewed ones with Show Reviewed",
-              waitingOnly && model.reviewRequests.count == model.allReviewRequests.count, "\(model.allReviewRequests.count) asked")
-        model.showReviewed = showing
+        model.reviewFilter = .notApproved
+        let notApproved = model.reviewRequests
+        model.reviewFilter = .waiting
+        let waiting = model.reviewRequests
+        model.reviewFilter = .all
+        let all = model.reviewRequests
+        check("Reviews lists what nobody approved, reviewed ones too, by default", !notApproved.isEmpty
+              && notApproved.allSatisfy { !$0.approved } && notApproved.contains { !model.waitsForReview($0) }
+              && all.count > notApproved.count, "\(notApproved.count) of \(all.count)")
+        check("Reviews' Waiting for You lists only what waits", !waiting.isEmpty && waiting.allSatisfy(model.waitsForReview)
+              && waiting.count < notApproved.count)
+        check("Reviews lists the latest asked first", all.map(\.reviewAskedAt) == all.map(\.reviewAskedAt).sorted(by: >),
+              all.map { "\($0.number)" }.joined(separator: " "))
+        let mine = model.ownPullRequests
+        check("Yours lists the latest updated first", mine.count > 1 && mine.map(\.updatedAt) == mine.map(\.updatedAt).sorted(by: >),
+              mine.map { "\($0.number)" }.joined(separator: " "))
+        // A new PR selected is seen, as a task is; so is one under a task as a chip.
+        let seenBefore = model.seen
+        if let fresh = (all + mine).first(where: { model.isNew(.github($0.url)) }) {
+            model.selectedItem = ModalRoute.github(fresh.url).selectionKey
+            check("a new PR a click selects is seen", !model.isNew(.github(fresh.url)))
+            model.selectedItem = nil
+        } else {
+            check("a new PR to select", false)
+        }
+        check("a chip's selection key names its link", ModalRoute(selectionKey: ModalRoute.github("https://github.com/a/b/pull/1").chipKey(task: 12))
+              == .github("https://github.com/a/b/pull/1") && ModalRoute(selectionKey: "task:12") == nil)
+        model.seen = seenBefore
+        // hq ls prs: as on the page, every review then Yours, each with its status.
+        let listed = (agent("ls", ["kind": "prs"])["prs"] as? [JSONObject]) ?? []
+        let cards = listed.compactMap { $0["card"] as? String }
+        check("hq ls prs lists Reviews then Yours, as on the page", cards == Array(repeating: "reviews", count: all.count) + Array(repeating: "yours", count: mine.count)
+              && listed.prefix(all.count).compactMap { $0["number"] as? Int } == all.map(\.number)
+              && listed.first?["status"] as? String == all.first.map { PRRow.reviewText($0, waits: model.waitsForReview($0)) }, cards.joined(separator: " "))
+        model.reviewFilter = filter
         model.github = github
         check("the PR section says when GitHub last answered", PullRequestsSection.updated(.now, now: .now) == "Updated just now"
               && PullRequestsSection.updated(.now.addingTimeInterval(-180), now: .now).hasPrefix("Updated 3 min"),

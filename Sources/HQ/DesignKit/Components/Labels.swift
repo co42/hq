@@ -293,7 +293,12 @@ struct CopyableValue: View {
 }
 
 enum Pasteboard {
+    /// The last text copied; test runs keep it here and leave the user's pasteboard alone.
+    static var copied: String?
+
     static func copy(_ text: String) {
+        copied = text
+        guard !Store.isOverridden else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }

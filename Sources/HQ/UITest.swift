@@ -61,7 +61,7 @@ enum UITest {
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
             ]
             for (name, run) in groups where only?.contains(name) ?? true { await run(model, ui) }
             if Store.background { check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
@@ -96,6 +96,8 @@ enum UITest {
 struct Driver {
     let window: NSWindow
     let model: AppModel
+    /// Room kept above and below what a test clicks: the toolbar and the section bar float over the page.
+    static let overlayClearance: CGFloat = 160
 
     /// The window HQ's events go to. In the background it stays behind the user's windows and HQ stays inactive.
     static func front(_ window: NSWindow) {
@@ -159,7 +161,9 @@ struct Driver {
             print("  (no anchor \(name))")
             return nil
         }
-        view.scrollToVisible(view.bounds)
+        // Clear of the toolbar and the section bar that float over the page, as the page lays out after a scroll.
+        view.scrollToVisible(view.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+        window.layoutIfNeeded()
         let frame = view.convert(view.bounds, to: nil)
         return NSPoint(x: frame.midX, y: frame.midY)
     }
@@ -202,20 +206,35 @@ struct Driver {
         await settle(0.3)
     }
 
-    func key(_ key: Key, _ flags: NSEvent.ModifierFlags = []) async {
+    /// A right-click, as the window gets it.
+    func rightClick(_ point: NSPoint?) async {
+        guard let point else { return }
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .rightMouseDown ? 1 : 0)
+        }
+        guard let down = event(.rightMouseDown), let up = event(.rightMouseUp) else { return }
+        NSApp.postEvent(up, atStart: false)
+        NSApp.sendEvent(down)
+        await settle(0.3)
+    }
+
+    /// `held`: a repeat, as a key held down sends.
+    func key(_ key: Key, _ flags: NSEvent.ModifierFlags = [], held: Bool = false) async {
         let arrows: NSEvent.ModifierFlags = [.up, .down, .left, .right].contains(key) ? [.numericPad, .function] : []
         // Shift-Tab types the backtab character.
         let characters = key == .tab && flags.contains(.shift) ? String(UnicodeScalar(UInt8(0x19))) : key.characters
-        await self.key(characters, flags.union(arrows), code: key.code)
+        await self.key(characters, flags.union(arrows), code: key.code, held: held)
     }
 
-    func key(_ characters: String, _ flags: NSEvent.ModifierFlags = [], code: UInt16? = nil) async {
+    func key(_ characters: String, _ flags: NSEvent.ModifierFlags = [], code: UInt16? = nil, held: Bool = false) async {
         let codes: [String: UInt16] = ["\r": 36, " ": 49, "n": 45, "[": 33]
         let code = code ?? codes[characters] ?? 0
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             post(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                   windowNumber: window.windowNumber, context: nil, characters: characters,
-                                  charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+                                  charactersIgnoringModifiers: characters, isARepeat: held, keyCode: code))
         }
         await settle(0.05)
     }

@@ -46,6 +46,7 @@ final class GitHubService {
             moved.updatedAt += shift
             moved.lastCommitAt = moved.lastCommitAt.map { $0 + shift }
             moved.myReviewAt = moved.myReviewAt.map { $0 + shift }
+            moved.reviewRequestedAt = moved.reviewRequestedAt.map { $0 + shift }
             return moved
         }
         return snapshot

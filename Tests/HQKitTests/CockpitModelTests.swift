@@ -171,6 +171,23 @@ private func fixture() throws -> GitHubSnapshot {
     #expect(pushed.waitsForReview(markedReviewedAt: nil))
 }
 
+@Test func githubReviewAskedAndApproved() throws {
+    let items = try fixture().items
+    func at(_ time: String) -> Date? { ISO8601DateFormatter().date(from: "2026-11-04T\(time):00Z") }
+    // The user's own request, not another user's made later.
+    let cdn = try #require(items.first { $0.number == 512 })
+    #expect(cdn.reviewRequestedAt == at("13:58") && cdn.myReview == .none && !cdn.approved)
+    // A team's request when none is the user's.
+    let tokio = try #require(items.first { $0.number == 430 })
+    #expect(tokio.reviewRequestedAt == at("15:32"))
+    // Approved by the user: approved, though GitHub still requires a review.
+    let cache = try #require(items.first { $0.number == 433 })
+    #expect(cache.reviewedByMe && cache.review == .required && cache.myReview == .approved && cache.approved)
+    #expect(cache.reviewAskedAt == at("09:00"))
+    let shard = try #require(items.first { $0.number == 233 })
+    #expect(shard.myReview == .none && !shard.approved)
+}
+
 @Test func githubOwnPullRequests() throws {
     let items = try fixture().items
     let approved = try #require(items.first { $0.number == 418 })

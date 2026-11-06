@@ -36,6 +36,26 @@ struct StartDraft: Hashable {
 }
 
 /// The Backlog's filter bar.
+/// Which reviews the Pull Requests' Reviews card lists.
+enum ReviewFilter: String, CaseIterable, Identifiable {
+    case notApproved, waiting, all
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .notApproved: "Not Approved"
+        case .waiting: "Waiting for You"
+        case .all: "All"
+        }
+    }
+    var help: String {
+        switch self {
+        case .notApproved: "Open pull requests you review that nobody approved yet, you included"
+        case .waiting: "Only those that wait for your review"
+        case .all: "Every open pull request you review, approved ones too"
+        }
+    }
+}
+
 struct BacklogFilter: Hashable {
     enum Status: String, CaseIterable, Identifiable {
         case open, todo, doing, review, done, any
@@ -178,7 +198,7 @@ final class AppModel {
         didSet { remember(folded.map(\.rawValue).sorted(), as: "page.folded"); syncMenu() }
     }
     var allDescriptions: Set<TaskList> = AppModel.storedLists("outline.descriptions") {
-        didSet { remember(allDescriptions.map(\.rawValue).sorted(), as: "outline.descriptions"); syncMenu() }
+        didSet { remember(allDescriptions.map(\.rawValue).sorted(), as: "outline.descriptions"); hiddenDescriptions = []; syncMenu() }
     }
     /// View › Zoom, remembered: every size scales with it.
     var zoom: CGFloat = {
@@ -191,9 +211,9 @@ final class AppModel {
             remember(Double(zoom), as: "view.zoom")
         }
     }
-    /// Waiting for your review also lists the PRs the user already reviewed, remembered.
-    var showReviewed = UserDefaults.standard.bool(forKey: "prs.showReviewed") {
-        didSet { remember(showReviewed, as: "prs.showReviewed") }
+    /// Which reviews the Reviews card lists, remembered.
+    var reviewFilter = UserDefaults.standard.string(forKey: "prs.reviewFilter").flatMap(ReviewFilter.init(rawValue:)) ?? .notApproved {
+        didSet { remember(reviewFilter.rawValue, as: "prs.reviewFilter") }
     }
     /// GitHub is being asked: the PR section's Refresh turns into a spinner.
     var githubPolling = false
@@ -207,6 +227,8 @@ final class AppModel {
     }
     /// Descriptions shown one by one.
     var shownDescriptions: Set<Int> = []
+    /// Descriptions hidden one by one while their list shows them all.
+    var hiddenDescriptions: Set<Int> = []
     /// The description whose markdown is in an editor in the outline.
     var editingDescription: Int?
     /// Folded tasks, remembered by key.
@@ -228,7 +250,14 @@ final class AppModel {
     var selectedTasks: [Int] = [] { didSet { syncMenu() } }
     var selectedSession: String? { didSet { syncMenu() } }
     /// A PR, a chip or a modal row a click selected; a double-click opens it.
-    var selectedItem: String? { didSet { if selectedItem != oldValue { syncMenu() } } }
+    var selectedItem: String? {
+        didSet {
+            guard selectedItem != oldValue else { return }
+            syncMenu()
+            // Selected, a new PR, file or artifact is seen, as a task is.
+            if let route = selectedItem.flatMap(ModalRoute.init(selectionKey:)) { markSeen(route) }
+        }
+    }
     /// The outline's rows or a title have the keyboard: the Task menu's keys follow.
     var outlineKeyboard = OutlineKeyboard.none { didSet { syncMenu() } }
     /// New Task: the quick-add line of this list takes the keyboard.
@@ -298,6 +327,8 @@ final class AppModel {
     @ObservationIgnored var vaultCache = Vault.Cache()
     @ObservationIgnored var vaultScanning = false
     @ObservationIgnored var vaultRescanAgain = false
+    /// Task notes the last scan couldn't read, logged once.
+    @ObservationIgnored var vaultUnreadable: Set<String> = []
     /// Set while a scan of the vault replaces tasks and files: nothing to write back.
     @ObservationIgnored var readingVault = false
     /// When HQ last wrote each note (by path).
@@ -348,7 +379,7 @@ final class AppModel {
             collapsed = []
             hideDone = []
             allDescriptions = []
-            showReviewed = false
+            reviewFilter = .notApproved
         }
         clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect().sink { [weak self] date in
             MainActor.assumeIsolated {
@@ -544,7 +575,7 @@ final class MenuState: ObservableObject {
     @Published private(set) var sessionClosable = false
     @Published private(set) var hasHiddenOrClosed = false
     @Published private(set) var github = false
-    @Published private(set) var showReviewed = false
+    @Published private(set) var reviewFilter = ReviewFilter.notApproved
     @Published private(set) var pinnedOnly = false
     @Published private(set) var descriptions: Set<TaskList> = []
     @Published private(set) var zoom: CGFloat = 1
@@ -589,7 +620,7 @@ final class MenuState: ObservableObject {
         set(\.folded, model.folded)
         set(\.inModal, modalTask != nil)
         set(\.github, model.github != nil)
-        set(\.showReviewed, model.showReviewed)
+        set(\.reviewFilter, model.reviewFilter)
         set(\.pinnedOnly, model.pinnedOnly)
         set(\.hasHiddenOrClosed, !model.hiddenSessions.isEmpty || !model.closedSessions.isEmpty)
         set(\.descriptions, model.allDescriptions)

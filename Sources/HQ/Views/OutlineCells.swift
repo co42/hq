@@ -14,7 +14,13 @@ final class OutlineRowView: NSTableRowView {
         didSet { if isSelected != oldValue { for case let cell as TaskCell in subviews { cell.needsLayout = true } } }
     }
     /// Space above a task's line, outside its highlight.
-    var gap: CGFloat = 0 { didSet { if gap != oldValue { needsDisplay = true } } }
+    var gap: CGFloat = 0 {
+        didSet {
+            guard gap != oldValue else { return }
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
     private(set) var hovered = false
 
     override init(frame: NSRect) {
@@ -61,6 +67,17 @@ final class OutlineRowView: NSTableRowView {
     override func layout() {
         super.layout()
         spanCells()
+        placeDisclosure()
+    }
+
+    /// The disclosure on the title's line, under the gap: AppKit leaves it where it was when a row's gap changes.
+    private func placeDisclosure() {
+        guard isTask, let button = subviews.first(where: { $0.identifier == NSOutlineView.disclosureButtonIdentifier }) else { return }
+        let line = Metric.outlineRow
+        let y = isFlipped ? gap : bounds.height - gap - line
+        if button.frame.minY != y || button.frame.height != line {
+            button.frame = NSRect(x: button.frame.minX, y: y, width: button.frame.width, height: line)
+        }
     }
 
     /// Text keeps its colors on a selected row.
@@ -151,16 +168,19 @@ final class GlyphButton: TaskGlyphView {
 
 /// A task's progress: a quiet ring that fills green as what's under it gets done, a green disc when all is.
 final class ProgressRingView: NSView {
-    private(set) var done = 0
-    private(set) var total = 0
+    /// Everything under the task, every level, by status.
+    private(set) var counts: [TaskStatus: Int] = [:]
+    var total: Int { counts.values.reduce(0, +) }
+    /// Clockwise from twelve, most finished first; todo is the track left over.
+    private static let segments: [(status: TaskStatus, word: String)] = [(.done, "done"), (.review, "in review"), (.doing, "doing"), (.todo, "to do")]
 
     override var isFlipped: Bool { true }
 
-    func show(done: Int, of total: Int) {
-        guard done != self.done || total != self.total else { return }
-        self.done = done
-        self.total = total
-        toolTip = total == 0 ? nil : "\(done) of \(total) done"
+    func show(_ statuses: [TaskStatus]) {
+        let counts = Dictionary(statuses.map { ($0, 1) }, uniquingKeysWith: +)
+        guard counts != self.counts else { return }
+        self.counts = counts
+        toolTip = total == 0 ? nil : Self.segments.compactMap { part in counts[part.status].map { "\($0) \(part.word)" } }.joined(separator: ", ")
         setAccessibilityLabel(toolTip)
         needsDisplay = true
     }
@@ -174,7 +194,7 @@ final class ProgressRingView: NSView {
         let stroke = Metric.glyphStroke
         let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         let ring = rect.insetBy(dx: stroke / 2, dy: stroke / 2)
-        if done >= total {
+        if counts[.done] == total {
             ctx.setFillColor(Ink.doneNS.cgColor)
             ctx.fillEllipse(in: rect)
             return
@@ -182,13 +202,16 @@ final class ProgressRingView: NSView {
         ctx.setLineWidth(stroke)
         ctx.setStrokeColor(Ink.quietMarkNS.cgColor)
         ctx.strokeEllipse(in: ring)
-        guard done > 0 else { return }
-        ctx.setStrokeColor(Ink.doneNS.cgColor)
-        ctx.setLineCap(.round)
         // Flipped: angles turn clockwise, from twelve o'clock.
-        ctx.addArc(center: CGPoint(x: ring.midX, y: ring.midY), radius: ring.width / 2, startAngle: -.pi / 2,
-                   endAngle: -.pi / 2 + 2 * .pi * CGFloat(done) / CGFloat(total), clockwise: false)
-        ctx.strokePath()
+        var start = -CGFloat.pi / 2
+        for (status, color) in [(TaskStatus.done, Ink.doneNS), (.review, Ink.needsYouNS), (.doing, Ink.doingNS)] {
+            guard let count = counts[status], count > 0 else { continue }
+            let end = start + 2 * .pi * CGFloat(count) / CGFloat(total)
+            ctx.setStrokeColor(color.cgColor)
+            ctx.addArc(center: CGPoint(x: ring.midX, y: ring.midY), radius: ring.width / 2, startAngle: start, endAngle: end, clockwise: false)
+            ctx.strokePath()
+            start = end
+        }
     }
 }
 
@@ -427,13 +450,12 @@ final class TaskCell: NSTableCellView {
     let project = ProjectButton()
     /// The tags, as colored chips.
     let labels = LabelStripView()
-    /// A hidden description's first line.
-    /// A small mark after the labels when the task has a description it doesn't show: a click shows it.
+    /// After the labels, the description's toggle: when the task has one, and under the pointer to write one.
     let note = HandButton()
     let review = PillView()
     /// Everything under it, as a ring that fills as it gets done.
     let progress = ProgressRingView()
-    /// It has a description, not shown: the note mark shows.
+    /// It has a description: the toggle shows at rest.
     private var hasNote = false
     /// Its row is selected: the key shows, as under the pointer.
     private var selected: Bool { (superview as? NSTableRowView)?.isSelected ?? false }
@@ -443,6 +465,7 @@ final class TaskCell: NSTableCellView {
     /// The task's PRs, files, artifacts and linked tasks, on one line under the title.
     private(set) var linksHost: NSHostingView<AnyView>?
     private var shownLinks: (task: Int, routes: [ModalRoute])?
+    private let chipFrames = ChipFrames()
     private var hovered = false
     private var id: Int?
     private weak var coordinator: OutlineCoordinator?
@@ -473,16 +496,13 @@ final class TaskCell: NSTableCellView {
         note.isBordered = false
         note.image = KitIcon.description.nsImage(.mark, weight: .semibold)
         note.contentTintColor = Ink.secondaryTextNS
-        note.toolTip = "Show the description (⇧Return)"
-        note.setAccessibilityLabel("Show the description")
         note.target = self
         note.action = #selector(toggleDescription)
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.alignment = .right
         review.tone = .needsYou
-        for (icon, help, action) in [(KitIcon.description, "Show or hide the description (⇧Return)", #selector(toggleDescription)),
-                                     (.new, "Add a subtask (⇧N)", #selector(addSubtask)),
+        for (icon, help, action) in [(KitIcon.new, "Add a subtask (⇧N)", #selector(addSubtask)),
                                      (.toBacklog, "Move to the Backlog (⇧⌘B)", #selector(toggleList)),
                                      (.trash, "Delete the task (⌘⌫)", #selector(deleteTask))] {
             let button = HandButton()
@@ -525,7 +545,7 @@ final class TaskCell: NSTableCellView {
         project.projects = { [weak model] in model?.allProjects ?? [] }
         project.onPick = { [weak model] choice in model?.setProject(id, choice) }
         labels.labels = task.tags.map { LabelStripView.Label(text: $0, color: model.labelColor(.tag, $0), icon: LabelStripView.tagIcon) }
-        hasNote = !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.descriptionShownInOutline(id)
+        hasNote = !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         review.text = task.status == .review ? "Review" + (task.review.map { ": \($0)" } ?? "") : ""
         // Quiet in the Backlog: it waits for later, not for the user.
         let tone: PillView.Tone = model.needsYou(.task(id)) ? .needsYou : .quiet
@@ -540,7 +560,8 @@ final class TaskCell: NSTableCellView {
         } else if shownLinks?.task != id || shownLinks?.routes != outputs || linksHost == nil {
             // The chips follow the model themselves; a new view only when the links change.
             shownLinks = (id, outputs)
-            let view = AnyView(LinksLine(task: id, routes: outputs).handCursors().environment(model))
+            chipFrames.frames = [:]
+            let view = AnyView(LinksLine(task: id, routes: outputs, frames: chipFrames).handCursors().environment(model))
             if let linksHost { linksHost.rootView = view } else {
                 let host = NSHostingView(rootView: view)
                 host.sizingOptions = []
@@ -550,14 +571,16 @@ final class TaskCell: NSTableCellView {
         }
         // Every level under it, done over all.
         let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
-        progress.show(done: below.filter { $0.status == .done }.count, of: below.count)
+        progress.show(below.map(\.status))
         key.stringValue = task.key
         let inBacklog = model.list(of: id) == .backlog
-        actions[2].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
-        actions[2].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
-        actions[2].setAccessibilityLabel(inBacklog ? "Move to Tasks" : "Move to Backlog")
+        actions[1].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
+        actions[1].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
+        actions[1].setAccessibilityLabel(inBacklog ? "Move to Tasks" : "Move to Backlog")
         shownDescription = coordinator.descriptionShown(id)
-        actions[0].contentTintColor = shownDescription ? Ink.accentNS : Ink.secondaryTextNS
+        note.contentTintColor = shownDescription ? Ink.accentNS : hasNote ? Ink.secondaryTextNS : Ink.quietMarkNS
+        note.toolTip = shownDescription ? "Hide the description (⇧Return)" : hasNote ? "Show the description (⇧Return)" : "Write a description (⇧Return)"
+        note.setAccessibilityLabel(shownDescription ? "Hide the description" : hasNote ? "Show the description" : "Write a description")
         if shownDescription {
             let view = AnyView(DescriptionBlock(id: id).handCursors().environment(model))
             if let descriptionHost { descriptionHost.rootView = view } else {
@@ -603,6 +626,14 @@ final class TaskCell: NSTableCellView {
     func setHovered(_ value: Bool) {
         hovered = value
         needsLayout = true
+    }
+
+    /// The link chip under a point in window coordinates, with its task.
+    func link(at point: NSPoint) -> (route: ModalRoute, task: Int)? {
+        guard let linksHost, let id else { return nil }
+        let local = linksHost.convert(point, from: nil)
+        guard linksHost.bounds.contains(local), let route = chipFrames.route(at: local) else { return nil }
+        return (route, id)
     }
 
     /// The status glyph or the project under a click, in window coordinates.
@@ -670,7 +701,7 @@ final class TaskCell: NSTableCellView {
             labels.frame = NSRect(x: tagsX, y: chipY, width: min(tagsWidth, right - tagsX), height: Metric.chipHeight)
             x = tagsX + labels.drawnWidth + Space.sm
         }
-        note.isHidden = !hasNote || editing || right - x < Metric.rowAction
+        note.isHidden = !(hasNote || shownDescription || hovered) || editing || right - x < Metric.rowAction
         if !note.isHidden {
             note.frame = NSRect(x: x - Space.xs, y: top + (line - Metric.rowAction) / 2, width: Metric.rowAction, height: Metric.rowAction)
         }
@@ -1022,12 +1053,14 @@ private struct BacklogFilterMenu: View {
     }
 }
 
-/// One filter: its icon and its value as a pop-up; accent while it narrows the list.
-private struct FilterPicker<Choices: View>: View {
+/// One filter: its icon and its value as a pop-up; accent while it's off its default.
+struct FilterPicker<Choices: View>: View {
     let icon: KitIcon
     let name: String
     let value: String
     let active: Bool
+    /// The tooltip; "Status: Open" without one.
+    var help: String?
     @ViewBuilder let choices: Choices
 
     var body: some View {
@@ -1040,7 +1073,7 @@ private struct FilterPicker<Choices: View>: View {
         }
         .fixedSize()
         .clickable()
-        .help("\(name): \(value)")
+        .help(help.map { "\(name): \(value). \($0)" } ?? "\(name): \(value)")
         .accessibilityLabel("\(name), \(value)")
     }
 }
@@ -1172,7 +1205,7 @@ struct OutputChip: View {
     }
 }
 
-/// A chip under a task's row shows its menu on a click; elsewhere a click selects and a double-click opens.
+/// A click selects a chip and a double-click opens it; under a task's row the outline shows its menu on a right-click.
 private struct ChipClick: ViewModifier {
     let route: ModalRoute
     let task: Int?
@@ -1181,12 +1214,7 @@ private struct ChipClick: ViewModifier {
     func body(content: Content) -> some View {
         if let task {
             content
-                .contentShape(Rectangle())
-                .onTapGesture { FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), .zero, nil) }
-                .contextMenu { LinkMenu(route: route, task: task) }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isButton)
-                .accessibilityAction { model.open(route) }
+                .selectOpen(route.chipKey(task: task), in: .tasks) { model.open(route, push: model.modal != nil) }
                 .accessibilityAction(named: "Show Menu") { FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), .zero, nil) }
         } else {
             content.selectOpen(route.selectionKey) { model.open(route, push: model.modal != nil) }
@@ -1242,15 +1270,28 @@ struct LinkMenu: View {
 struct LinksLine: View {
     let task: Int
     let routes: [ModalRoute]
+    /// Where each chip sits, for the outline's right-click.
+    let frames: ChipFrames
 
     var body: some View {
         OneLineLayout(spacing: Space.sm) {
             ForEach(routes, id: \.self) { route in
                 OutputChip(route: route, compact: true, task: task)
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChipFrames.space)) } action: { frames.frames[route] = $0 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .coordinateSpace(.named(ChipFrames.space))
     }
+}
+
+/// The link chips' frames in their line, top-left origin like the line's flipped host.
+@MainActor
+final class ChipFrames {
+    nonisolated static let space = "links"
+    var frames: [ModalRoute: CGRect] = [:]
+
+    func route(at point: CGPoint) -> ModalRoute? { frames.first { $0.value.contains(point) }?.key }
 }
 
 /// Views left to right on one line; those that don't fit aren't shown.

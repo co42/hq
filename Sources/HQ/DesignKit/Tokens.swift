@@ -200,8 +200,9 @@ nonisolated enum Metric {
     /// Below this window width the page takes the narrow margins.
     static var narrowWindow: CGFloat { 900 * Zoom.factor }
     /// Session cards: fixed height, columns by content width.
-    static var card: CGFloat { 100 * Zoom.factor }
+    static var card: CGFloat { 68 * Zoom.factor }
     static var cardGap: CGFloat { 12 * Zoom.factor }
+    static var fourColumns: CGFloat { 1200 * Zoom.factor }
     static var threeColumns: CGFloat { 1060 * Zoom.factor }
     static var twoColumns: CGFloat { 692 * Zoom.factor }
     /// A session card's state capsule.

@@ -10,7 +10,7 @@ struct SessionGrid: NSViewRepresentable {
     @Environment(AppModel.self) private var model
 
     static func columns(for width: CGFloat) -> Int {
-        width >= Metric.threeColumns ? 3 : width >= Metric.twoColumns ? 2 : 1
+        width >= Metric.fourColumns ? 4 : width >= Metric.threeColumns ? 3 : width >= Metric.twoColumns ? 2 : 1
     }
 
     static func height(count: Int, width: CGFloat) -> CGFloat {

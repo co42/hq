@@ -1,8 +1,8 @@
 import HQKit
 import SwiftUI
 
-/// A session on the grid (DESIGN.md §5): a raised card with its face, name and place, then its state in a
-/// capsule and how long it has lasted. It glows when it needs the user (red when failed) or is done unread, and the
+/// A session on the grid (DESIGN.md §5): a raised card on one row: its face; its name and how long it has lasted;
+/// its place and its state in a capsule. It glows when it needs the user (red when failed) or is done unread, and the
 /// glow breathes until the user looks. Hover lifts it and shows Hide.
 struct SessionCard: View {
     let session: SessionItem
@@ -21,47 +21,26 @@ struct SessionCard: View {
     private var hovered: Bool { forced.map { $0 == .hover } ?? hovering }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: Space.md) {
-                SessionFace(session, size: Metric.faceCard)
-                VStack(alignment: .leading, spacing: Metric.lineGap) {
+        // One row: the name with how long it has lasted, then its place with its state.
+        HStack(alignment: .center, spacing: Space.md) {
+            SessionFace(session, size: Metric.faceCard)
+            VStack(alignment: .leading, spacing: Space.xs) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                     Text(session.name)
                         .kitType(session.status.isNew ? .titleBold : .titleStrong)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    corner
+                }
+                HStack(spacing: Space.sm) {
                     Text(session.place)
                         .kitType(.secondary)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                }
-                .padding(.top, Metric.lineGap + 2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                ZStack(alignment: .topTrailing) {
-                    if hovered {
-                        Button("Hide", icon: .hide, action: hide)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.plain)
-                            .imageScale(.small)
-                            .foregroundStyle(.secondary)
-                            .frame(width: Metric.rowAction + Space.xs, height: Metric.rowAction + Space.xs)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                            .clickable()
-                            .help("Hide from the overview; the session keeps running")
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    }
-                }
-                .frame(minWidth: Metric.rowAction + Space.xs, alignment: .topTrailing)
-            }
-            Spacer(minLength: Space.sm)
-            HStack(spacing: Space.sm) {
-                statePill
-                Spacer(minLength: 0)
-                if session.isRunning {
-                    Text(Elapsed.short(from: session.status.since, to: now))
-                        .kitType(.meta)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    statePill.fixedSize()
                 }
             }
         }
@@ -83,6 +62,30 @@ struct SessionCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(session.name), \(session.reason ?? stateText)")
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// How long it has lasted; Hide in its place under the pointer.
+    private var corner: some View {
+        Text(session.isRunning ? Elapsed.short(from: session.status.since, to: now) : "")
+            .kitType(.meta)
+            .foregroundStyle(.secondary)
+            .contentTransition(.numericText())
+            .fixedSize()
+            .opacity(hovered ? 0 : 1)
+            .overlay(alignment: .trailing) {
+                if hovered {
+                    Button("Hide", icon: .hide, action: hide)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .imageScale(.small)
+                        .foregroundStyle(.secondary)
+                        .frame(width: Metric.rowAction + Space.xs, height: Metric.rowAction + Space.xs)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                        .clickable()
+                        .help("Hide from the overview; the session keeps running")
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
     }
 
     /// Needs the user (orange, red when failed) or done unread (blue): the card's glow.

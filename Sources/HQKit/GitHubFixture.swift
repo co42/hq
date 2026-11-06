@@ -16,6 +16,8 @@ public enum GitHubFixture {
          "updatedAt": "2026-11-04T14:00:00Z", "body": "Merges adjacent range requests before they reach the chunk bridge.\n\nGoes with the prefetch window work.",
          "author": {"login": "noor"}, "repository": {"nameWithOwner": "acme/static-cdn"}, "headRefName": "noor/coalesce-ranges",
          "reviewDecision": "REVIEW_REQUIRED", "latestReviews": {"nodes": []},
+         "timelineItems": {"nodes": [{"createdAt": "2026-11-04T13:58:00Z", "requestedReviewer": {"__typename": "User", "login": "alex"}},
+                                    {"createdAt": "2026-11-04T14:30:00Z", "requestedReviewer": {"__typename": "User", "login": "theo"}}]},
          "commits": {"nodes": [{"commit": {"committedDate": "2026-11-04T13:55:00Z", "statusCheckRollup": {"state": "SUCCESS",
            "contexts": {"nodes": [{"__typename": "CheckRun", "name": "ci / test", "conclusion": "SUCCESS", "status": "COMPLETED"},
                                   {"__typename": "CheckRun", "name": "ci / lint", "conclusion": "SUCCESS", "status": "COMPLETED"}]}}}}]}},
@@ -24,6 +26,7 @@ public enum GitHubFixture {
          "updatedAt": "2026-11-04T15:35:00Z", "body": "Routine bump, no API changes.",
          "author": {"login": "theo"}, "repository": {"nameWithOwner": "acme/registry"}, "headRefName": "theo/tokio-1.48",
          "reviewDecision": "REVIEW_REQUIRED", "latestReviews": {"nodes": []},
+         "timelineItems": {"nodes": [{"createdAt": "2026-11-04T15:32:00Z", "requestedReviewer": {"__typename": "Team"}}]},
          "commits": {"nodes": [{"commit": {"committedDate": "2026-11-04T15:30:00Z", "statusCheckRollup": {"state": "PENDING",
            "contexts": {"nodes": [{"__typename": "CheckRun", "name": "ci / test", "conclusion": null, "status": "IN_PROGRESS"}]}}}}]}},
         {"__typename": "PullRequest", "url": "https://github.com/acme/storage-core/pull/233", "number": 233,
@@ -32,7 +35,18 @@ public enum GitHubFixture {
          "author": {"login": "ines"}, "repository": {"nameWithOwner": "acme/storage-core"}, "headRefName": "ines/compaction-metrics",
          "reviewDecision": "REVIEW_REQUIRED",
          "latestReviews": {"nodes": [{"author": {"login": "alex"}, "state": "COMMENTED", "submittedAt": "2026-11-04T12:00:00Z"}]},
+         "timelineItems": {"nodes": [{"createdAt": "2026-11-04T10:30:00Z", "requestedReviewer": {"__typename": "User", "login": "alex"}}]},
          "commits": {"nodes": [{"commit": {"committedDate": "2026-11-04T11:00:00Z", "statusCheckRollup": {"state": "SUCCESS", "contexts": {"nodes": []}}}}]}}
+      ]},
+      "reviewed": {"nodes": [
+        {"__typename": "PullRequest", "url": "https://github.com/acme/registry/pull/433", "number": 433,
+         "title": "Cache manifest lookups", "isDraft": false, "state": "OPEN", "merged": false,
+         "updatedAt": "2026-11-04T09:40:00Z", "body": "Caches manifest lookups for a minute.",
+         "author": {"login": "noor"}, "repository": {"nameWithOwner": "acme/registry"}, "headRefName": "noor/manifest-cache",
+         "reviewDecision": "REVIEW_REQUIRED",
+         "latestReviews": {"nodes": [{"author": {"login": "alex"}, "state": "APPROVED", "submittedAt": "2026-11-04T09:30:00Z"}]},
+         "timelineItems": {"nodes": [{"createdAt": "2026-11-04T09:00:00Z", "requestedReviewer": {"__typename": "User", "login": "alex"}}]},
+         "commits": {"nodes": [{"commit": {"committedDate": "2026-11-04T08:50:00Z", "statusCheckRollup": {"state": "SUCCESS", "contexts": {"nodes": []}}}}]}}
       ]},
       "mine": {"nodes": [
         {"__typename": "PullRequest", "url": "https://github.com/acme/registry/pull/418", "number": 418,

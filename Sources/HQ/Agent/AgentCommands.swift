@@ -56,7 +56,7 @@ enum AgentCommands {
                     "sessions": others.map { $0.agentJSON(model) }]
         },
         AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts or projects.",
-                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs, files, artifacts or projects"),
+                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts or projects"),
                               .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
                               .init(name: "all", kind: .boolean, help: "include closed sessions and done tasks"),
@@ -86,7 +86,17 @@ enum AgentCommands {
                         && (args.string("tag").map { tag in task.tags.contains(tag.replacingOccurrences(of: "#", with: "")) } ?? true)
                 }.map { $0.agentJSON(model) }
             case "prs":
-                items = ((model.github?.items ?? []).filter { all || $0.state == .open || $0.state == .draft }).map(\.agentJSON)
+                // As on the page: Reviews (every one, whatever its filter), then Yours, then the other linked ones.
+                let reviews = model.allReviewRequests, yours = model.ownPullRequests
+                let shown = Set((reviews + yours).map(\.url))
+                let others = (model.github?.items ?? []).filter { !shown.contains($0.url) && (all || $0.state == .open || $0.state == .draft) }
+                @MainActor func json(_ item: GitHubItem, card: String?) -> JSONObject {
+                    var json = item.agentJSON
+                    json["card"] = card
+                    if card != nil { json["status"] = PRRow.reviewText(item, waits: model.waitsForReview(item)) }
+                    return json
+                }
+                items = reviews.map { json($0, card: "reviews") } + yours.map { json($0, card: "yours") } + others.map { json($0, card: nil) }
             case "files":
                 items = model.files.sorted { $0.modified > $1.modified }.map(\.agentJSON)
             case "artifacts":
@@ -496,6 +506,7 @@ extension AppModel {
 extension GitHubItem {
     var agentJSON: JSONObject {
         ["url": url, "title": title, "kind": kind.rawValue, "state": state.rawValue, "repo": repo, "number": number,
-         "author": author, "review": review.rawValue, "checks": checks.rawValue, "reviewRequested": reviewRequested]
+         "author": author, "review": review.rawValue, "checks": checks.rawValue, "reviewRequested": reviewRequested,
+         "approved": approved, "updated": updatedAt.formatted(.iso8601)]
     }
 }

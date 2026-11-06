@@ -4,9 +4,11 @@ import SwiftUI
 /// one height, one corner, one fill. SectionHeader applies the styles to everything it holds.
 struct HeaderButtonStyle: ButtonStyle {
     var on = false
+    /// On a card's title line: shorter, as tall as a state pill.
+    var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        HeaderControl(on: on, pressed: configuration.isPressed) { configuration.label }
+        HeaderControl(on: on, pressed: configuration.isPressed, height: compact ? Metric.statePill : Metric.headerControl) { configuration.label }
     }
 }
 
@@ -22,6 +24,7 @@ struct HeaderToggleStyle: ToggleStyle {
 private struct HeaderControl<Label: View>: View {
     let on: Bool
     let pressed: Bool
+    let height: CGFloat
     @ViewBuilder let label: Label
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
@@ -35,7 +38,7 @@ private struct HeaderControl<Label: View>: View {
             .lineLimit(1)
             .foregroundStyle(on ? AnyShapeStyle(Ink.onAccent) : hovering && enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .padding(.horizontal, Space.sm + 2)
-            .frame(minWidth: Metric.headerControl, minHeight: Metric.headerControl, maxHeight: Metric.headerControl)
+            .frame(minWidth: height, minHeight: height, maxHeight: height)
             .contentShape(Capsule())
             // Glass: the section's controls float like a toolbar's; a toggle that is on is tinted with the accent.
             .glassEffect(on ? .regular.tint(Ink.accent).interactive() : .regular.interactive(), in: Capsule())

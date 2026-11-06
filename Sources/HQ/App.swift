@@ -201,11 +201,8 @@ enum Store {
     /// How often a background run was activated anyway; each time it handed the focus straight back.
     static var stolenFocus = 0
 
-    /// Where test runs put their window: the user's second screen when there is one and the window fits its width
-    /// (and its height too with `whole`, as snapshots need), else nil.
-    static func testScreen(for size: CGSize, whole: Bool = false) -> NSScreen? {
-        NSScreen.screens.dropFirst().first { $0.visibleFrame.width >= size.width && (!whole || $0.visibleFrame.height >= size.height) }
-    }
+    /// Where test runs put their window: the user's second screen when there is one, else nil.
+    static var testScreen: NSScreen? { NSScreen.screens.dropFirst().first }
 
     /// A test run's window moves to the second screen when there is one, at its right edge, narrowed to fit it.
     static func moveToTestScreen(_ window: NSWindow) {

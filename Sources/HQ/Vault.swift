@@ -23,16 +23,27 @@ nonisolated struct Vault: Sendable {
     // MARK: Reading
 
     /// Every task and file. Off the main thread: an iCloud file that isn't downloaded yet blocks.
-    func scan(_ cache: Cache) -> (tasks: [TaskItem], files: [FileItem], cache: Cache) {
+    /// A task note that can't be read (still downloading, or caught empty mid-write) keeps its last read, uncached,
+    /// and is named in `unreadable` so the caller reads it again.
+    func scan(_ cache: Cache) -> (tasks: [TaskItem], files: [FileItem], cache: Cache, unreadable: [String]) {
         var next = Cache()
         var tasks: [TaskItem] = []
         var files: [FileItem] = []
+        var unreadable: [String] = []
         for url in Self.notes(in: tasksDirectory, recursive: false) {
             let modified = Self.modified(url)
-            let item = cache.tasks[url.path].flatMap { $0.0 == modified ? $0.1 : nil } ?? Self.task(at: url, modified: modified)
-            if let item {
+            if let cached = cache.tasks[url.path], cached.0 == modified {
+                tasks.append(cached.1)
+                next.tasks[url.path] = cached
+            } else if let item = Self.task(at: url, modified: modified) {
                 tasks.append(item)
                 next.tasks[url.path] = (modified, item)
+            } else if Self.taskNumber(url) != nil {
+                unreadable.append(url.lastPathComponent)
+                if let cached = cache.tasks[url.path] {
+                    tasks.append(cached.1)
+                    next.tasks[url.path] = cached
+                }
             }
         }
         for url in Self.notes(in: filesDirectory, recursive: true) {
@@ -41,13 +52,21 @@ nonisolated struct Vault: Sendable {
             files.append(item)
             next.files[url.path] = (modified, item)
         }
-        return (tasks, files, next)
+        return (tasks, files, next, unreadable)
     }
 
+    /// 12 for `T-12.md`.
+    static func taskNumber(_ url: URL) -> Int? {
+        let name = url.deletingPathExtension().lastPathComponent
+        return name.hasPrefix("T-") ? Int(name.dropFirst(2)) : nil
+    }
+
+    /// Nil for a note that isn't a task, or that can't be read now: HQ never writes an empty task note.
     static func task(at url: URL, modified: Date) -> TaskItem? {
         let name = url.deletingPathExtension().lastPathComponent
-        guard name.hasPrefix("T-"), let number = Int(name.dropFirst(2)) else { return nil }
-        let note = FrontMatter((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+        guard let number = taskNumber(url), let text = try? String(contentsOf: url, encoding: .utf8),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let note = FrontMatter(text)
         let parent = note.string("parent").flatMap(TaskItem.key)
         // Story was a status: such a note reads as a todo story.
         let story = note.string("status")?.trimmingCharacters(in: .whitespaces).lowercased() == "story"

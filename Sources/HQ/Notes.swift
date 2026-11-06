@@ -63,8 +63,17 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             rollDoneTasks()
+            // A note read too early (downloading, mid-write) keeps its last read: read it again soon.
+            let unreadable = Set(result.unreadable)
+            if unreadable != vaultUnreadable {
+                if !unreadable.isEmpty { AppLog.write("vault: couldn't read \(unreadable.sorted().joined(separator: ", ")); kept their last read, trying again", to: "vault.log") }
+                vaultUnreadable = unreadable
+            }
             if vaultRescanAgain {
                 vaultRescanAgain = false
+                rescanVault()
+            } else if !unreadable.isEmpty {
+                try? await Task.sleep(for: .seconds(3))
                 rescanVault()
             }
         }

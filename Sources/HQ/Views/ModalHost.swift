@@ -200,6 +200,7 @@ private struct ModalActions: View {
                 .clickable()
                 .labelStyle(.iconOnly)
                 .help("Load the page again (⌘R)")
+            CopyLinkButton(link: url.absoluteString)
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
                 .help("Open the artifact in the browser (⇧⌘O)")
         case .github(let url):
@@ -208,6 +209,7 @@ private struct ModalActions: View {
                     .clickable()
                     .labelStyle(.iconOnly)
                     .help("Load the page again (⌘R)")
+                CopyLinkButton(link: url)
                 if model.waitsForReview(item) {
                     Button("Mark Reviewed") { model.markReviewed(url) }
                         .help("Mark it reviewed: quiet until its next commit")
@@ -220,6 +222,29 @@ private struct ModalActions: View {
         case .start, .hiddenAndClosed, nil:
             EmptyView()
         }
+    }
+}
+
+/// Copies the open item's link; a checkmark says it's done.
+private struct CopyLinkButton: View {
+    let link: String
+    @State private var copied = false
+
+    var body: some View {
+        Button("Copy Link", icon: copied ? .copied : .link) {
+            Pasteboard.copy(link)
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                copied = false
+            }
+        }
+        .clickable()
+        .labelStyle(.iconOnly)
+        .contentTransition(.symbolEffect(.replace))
+        .help(copied ? "Copied" : "Copy the link (⇧⌘C)")
+        .accessibilityLabel(copied ? "Link Copied" : "Copy Link")
+        .uiTestAnchor("copy-link")
     }
 }
 

@@ -27,7 +27,7 @@ struct TaskOutline: NSViewRepresentable {
             if binding.wrappedValue != value { binding.wrappedValue = value }
         }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
-        _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions,
+        _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
              model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen, model.changes,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection)
@@ -330,8 +330,9 @@ final class TaskOutlineView: NSOutlineView {
         var frame = super.frameOfOutlineCell(atRow: row)
         guard let node = item(atRow: row) as? OutlineNode, case .task = node.kind else { return .zero }
         frame.origin.x += Self.cardInset - indentationPerLevel
-        // On the title's line, also when a description makes the row taller.
-        frame.origin.y = rect(ofRow: row).minY + (coordinator?.gap(ofRow: row) ?? 0) + (Metric.outlineRow - frame.height) / 2
+        // On the title's line, also when a description makes the row taller; OutlineRowView keeps it there.
+        frame.origin.y = rect(ofRow: row).minY + (coordinator?.gap(ofRow: row) ?? 0)
+        frame.size.height = Metric.outlineRow
         return frame
     }
 
@@ -377,7 +378,25 @@ final class TaskOutlineView: NSOutlineView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
+        if let (route, task) = link(at: event), let model = coordinator?.model {
+            model.selectedItem = route.chipKey(task: task)
+            return model.linkMenu(route, task: task)
+        }
         return coordinator?.menu(forRow: row)
+    }
+
+    /// A right-click on a link chip under a task: the link's menu, where the click was.
+    override func rightMouseDown(with event: NSEvent) {
+        guard let (route, task) = link(at: event), let model = coordinator?.model else { return super.rightMouseDown(with: event) }
+        model.selectedItem = route.chipKey(task: task)
+        FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), convert(event.locationInWindow, from: nil), self)
+    }
+
+    /// The link chip under the event, and its task.
+    private func link(at event: NSEvent) -> (route: ModalRoute, task: Int)? {
+        let row = self.row(at: convert(event.locationInWindow, from: nil))
+        guard row >= 0 else { return nil }
+        return (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.link(at: event.locationInWindow)
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -404,10 +423,10 @@ final class TaskOutlineView: NSOutlineView {
 final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
     static let facesColumn = NSUserInterfaceItemIdentifier("faces")
     static let mainColumn = NSUserInterfaceItemIdentifier("main")
-    /// Grip, attention dot and the face.
     /// One face per row (2026-11-05).
     static let faces = 1
-    static var facesWidth: CGFloat { Space.md + Space.sm + Space.xs + FaceStackView.width(faces, limit: faces, more: false) }
+    /// Grip, attention dot and the face, with room between each.
+    static var facesWidth: CGFloat { Space.md + Space.sm + Space.sm + FaceStackView.width(faces, limit: faces, more: false) }
     private var facesWidth: CGFloat { Self.facesWidth }
 
     var model: AppModel
@@ -543,6 +562,19 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             }
         }
         count(nil)
+        // A task the user left open that AppKit shows closed, without its subtasks: opened again, logged.
+        let shut = snapshot.expandable.filter { id in
+            (!model.collapsed.contains(id) || !model.search.isEmpty) && row(of: id) >= 0 && !outline.isItemExpanded(node(.task(id)))
+        }
+        if !shut.isEmpty {
+            Self.repairs += 1
+            AppLog.write("outline: \(shut.sorted().map { "T-\($0)" }.joined(separator: ", ")) open in the model, shut in the outline; reloaded", to: "outline.log")
+            for id in shut {
+                outline.reloadItem(node(.task(id)), reloadChildren: true)
+                outline.expandItem(node(.task(id)))
+            }
+            return
+        }
         guard expected != outline.numberOfRows else { return }
         Self.repairs += 1
         AppLog.write("outline: \(outline.numberOfRows) rows for \(expected) in the snapshot, editing \(String(describing: editingTitle)); reloaded",
@@ -763,7 +795,13 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         guard let outline else { return }
         outline.expandItem(node(.header(.overview)))
         outline.expandItem(node(.header(.backlog)))
-        var queue: [OutlineNode.Kind] = snapshot.children(of: .header(.overview)) + snapshot.children(of: .header(.backlog))
+        expandOpen(snapshot.children(of: .header(.overview)) + snapshot.children(of: .header(.backlog)))
+    }
+
+    /// These tasks and their subtasks, open or folded as the user left them.
+    private func expandOpen(_ kinds: [OutlineNode.Kind]) {
+        guard let outline else { return }
+        var queue = kinds
         while let kind = queue.popLast() {
             guard case .task(let id) = kind, snapshot.expandable.contains(id) else { continue }
             let open = !model.collapsed.contains(id) || !model.search.isEmpty
@@ -1003,6 +1041,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func outlineViewItemDidExpand(_ notification: Notification) {
         guard !refreshing, let id = ((notification.userInfo?["NSObject"]) as? OutlineNode)?.task else { return }
         model.setCollapsed(id, false)
+        // AppKit loads its subtasks folded: the ones the user left open open again.
+        refreshing = true
+        defer { refreshing = false }
+        expandOpen(snapshot.children(of: .task(id)))
     }
 
     /// Folding a task whose subtask is selected selects the task.
@@ -1065,10 +1107,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (36, _), (76, _): break
         case (48, []), (48, .shift): leaveSection(by: flags.contains(.shift) ? -1 : 1)
         case (48, _): break
-        case (124, .shift): model.indentTasks(ids)
-        case (123, .shift): model.outdentTasks(ids)
-        case (126, .shift): model.shiftTasks(ids, by: -1)
-        case (125, .shift): model.shiftTasks(ids, by: 1)
+        // A held key moves among siblings only: it never indents, outdents or leaves the parent.
+        case (124, .shift): if !event.isARepeat { model.indentTasks(ids) }
+        case (123, .shift): if !event.isARepeat { model.outdentTasks(ids) }
+        case (126, .shift): model.shiftTasks(ids, by: -1, leavingParent: !event.isARepeat)
+        case (125, .shift): model.shiftTasks(ids, by: 1, leavingParent: !event.isARepeat)
         case (49, []): model.open(.task(first))
         case (51, []), (117, []), (51, .command): model.deleteTasks(ids)
         default:
@@ -1201,6 +1244,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let left = selector == #selector(NSResponder.moveLeftAndModifySelection(_:))
             let selection = textView.selectedRange()
             guard selection.length == 0, selection.location == (left ? 0 : (textView.string as NSString).length) else { return false }
+            // A held key selecting the title stops at its edge.
+            guard NSApp.currentEvent?.isARepeat != true else { return true }
             commitTitle(field)
             let parent = model.taskTree.parent(of: id)
             // Moving the row ends its edit for a moment: an empty task stays until its title is edited again.
@@ -1562,7 +1607,8 @@ extension AppModel {
 
     /// ⇧↑ ⇧↓ on rows: each one place among its siblings, past the first or last out one level;
     /// a run stops whole at the end of its list.
-    func shiftTasks(_ ids: [Int], by offset: Int) {
+    /// Past the first or last sibling a task goes out one level, unless `leavingParent` is false.
+    func shiftTasks(_ ids: [Int], by offset: Int, leavingParent: Bool = true) {
         let moving = outermost(ids)
         var stuck = Set<Int>()
         for id in offset < 0 ? moving : moving.reversed() {
@@ -1571,7 +1617,7 @@ extension AppModel {
             let siblings = tree.children(of: container)
             let target = index + offset
             let atTop: Bool = if case .list = container { true } else { false }
-            let blocked = siblings.indices.contains(target) ? stuck.contains(siblings[target]) : atTop
+            let blocked = siblings.indices.contains(target) ? stuck.contains(siblings[target]) : atTop || !leavingParent
             guard !blocked else {
                 stuck.insert(id)
                 continue
@@ -1598,16 +1644,19 @@ extension AppModel {
     /// Shown one by one, or all at once by its list's Descriptions for the tasks that have one.
     func descriptionShownInOutline(_ id: Int) -> Bool {
         if shownDescriptions.contains(id) { return true }
-        guard !allDescriptions.isEmpty, allDescriptions.contains(list(of: id)), let task = task(id) else { return false }
+        guard !allDescriptions.isEmpty, allDescriptions.contains(list(of: id)), !hiddenDescriptions.contains(id), let task = task(id) else { return false }
         return !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Shows or hides one description, also one its list's Descriptions shows.
     func toggleDescription(_ id: Int) {
-        if shownDescriptions.contains(id) {
+        if descriptionShownInOutline(id) {
             shownDescriptions.remove(id)
+            if descriptionShownInOutline(id) { hiddenDescriptions.insert(id) }
             if editingDescription == id { editingDescription = nil }
         } else {
-            shownDescriptions.insert(id)
+            hiddenDescriptions.remove(id)
+            if !descriptionShownInOutline(id) { shownDescriptions.insert(id) }
         }
     }
 }

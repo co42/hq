@@ -241,9 +241,9 @@ enum Snapshot {
         NSApp.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
     }
 
-    /// Puts the window on the right edge of a screen at the given size, as on a two-screen desk: the second screen when it fits there.
+    /// Puts the window at the given size on the top right of the second screen when there is one, no taller than it.
     private static func resize(_ window: NSWindow, to size: CGSize) {
-        let screen = (Store.testScreen(for: size, whole: true) ?? NSScreen.screens.first)?.visibleFrame ?? .zero
+        let screen = (Store.testScreen ?? NSScreen.screens.first)?.visibleFrame ?? .zero
         let height = min(size.height, screen.height)
         window.setFrame(NSRect(x: screen.maxX - size.width, y: screen.maxY - height, width: size.width, height: height), display: true)
     }

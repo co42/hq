@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Waiting for your review, empty: nothing waits on the user, and that's worth a moment (DESIGN.md §6).
+/// Reviews, empty: nothing waits on the user, and that's worth a moment (DESIGN.md §6).
 struct AllReviewed: View {
     var body: some View {
         VStack(spacing: Space.sm) {

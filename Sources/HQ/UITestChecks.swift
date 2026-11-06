@@ -194,11 +194,36 @@ extension UITest {
               && titles.contains("Delete"), titles.joined(separator: ", "))
         let chip = ModalRoute.file(file.id).chipKey(task: target.id)
         var shown: String?
+        var shownMenu: NSMenu?
         let showMenu = FaceMenu.show
-        FaceMenu.show = { _, id, _, _ in shown = id }
-        await ui.click(ui.anchor(chip))
-        tableCheck(ui, "a click on a link's chip under its task shows the link's menu", shown == chip, shown ?? "no menu")
+        FaceMenu.show = { menu, id, _, _ in shown = id; shownMenu = menu }
+        await ui.rightClick(ui.anchor(chip))
+        shownMenu?.update()
+        tableCheck(ui, "a right-click on a link's chip under its task shows the link's menu", shown == chip
+                   && shownMenu?.items.contains { $0.title == "Unlink from T-\(target.id)" } == true, shown ?? "no menu")
+        // A Control-click on the chip gives the link's menu too; on the title, the task's.
+        if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
+           let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(target.id))), makeIfNecessary: false) as? TaskCell {
+            func menu(at point: NSPoint?) -> [String] {
+                guard let point, let down = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                               windowNumber: ui.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                      let menu = outline.menu(for: down) else { return [] }
+                menu.update()
+                return menu.items.map(\.title)
+            }
+            check("a Control-click on a link's chip gives the link's menu", menu(at: ui.anchor(chip)).contains("Unlink from T-\(target.id)"))
+            let title = menu(at: cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: nil))
+            check("on the task's title, the task's menu", !title.isEmpty && !title.contains("Unlink from T-\(target.id)"), title.joined(separator: ", "))
+        }
         FaceMenu.show = showMenu
+        // A click selects the chip; a double-click opens it.
+        model.selectedItem = nil
+        await ui.click(ui.anchor(chip))
+        tableCheck(ui, "a click on a link's chip selects it", model.selectedItem == chip, model.selectedItem ?? "-")
+        await ui.click(ui.anchor(chip), count: 2)
+        tableCheck(ui, "a double-click on a link's chip opens it", model.modal == .file(file.id), String(describing: model.modal))
+        model.closeModal()
+        await ui.settle(0.5)
         // Deleted while the task's modal lists it, the file leaves the list.
         model.open(.task(target.id))
         await ui.settle(0.8)
@@ -287,6 +312,185 @@ extension UITest {
 
     /// A task folded when the rows load opens from its disclosure with its subtasks and the rows below in the
     /// outline's frame and clickable; so does a task above it.
+    static func disclosures(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
+        model.folded = []
+        model.search = ""
+        guard let above = model.addTask(to: .overview, title: "Caret above"), let parent = model.addTask(to: .overview, title: "Caret parent") else {
+            return check("tasks for the carets", false)
+        }
+        await endUndoGroup(model)
+        await ui.settle(0.5)
+        /// The task's disclosure shows, on its title's line, just before its status glyph.
+        func caret(_ id: Int) async -> (ok: Bool, detail: String) {
+            let row = outline.row(forItem: coordinator.node(.task(id)))
+            if row >= 0 { outline.scrollRowToVisible(row) }
+            await ui.settle(0.2)
+            guard row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false),
+                  let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return (false, "no row") }
+            func buttons(_ view: NSView) -> [NSButton] {
+                view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? [] + buttons($0) }
+            }
+            guard let button = buttons(rowView).first(where: { $0.identifier?.rawValue.contains("Disclosure") == true }) else { return (false, "no disclosure") }
+            let disclosure = button.convert(button.bounds, to: nil)
+            let glyph = cell.glyph.convert(cell.glyph.bounds, to: nil)
+            let ok = !button.isHidden && button.alphaValue > 0 && abs(disclosure.midY - glyph.midY) < 1.5
+                && disclosure.maxX <= glyph.minX + 1 && glyph.minX - disclosure.maxX < Space.md
+            return (ok, "disclosure \(disclosure.integral) glyph \(glyph.integral)")
+        }
+        guard let child = model.addSubtask(to: parent.id, title: "Caret child") else { return check("a subtask", false) }
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        var result = await caret(parent.id)
+        check("a task's first subtask brings its disclosure, on its line", result.ok, result.detail)
+        model.indentTasks([parent.id])
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        result = await caret(parent.id)
+        check("indented with its subtasks, its disclosure stays on its line", result.ok, result.detail)
+        result = await caret(above.id)
+        check("and its new parent gets one on its line", result.ok, result.detail)
+        model.outdentTasks([parent.id])
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        result = await caret(parent.id)
+        check("outdented, its disclosure stays on its line", result.ok, result.detail)
+        model.toggleList(parent.id)
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        model.backlogOpen = true
+        await ui.settle(0.4)
+        result = await caret(parent.id)
+        check("moved to the Backlog, it keeps its disclosure on its line", result.ok, result.detail)
+        model.toggleList(parent.id)
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        result = await caret(parent.id)
+        check("and back in Tasks too", result.ok, result.detail)
+        // Shut in the outline while the model has it open: the outline opens it again, its subtask back.
+        let repairs = OutlineCoordinator.repairs
+        outline.collapseItem(coordinator.node(.task(parent.id)))
+        model.setCollapsed(parent.id, false)
+        await ui.settle(0.6)
+        check("a task open in the model but shut in the outline opens again with its subtasks",
+              OutlineCoordinator.repairs > repairs && outline.isItemExpanded(coordinator.node(.task(parent.id)))
+              && outline.row(forItem: coordinator.node(.task(child.id))) >= 0, "\(OutlineCoordinator.repairs - repairs) repairs")
+        OutlineCoordinator.repairs = repairs
+        // ⇧-arrows held down never take a task out of its parent; a press still does.
+        coordinator.select(child.id)
+        await ui.settle(0.3)
+        await ui.key(.left, .shift, held: true)
+        await ui.key(.down, .shift, held: true)
+        await ui.settle(0.4)
+        check("held ⇧← and ⇧↓ leave a subtask in its parent", model.taskTree.parent(of: child.id) == parent.id,
+              "parent \(String(describing: model.taskTree.parent(of: child.id)))")
+        await ui.key(.down, .shift)
+        await ui.settle(0.4)
+        check("a press of ⇧↓ on the last subtask still takes it out", model.taskTree.parent(of: child.id) == nil)
+        model.undoManager?.undo()
+        await ui.settle(0.4)
+        model.deleteTasks([child.id, parent.id, above.id])
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+    }
+
+    /// With one session on the grid, a real click on its face focuses it, its card selected or not.
+    static func singleSessionFace(_ model: AppModel, _ ui: Driver) async {
+        guard let collection = ui.find(SessionGrid.CardCollection.self), let grid = collection.delegate as? SessionGrid.Coordinator,
+              let only = grid.ids.first else { return check("a session card", false) }
+        let others = grid.ids.dropFirst()
+        for id in others { model.setHidden(id, true) }
+        await ui.settle(0.6)
+        check("one card left on the grid", grid.ids == [only], "\(grid.ids.count) cards")
+        func faceClick() async -> Bool {
+            guard let card = collection.item(at: IndexPath(item: 0, section: 0))?.view else { return false }
+            card.scrollToVisible(card.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+            ui.window.layoutIfNeeded()
+            let local = NSPoint(x: Space.md + Metric.faceCard / 2, y: Space.md + Metric.faceCard / 2)
+            let point = card.convert(card.isFlipped ? local : NSPoint(x: local.x, y: card.bounds.height - local.y), to: nil)
+            let logged = model.ghosttyLog.count
+            await ui.click(point)
+            await ui.settle(0.3)
+            return model.ghosttyLog.count > logged
+        }
+        model.selectSection(nil)
+        collection.deselectAll(nil)
+        await ui.settle(0.3)
+        tableCheck(ui, "the only card's face, unselected, focuses its session", await faceClick(), "\(model.ghosttyLog.suffix(1))")
+        grid.collectionView(collection, didSelectItemsAt: [IndexPath(item: 0, section: 0)])
+        collection.selectionIndexPaths = [IndexPath(item: 0, section: 0)]
+        await ui.settle(0.3)
+        tableCheck(ui, "selected, its face still focuses its session", await faceClick(), "\(model.ghosttyLog.suffix(1))")
+        for id in others { model.setHidden(id, false) }
+        model.selectSection(nil)
+        await ui.settle(0.4)
+    }
+
+    /// A row's description toggle sits after its title, the hover actions don't repeat it; the grip and the dot keep apart.
+    static func rowControls(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
+        model.folded = []
+        model.search = ""
+        model.allDescriptions = []
+        guard let plain = model.addTask(to: .overview, title: "No description"),
+              let noted = model.addTask(to: .overview, title: "With a description", body: "Some words.") else { return check("tasks for the toggle", false) }
+        await endUndoGroup(model)
+        await ui.settle(0.5)
+        func row(_ id: Int) async -> (row: OutlineRowView, cell: TaskCell, faces: FacesCell)? {
+            let index = outline.row(forItem: coordinator.node(.task(id)))
+            guard index >= 0 else { return nil }
+            outline.scrollRowToVisible(index)
+            await ui.settle(0.2)
+            guard let row = outline.rowView(atRow: index, makeIfNecessary: false) as? OutlineRowView,
+                  let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: false) as? TaskCell,
+                  let faces = outline.view(atColumn: 0, row: index, makeIfNecessary: false) as? FacesCell else { return nil }
+            return (row, cell, faces)
+        }
+        guard let quiet = await row(plain.id), let full = await row(noted.id) else { return check("the rows are on the page", false) }
+        check("a task with a description shows its toggle at rest", !full.cell.note.isHidden && full.cell.note.toolTip?.hasPrefix("Show") == true)
+        check("a task without one doesn't", quiet.cell.note.isHidden)
+        quiet.cell.setHovered(true)
+        quiet.faces.setHovered(true)
+        quiet.cell.layoutSubtreeIfNeeded()
+        quiet.faces.layoutSubtreeIfNeeded()
+        let hoverActions = quiet.cell.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden && $0 !== quiet.cell.note }
+        check("under the pointer it shows, to write one", !quiet.cell.note.isHidden && quiet.cell.note.toolTip?.hasPrefix("Write") == true)
+        check("the hover actions don't repeat it", !hoverActions.contains { $0.toolTip?.contains("description") == true },
+              hoverActions.compactMap(\.toolTip).joined(separator: ", "))
+        // On hover the grip and the attention dot (laid out with or without its color) keep a space between them.
+        if let grip = quiet.faces.subviews.first(where: { $0 is GripView }), let dot = quiet.faces.subviews.first(where: { $0 is DotView }) {
+            // The grip's dots end 2.7 pt short of its frame's right edge.
+            let gap = dot.frame.minX - (grip.frame.maxX - 2.7)
+            check("the grip and the attention dot keep apart", gap >= Space.xs - 0.5, "\(gap) pt")
+        }
+        quiet.cell.setHovered(false)
+        quiet.faces.setHovered(false)
+        // A click on the toggle shows the description; it turns accent and hides it again.
+        full.cell.note.performClick(nil)
+        await ui.settle(0.4)
+        check("its toggle shows the description", model.descriptionShownInOutline(noted.id))
+        if let again = await row(noted.id) {
+            check("shown, its toggle stays, to hide it", !again.cell.note.isHidden && again.cell.note.toolTip?.hasPrefix("Hide") == true)
+            again.cell.note.performClick(nil)
+            await ui.settle(0.4)
+            check("and hides it", !model.descriptionShownInOutline(noted.id))
+        }
+        // Shown by the list's Descriptions, the toggle hides that one.
+        model.allDescriptions = [.overview]
+        await ui.settle(0.4)
+        if let listed = await row(noted.id) {
+            listed.cell.note.performClick(nil)
+            await ui.settle(0.4)
+            check("with Descriptions on, the toggle hides that one", !model.descriptionShownInOutline(noted.id))
+            model.toggleDescription(noted.id)
+            check("and shows it again", model.descriptionShownInOutline(noted.id))
+        }
+        model.allDescriptions = []
+        model.deleteTasks([plain.id, noted.id])
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+    }
+
     static func foldedParentOpens(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
               let container = outline.superview as? OutlineContainer else { return check("the outline is on the page", false) }
@@ -518,6 +722,14 @@ extension UITest {
             check("a PR selected on the page gives the menu bar Open on GitHub", MenuState.shared.outside == "Open on GitHub" && MenuState.shared.link == pr.url,
                   MenuState.shared.outside ?? "none")
             model.selectedItem = nil
+            // Its modal's Copy Link copies its address.
+            model.open(.github(pr.url))
+            await ui.settle(0.8)
+            Pasteboard.copied = nil
+            await ui.click(ui.anchor("copy-link"), inSheet: true)
+            check("a PR's modal copies its link", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
+            model.closeModal()
+            await ui.settle(0.5)
         }
         // Mark All Seen undoes.
         let seen = model.seen
@@ -1051,14 +1263,13 @@ extension UITest {
         model.toggleDescription(child)
         await ui.settle(0.4)
 
-        // The Description button on the far right shows and hides it; nothing else does on the row.
+        // The toggle after the title shows and hides it, and stays on the row while it shows.
         if model.descriptionShownInOutline(child) { model.toggleDescription(child) }
         await ui.settle(0.4)
-        let toggled = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell)?
-            .subviews.compactMap { $0 as? NSButton }.first { $0.toolTip?.hasPrefix("Show or hide the description") == true }
+        let toggled = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell)?.note
         toggled?.performClick(nil)
         await ui.settle(0.5)
-        check("the Description button on the far right shows the description", model.descriptionShownInOutline(child))
+        check("the description toggle after the title shows the description", model.descriptionShownInOutline(child))
         toggled?.performClick(nil)
         await ui.settle(0.5)
         check("and hides it", !model.descriptionShownInOutline(child))
@@ -1123,6 +1334,13 @@ extension UITest {
             let below = model.taskTree.subtree(of: parent).count - 1
             check("a task's subtask count counts every level under it", parentCell?.progress.total == below,
                   "\(parentCell?.progress.total ?? -1) of \(below)")
+            // Its ring has a segment per status.
+            model.setStatus(grandchild.id, .review)
+            await ui.settle(0.4)
+            let statuses = model.taskTree.subtree(of: parent).filter { $0 != parent }.compactMap { model.task($0)?.status }
+            let ring = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(parent))), makeIfNecessary: true) as? TaskCell)?.progress
+            check("a task's ring counts what's under it by status", ring?.counts[.review] == statuses.filter { $0 == .review }.count
+                  && ring?.toolTip?.contains("in review") == true, ring?.toolTip ?? "no ring")
             model.deleteTasks([grandchild.id])
             await ui.settle(0.3)
         }
@@ -1460,7 +1678,8 @@ extension Driver {
         guard let outline = find(TaskOutlineView.self), let coordinator = outline.coordinator else { return nil }
         let row = outline.row(forItem: coordinator.node(.task(id)))
         guard row >= 0, let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return nil }
-        cell.title.scrollToVisible(cell.title.bounds.insetBy(dx: 0, dy: -Metric.outlineRow * 3))
+        cell.title.scrollToVisible(cell.title.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+        window.layoutIfNeeded()
         let frame = cell.title.convert(cell.title.bounds, to: nil)
         return NSPoint(x: frame.minX + min(frame.width / 2, 20), y: frame.midY)
     }

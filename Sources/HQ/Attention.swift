@@ -226,23 +226,28 @@ extension AppModel {
 
     // MARK: Pull requests
 
-    /// By repository, newest first: a row moves only when it comes or goes; its dot carries what changed.
-    /// The ones the user reviewed only with Show Reviewed.
+    /// Reviews, as its filter shows them.
     var reviewRequests: [GitHubItem] {
-        allReviewRequests.filter { showReviewed || waitsForReview($0) }
+        allReviewRequests.filter { item in
+            switch reviewFilter {
+            case .notApproved: !item.approved
+            case .waiting: waitsForReview(item)
+            case .all: true
+            }
+        }
     }
 
-    /// Every open PR that asks for the user's review, waiting or reviewed, and the others' open PRs they reviewed.
+    /// Every open PR that asks for the user's review, waiting or reviewed, and the others' open PRs they reviewed:
+    /// the latest asked first.
     var allReviewRequests: [GitHubItem] {
         (github?.items ?? []).filter { ($0.reviewRequested || $0.reviewedByMe) && $0.kind == .pullRequest && ($0.state == .open || $0.state == .draft) }
-            .sorted { ($0.repo, -$0.number) < ($1.repo, -$1.number) }
+            .sorted { ($0.reviewAskedAt, $0.number) > ($1.reviewAskedAt, $1.number) }
     }
 
-    /// Open before drafts, by repository, newest first: rows don't reshuffle when GitHub answers.
+    /// The user's open PRs, the latest updated first.
     var ownPullRequests: [GitHubItem] {
-        func rank(_ item: GitHubItem) -> Int { item.state == .draft ? 1 : 0 }
-        return (github?.items ?? []).filter { $0.mine && $0.kind == .pullRequest && ($0.state == .open || $0.state == .draft) && !$0.reviewRequested }
-            .sorted { (rank($0), $0.repo, -$0.number) < (rank($1), $1.repo, -$1.number) }
+        (github?.items ?? []).filter { $0.mine && $0.kind == .pullRequest && ($0.state == .open || $0.state == .draft) && !$0.reviewRequested }
+            .sorted { ($0.updatedAt, $0.number) > ($1.updatedAt, $1.number) }
     }
 
     /// PRs a session opened, or whose branch and repository are the session's.

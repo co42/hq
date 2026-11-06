@@ -441,8 +441,11 @@ struct SessionModal: View {
                     }
                 }
                 if session.status.needsYou { needsYouBox(session) }
-                if !session.inGhostty, session.isRunning, let tty = session.tty {
-                    Text("Running in another terminal, \(tty).").kitType(.callout).foregroundStyle(.secondary)
+                if session.isRunning, let tty = session.tty, !session.inGhostty {
+                    Text("Running in another terminal, \(tty): HQ can't bring it forward.").kitType(.callout).foregroundStyle(.secondary)
+                } else if session.isRunning, session.tty == nil {
+                    Text("HQ doesn't know its terminal, so it can't bring it forward: it may run in an editor or the Claude app.")
+                        .kitType(.callout).foregroundStyle(.secondary)
                 }
                 ModalGroup(title: "Works on") {
                     ModalBox {

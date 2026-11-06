@@ -397,8 +397,8 @@ extension AppModel {
             resume(id)
             return
         }
-        // Not in a Ghostty terminal: its modal says where it runs. Nothing starts.
-        guard let tty = item.tty else { return }
+        // Not in a terminal HQ knows, or not found in Ghostty: its modal says where it runs. Nothing starts.
+        guard let tty = item.tty else { return open(.session(id)) }
         if Store.isOverridden {
             ghosttyLog.append("focus \(tty)")
             return
@@ -407,7 +407,11 @@ extension AppModel {
             let result = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
                 do throws(Ghostty.Failure) { return .success(try Ghostty.focus(tty: tty)) } catch { return .failure(error) }
             }.value
-            ghostty { self.setInGhostty(id, try result.get()) }
+            ghostty {
+                let found = try result.get()
+                self.setInGhostty(id, found)
+                if !found, self.modal != .session(id) { self.open(.session(id)) }
+            }
         }
     }
 

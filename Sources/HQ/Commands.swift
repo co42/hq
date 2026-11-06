@@ -59,6 +59,7 @@ struct HQCommands: Commands {
                 .keyboardShortcut("o", modifiers: [.command, .shift])
                 .disabled(menu.outside == nil)
             Button("Copy Link") { if let link = menu.link { Pasteboard.copy(link) } }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(menu.link == nil)
             Divider()
             Button("Import Artifact…") { model.beginImport() }
@@ -98,7 +99,9 @@ struct HQCommands: Commands {
             Divider()
             Button("Refresh Pull Requests") { model.refreshGitHub() }
                 .disabled(!menu.github)
-            Toggle("Show Reviewed Pull Requests", isOn: Binding(get: { menu.showReviewed }, set: { model.showReviewed = $0 }))
+            Picker("Reviews", selection: Binding(get: { menu.reviewFilter }, set: { model.reviewFilter = $0 })) {
+                ForEach(ReviewFilter.allCases) { Text($0.title).tag($0) }
+            }
             Toggle("Pinned Files and Artifacts Only", isOn: Binding(get: { menu.pinnedOnly }, set: { model.pinnedOnly = $0 }))
             Divider()
             Button("Zoom In") { model.zoom(by: 1) }

@@ -45,6 +45,18 @@ extension ModalRoute {
     /// A link chip under a task's row: its own key, so the same file's row in Files and Artifacts stays unselected.
     func chipKey(task: Int) -> String { "\(Self.chipPrefix)T-\(task):\(selectionKey)" }
 
+    /// The PR, file or artifact a selection key names, a chip's under a task too.
+    init?(selectionKey key: String) {
+        var key = Substring(key)
+        if key.hasPrefix(Self.chipPrefix), let task = key.dropFirst(Self.chipPrefix.count).firstIndex(of: ":") {
+            key = key[key.index(after: task)...]
+        }
+        if key.hasPrefix("github:") { self = .github(String(key.dropFirst(7))) }
+        else if key.hasPrefix("file:") { self = .file(String(key.dropFirst(5))) }
+        else if key.hasPrefix("artifact:"), let url = URL(string: String(key.dropFirst(9))) { self = .artifact(url) }
+        else { return nil }
+    }
+
     /// The route as a selection key.
     var selectionKey: String {
         switch self {

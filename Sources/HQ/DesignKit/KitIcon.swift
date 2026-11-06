@@ -47,6 +47,7 @@ enum KitIcon: String, CaseIterable {
     case reload = "arrow.clockwise"
     case unlink = "minus.circle.fill"
     case link = "link"
+    case copied = "checkmark"
     case filter = "line.3.horizontal.decrease"
     case filterOn = "line.3.horizontal.decrease.circle.fill"
     case importItem = "square.and.arrow.down"

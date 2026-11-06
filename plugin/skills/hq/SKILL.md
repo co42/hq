@@ -17,7 +17,7 @@ This session reports to HQ through the plugin's hooks on its own. Your part is t
 hq ctx                                    # this session's tasks, the overview's Review and Doing, recent files and artifacts, other sessions
 hq status                                 # whether HQ runs, and what needs the user
 hq ls tasks [--overview|--backlog] [--all] [--type t] [--project p] [--tag t]
-hq ls sessions | prs | files | artifacts | projects
+hq ls sessions | prs | files | artifacts | projects   # prs: Reviews then Yours, each with its status, as on the page
 hq project edit Registry [--folder ~/code/registry] [--repo acme/registry,acme/image-sync]
 hq task show|add|move|edit|link|unlink …   # see hq-tasks
 hq file new|write|show …                  # see hq-files

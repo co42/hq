@@ -13,11 +13,11 @@ When the user hands you a task ("do T-12 and its subtasks"), before the first ed
 
 1. **Read it and its subtasks**: `hq task show T-n` prints the tasks it's part of ("Part of:"), its description, its subtasks with their status, and what's linked to it (files, artifacts, PRs, tasks); `hq ls tasks --overview --json` gives each subtask's `parent`, `type` and `project`. The subtasks are your queue. The user adds more while you work: look again between pieces and take the new ones in.
 2. **Fix every one's fields**, the task's and each subtask's: a **type** that fits (set a missing one, correct a wrong one) and the **project** the work belongs to (below). `hq task edit T-n --type … --project …`.
-3. **Keep the status true** as you go, task by task (next section).
+3. **Move each subtask to `doing` before you touch it**: before reading its code, planning it or editing for it, not only once you edit. The parent in doing doesn't move its subtasks: a subtask you work on while it shows todo looks untouched. Then keep every status true as you go (next section).
 
 ## The rule: `doing` the moment work starts
 
-- **Start**: as you begin work on a task, before its first edit or investigation, `hq task move T-n doing`. The same for each subtask, when you start it. Working through several subtasks as one batch: starting the batch starts each of them, so move every subtask in it to doing then, not only the parent. No task covers the work yet? Create it already doing: `hq task add "Title" --type … --project … --status doing`. The user reads what's moving from Doing: a task left in todo while you work on it looks untouched.
+- **Start**: as you begin work on a task, before its first edit or investigation, `hq task move T-n doing`. The same for each subtask, when you start it, the parent's doing never covers it. Working through several subtasks as one batch, or reading the code for several to plan them: that starts each of them, so move every one in it to doing then. No task covers the work yet? Create it already doing: `hq task add "Title" --type … --project … --status doing`. The user reads what's moving from Doing: a task left in todo while you work on it looks untouched.
 - **Finish**: the description's Status says what changed and where (commits, PR, files), its checklist ticked; then `hq task move T-n done`. Each subtask too, as it finishes.
 - **The user must check something first** (a PR to review or merge, a page to look at, a choice, an app to restart): put the link in the description, then `hq task move T-n review --reason "…"`, one line saying what to check. Review turns the task orange on their overview. A PR that still waits for review or merge is `review`, not `done`.
 

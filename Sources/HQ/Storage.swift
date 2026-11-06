@@ -250,7 +250,8 @@ final class Storage {
 /// Lines in ~/Library/Logs/HQ/<name>, to see afterwards what happened in the user's HQ. Never in a test run.
 enum AppLog {
     static func write(_ line: String, to name: String) {
-        guard !Store.isOverridden else { return }
+        // Test runs leave the user's logs alone: the line goes in their output.
+        guard !Store.isOverridden else { return print("  log \(name): \(line)") }
         let directory = URL.libraryDirectory.appending(path: "Logs/HQ", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: name)

@@ -4,13 +4,13 @@ A native macOS cockpit for a day of work with [Claude Code](https://claude.com/c
 
 HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsidian vault holds tasks and notes as plain markdown, GitHub holds pull requests, claude.ai hosts artifacts. HQ never owns a terminal and never locks your data in: delete it and your notes are still notes.
 
-> HQ is a personal tool, built for one workflow (Ghostty, Obsidian, `gh`, macOS 27) and used every day. It's shared as it is: expect to adapt it to yours.
+> HQ is a personal tool, built for one workflow (Ghostty, Obsidian, `gh`, macOS 27) and used every day. It's shared as it is: expect to adapt it to yours. What changed in each release: [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
 ## The page
 
 | Section | What it shows |
 |---|---|
-| **Pull Requests** | Two cards: *Waiting for your review* and *Yours*, with review state and checks. HQ asks GitHub every minute while it's in front |
+| **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every minute while it's in front |
 | **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab |
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app |
 | **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, drag and drop moves it. Each task is a note in the vault, linked to its sessions, PRs, files and artifacts |

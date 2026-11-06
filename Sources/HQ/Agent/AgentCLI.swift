@@ -263,7 +263,9 @@ enum AgentCLI {
             return "\(id.prefix(8)) [\(state)] \(title)\(reason)"
         }
         if let url = object["url"] as? String, let state = object["state"] as? String, let number = object["number"] as? Int {
-            return "#\(number) [\(state)] \(title) · \(url)"
+            // "Reviews: Waiting for you", "Yours: Approved by noor".
+            let card = (object["card"] as? String).map { " · \($0 == "reviews" ? "Reviews" : "Yours"): \(object["status"] as? String ?? "")" } ?? ""
+            return "#\(number) [\(state)] \(title)\(card) · \(url)"
         }
         if object["status"] == nil, object["url"] == nil, let path = object["path"] as? String {
             return "\((path as NSString).lastPathComponent)\(tags)"

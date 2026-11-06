@@ -36,6 +36,10 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
     public var lastCommitAt: Date?
     /// The user's latest review on it.
     public var myReviewAt: Date?
+    /// What the user's latest review said: approved, changes requested, or none (a comment).
+    public var myReview: Review = .none
+    /// When GitHub last asked the user, or a team of theirs, to review it.
+    public var reviewRequestedAt: Date?
     /// GitHub asks the user to review it.
     public var reviewRequested: Bool
     public var mine: Bool
@@ -46,6 +50,12 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
 
     /// Someone else's PR the user reviewed: GitHub drops their review request once they submit a review.
     public var reviewedByMe: Bool { myReviewAt != nil && !mine }
+
+    /// Approved, by its reviews or by the user: their review is done.
+    public var approved: Bool { review == .approved || myReview == .approved }
+
+    /// When its review was asked of the user, else when they reviewed it, else its last update.
+    public var reviewAskedAt: Date { reviewRequestedAt ?? myReviewAt ?? updatedAt }
 
     /// "registry #418".
     public var reference: String { "\(repo.split(separator: "/").last.map(String.init) ?? repo) #\(number)" }
@@ -117,6 +127,8 @@ public enum GitHubQuery {
           url number title isDraft state merged updatedAt body
           author { login } repository { nameWithOwner } headRefName reviewDecision
           latestReviews(first: 20) { nodes { author { login } state submittedAt } }
+          timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent {
+            createdAt requestedReviewer { __typename ... on User { login } } } } }
           commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 30) { nodes {
             __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state } } } } } } }
         }
@@ -184,8 +196,24 @@ public enum GitHubQuery {
         case "REVIEW_REQUIRED": item.review = .required
         default: item.review = .none
         }
-        item.myReviewAt = reviews.filter { ($0["author"] as? [String: Any])?["login"] as? String == viewer }
-            .compactMap { date($0["submittedAt"]) }.max()
+        let mine = reviews.filter { ($0["author"] as? [String: Any])?["login"] as? String == viewer }
+            .compactMap { review in date(review["submittedAt"]).map { (at: $0, state: review["state"] as? String) } }
+            .max { $0.at < $1.at }
+        item.myReviewAt = mine?.at
+        item.myReview = switch mine?.state {
+        case "APPROVED": .approved
+        case "CHANGES_REQUESTED": .changesRequested
+        default: .none
+        }
+        // Requests to the user, else to a team; never another user's.
+        let requests = ((node["timelineItems"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
+        let asked = requests.compactMap { event -> (at: Date, me: Bool)? in
+            let reviewer = event["requestedReviewer"] as? [String: Any]
+            let me = reviewer?["login"] as? String == viewer
+            guard let at = date(event["createdAt"]), me || reviewer?["__typename"] as? String == "Team" else { return nil }
+            return (at, me)
+        }
+        item.reviewRequestedAt = (asked.contains(where: \.me) ? asked.filter(\.me) : asked).map(\.at).max()
         let commit = (((node["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.first?["commit"]) as? [String: Any]
         item.lastCommitAt = date(commit?["committedDate"])
         let rollup = commit?["statusCheckRollup"] as? [String: Any]
