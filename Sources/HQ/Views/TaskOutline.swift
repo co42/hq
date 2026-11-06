@@ -354,14 +354,14 @@ final class TaskOutlineView: NSOutlineView {
                 button.mouseDown(with: event)
                 return
             }
-            if let faces = view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, faces.click(event) { return }
+            if let faces = view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, faces.click(event) { return takeRelease() }
         }
         let title = row >= 0 ? (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.title : nil
         let onIdleTitle = title.map { $0.currentEditor() == nil && $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) } ?? false
         // The second click of a double-click on a title edits it, caret where it landed.
         if onIdleTitle, event.clickCount == 2, event.modifierFlags.intersection([.command, .shift]).isEmpty, let id = title?.task {
             coordinator?.beginEditing(id, at: event.locationInWindow)
-            return
+            return takeRelease()
         }
         super.mouseDown(with: event)
     }

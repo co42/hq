@@ -139,6 +139,7 @@ final class GlyphButton: TaskGlyphView {
     /// A click steps to the next status; ⌥-click picks one from the menu.
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.option) { showMenu() } else { onNext() }
+        takeRelease()
     }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -274,7 +275,7 @@ final class PillView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if let onClick { onClick() } else { super.mouseDown(with: event) }
+        if let onClick { onClick(); takeRelease() } else { super.mouseDown(with: event) }
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -408,7 +409,10 @@ final class ProjectButton: LabelStripView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { !labels.isEmpty && frame.contains(point) ? self : nil }
-    override func mouseDown(with event: NSEvent) { showMenu() }
+    override func mouseDown(with event: NSEvent) {
+        showMenu()
+        takeRelease()
+    }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
@@ -477,6 +481,7 @@ final class KeyField: NSTextField {
             self.textColor = Ink.secondaryTextNS
             self.toolTip = Self.help
         }
+        takeRelease()
     }
 
     static let help = "Click to copy the key and the title"
@@ -867,7 +872,9 @@ final class FacesCell: NSTableCellView {
         return faces.frame.insetBy(dx: -Space.xs, dy: 0).contains(local) ? faces : nil
     }
 
-    override func mouseDown(with event: NSEvent) { _ = click(event) }
+    override func mouseDown(with event: NSEvent) {
+        if click(event) { takeRelease() }
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// A click on a face shows its session's menu at once; the empty square starts a session. False when the click misses.

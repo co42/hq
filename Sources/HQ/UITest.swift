@@ -192,13 +192,18 @@ struct Driver {
                                    pressure: type == .leftMouseDown ? 1 : 0)
             }
             guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { continue }
-            NSApp.postEvent(up, atStart: false)
+            // Active, the press and the release go through the queue as a real click does: views read it as the current event.
             // A real click activates HQ before AppKit delivers it to a view that accepts the first
             // mouse. While HQ can't be active (a locked screen), a table gets the click directly.
-            if !NSApp.isActive, let hit = hitView(point), hit.acceptsFirstMouse(for: down),
-               let table = sequence(first: hit, next: \.superview).first(where: { $0 is NSTableView }) {
+            if NSApp.isActive {
+                NSApp.postEvent(down, atStart: false)
+                NSApp.postEvent(up, atStart: false)
+            } else if let hit = hitView(point), hit.acceptsFirstMouse(for: down),
+                      let table = sequence(first: hit, next: \.superview).first(where: { $0 is NSTableView }) {
+                NSApp.postEvent(up, atStart: false)
                 table.mouseDown(with: down)
             } else {
+                NSApp.postEvent(up, atStart: false)
                 NSApp.sendEvent(down)
             }
             await settle(0.05)
@@ -215,8 +220,13 @@ struct Driver {
                                pressure: type == .rightMouseDown ? 1 : 0)
         }
         guard let down = event(.rightMouseDown), let up = event(.rightMouseUp) else { return }
-        NSApp.postEvent(up, atStart: false)
-        NSApp.sendEvent(down)
+        if NSApp.isActive {
+            NSApp.postEvent(down, atStart: false)
+            NSApp.postEvent(up, atStart: false)
+        } else {
+            NSApp.postEvent(up, atStart: false)
+            NSApp.sendEvent(down)
+        }
         await settle(0.3)
     }
 

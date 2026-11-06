@@ -20,6 +20,13 @@ extension NSView {
         }
     }
 
+    /// A press a view acts on without tracking it takes its release too: the page's tap, which unselects everything, would
+    /// get it. A menu's tracking may have taken it already; a button still held waits for it.
+    func takeRelease() {
+        let held = NSEvent.pressedMouseButtons & 1 != 0
+        _ = window?.nextEvent(matching: .leftMouseUp, until: held ? .distantFuture : .now, inMode: .eventTracking, dequeue: true)
+    }
+
     /// True when the view tracks the hand cursor.
     var tracksHandCursor: Bool {
         trackingAreas.contains { $0.options.contains(.cursorUpdate) && $0.owner === self }

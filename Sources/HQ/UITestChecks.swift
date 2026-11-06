@@ -208,9 +208,14 @@ extension UITest {
         var shownMenu: NSMenu?
         let showMenu = FaceMenu.show
         FaceMenu.show = { menu, id, _, _ in shown = id; shownMenu = menu }
-        await ui.rightClick(ui.anchor(chip))
+        // The links' SwiftUI view hands a right-click on to the outline, which shows the link's menu.
+        if let outline = ui.find(TaskOutlineView.self), let point = ui.anchor(chip),
+           let down = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                         windowNumber: ui.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+            outline.rightMouseDown(with: down)
+        }
         shownMenu?.update()
-        tableCheck(ui, "a right-click on a link's chip under its task shows the link's menu", shown == chip
+        check("a right-click on a link's chip under its task shows the link's menu", shown == chip
                    && shownMenu?.items.contains { $0.title == "Unlink from T-\(target.id)" } == true, shown ?? "no menu")
         // A Control-click on the chip gives the link's menu too; on the title, the task's.
         if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
@@ -832,8 +837,17 @@ extension UITest {
         // A click selects, a double-click edits.
         await ui.click(ui.titlePoint(b))
         tableCheck(ui, "a click on a title selects its row without editing", model.selectedTasks == [b] && !ui.isTyping, state())
+        // A click on the selected row's status moves it on; the row stays selected.
+        if let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(b))), makeIfNecessary: false) as? TaskCell {
+            let glyph = cell.glyph.convert(NSPoint(x: cell.glyph.bounds.midX, y: cell.glyph.bounds.midY), to: nil)
+            await ui.click(glyph)
+            tableCheck(ui, "a click on a selected row's status moves it on and keeps the row selected",
+                       model.task(b)?.status == .doing && model.selectedTasks == [b], "\(String(describing: model.task(b)?.status)) \(state())")
+            model.setStatus(b, .todo)
+            await ui.settle(0.2)
+        }
         await ui.click(ui.titlePoint(b), count: 2)
-        check("a double-click on a title edits it", ui.isTyping && model.focusedTask == b, state())
+        check("a double-click on a title edits it, its row still selected", ui.isTyping && model.focusedTask == b && model.selectedTasks == [b], state())
         if !ui.isTyping { coordinator.beginEditing(b) }
 
         // In a title: Return adds below; Tab goes to the description, Shift-Tab back and to the previous title.
@@ -1395,7 +1409,10 @@ extension UITest {
 
         // A click on a row's key copies its key and title, through the outline as AppKit delivers it.
         if let task = model.task(child) {
+            outline.scrollRowToVisible(row)
+            cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
             cell.setHovered(true)
+            ui.window.layoutIfNeeded()
             cell.layoutSubtreeIfNeeded()
             let point = cell.key.convert(NSPoint(x: cell.key.bounds.midX, y: cell.key.bounds.midY), to: nil)
             Pasteboard.copied = nil

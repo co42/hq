@@ -14,6 +14,7 @@
 
 **Tasks**
 - A click on a task's key, at the right of its row, copies its key and title.
+- Fixed: a double-click on a title edited it but unselected its row; so did a click on a selected row's status.
 
 **The hq command, and hq plugin 0.6.11**
 - `hq task delete` and `hq file delete`: their notes go to the Trash. Without `--yes` they only say what they would delete.
