@@ -117,3 +117,7 @@ tools/          snapshots, tests and lints
 Views use DesignKit's tokens and parts only: no raw colors, fonts, radii, durations or symbol names outside `Sources/HQ/DesignKit/`. A change under `plugin/` reaches sessions after a version bump in `plugin/.claude-plugin/plugin.json`.
 
 Read [PLAN.md](PLAN.md) (architecture, model, decisions) before changing how HQ works, and [DESIGN.md](DESIGN.md) before touching a view. [CLAUDE.md](CLAUDE.md) holds the rules for Claude sessions that work on HQ.
+
+## License
+
+[MIT](LICENSE). HQ started from [bama](https://github.com/daveebbelaar/bama)'s macOS app and agent-cli templates (MIT), and bundles [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) to draw diagrams in notes.
