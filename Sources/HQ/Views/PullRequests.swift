@@ -135,7 +135,7 @@ struct PRGroup<Accessory: View>: View {
             .padding(.horizontal, Space.md)
             .frame(height: Metric.boxRow + Space.xs, alignment: .center)
             if items.isEmpty, allReviewed {
-                AllReviewed()
+                AllClear(title: "All reviewed")
             } else if items.isEmpty {
                 Text(empty)
                     .kitType(.callout)

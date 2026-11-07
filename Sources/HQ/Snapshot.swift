@@ -76,6 +76,12 @@ enum Snapshot {
             Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
             Page(name: "modal-notifications", capture: .sheet, settle: 1) { reset($0); $0.openCenter() },
             Page(name: "modal-reminder", capture: .sheet, settle: 1) { reset($0); $0.beginReminder() },
+            Page(name: "modal-caught-up", capture: .sheet, settle: 1) { model in
+                reset(model)
+                model.sessions = model.sessions.filter { !$0.status.needsYou }
+                model.notices = model.notices.filter { $0.dueAt != nil }
+                model.beginReminder()
+            },
             Page(name: "modal-notifications-selected", capture: .sheet, settle: 1) { model in
                 reset(model)
                 model.openCenter()

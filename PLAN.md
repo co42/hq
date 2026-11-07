@@ -142,7 +142,7 @@ Known gap: Esc, a rejection or an interrupt sends nothing, so the state holds un
 Plugin `plugin/`, bundled into `HQ.app/Contents/Resources/Plugin` by `build.sh` and installed globally from there (`tools/install-plugin.sh`, also Setup › Install). Claude Code runs it from its own copy per version: a change under `plugin/` needs a version bump in `plugin.json` and `tools/install-plugin.sh`, and reaches sessions started after that.
 
 - `hooks/hooks.json`: the events above → `${CLAUDE_PLUGIN_ROOT}/bin/hq hook`, timeout 2 s. PreToolUse matcher `AskUserQuestion|ExitPlanMode`; PostToolUse unfiltered (artifacts, PR URLs).
-- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something, the task stays doing and `hq notify` tells them; never `done` unless the user says so; new tasks to the Backlog unless the user asked to work on them now), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
+- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something (most work), the task stays doing and `hq notify` tells them, and the user moves it to done; `done` only when nothing needs their look; new tasks to the Backlog unless the user asked to work on them now), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
 
 ```
 hq status                                      # whether HQ runs; needsYou, updates, and how many sessions, tasks, files, artifacts
@@ -152,7 +152,7 @@ hq ls sessions | prs | files | artifacts | projects
 hq ls notifications [--all]                    # Needs You, Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
 hq task add "Title" [--type t] [--project p] [--tag t] [--parent T-n] [--now] [--body -]
-hq task move T-n todo|doing|done|backlog       # review --reason "…" (older sessions): stays doing, the reason an Update
+hq task move T-n todo|doing|done|backlog       # review is refused, pointing to hq notify
 hq task edit T-n [--title …] [--body -] [--type t] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
 hq task show T-n                               # parents, description, subtasks, links
 hq task link T-n <url | T-m | session id | path>
@@ -169,6 +169,7 @@ hq artifact add <url> --title t [--date d] [--task T-n]     # one HQ didn't capt
 hq session new "Name" [--task T-n] [--cwd dir] [--message -]
 hq notify "…" [--important] [--link T-n,<url>,…]          # Updates; --important: Needs You, with a banner
 hq remind "…" --at <when> [--important] [--link …]        # Later until <when> (16:00, in 2h, tomorrow 9:00, monday)
+hq notification done|delete <id> [--not-mine]              # one this session sent or set; the id's first 8 characters do
 hq hook                                        # used by the plugin
 ```
 

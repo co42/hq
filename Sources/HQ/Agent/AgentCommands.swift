@@ -168,27 +168,17 @@ enum AgentCommands {
         AgentCommand(name: "task move", summary: "Set a task's status: todo, doing or done. When the user must check something, keep it doing and tell them with hq notify.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
                               .init(name: "status", required: true, positional: true, help: "todo, doing (also brings it to Tasks) or done (backlog: todo, in the Backlog)"),
-                              .init(name: "reason", help: "only for the old review: what the user must check, sent to their notifications"),
                               notMine],
                      example: "hq task move T-12 doing") { args, model in
-            let task = try ownTask(args, model)
             let raw = try args.required("status").lowercased()
+            if raw == "review" {
+                throw AgentError.usage("there is no review status. Keep the task doing and tell the user what to check: "
+                                       + "hq notify \"PR #418 is ready to merge\" --link \(args.string("task") ?? "T-12")")
+            }
+            let task = try ownTask(args, model)
             if raw == "backlog" {
                 model.setStatus(task.id, .todo)
                 model.move(task.id, to: .backlog)
-            } else if raw == "review" {
-                // Review was a status: the task stays doing, and what to check goes to the notification center.
-                model.setStatus(task.id, .doing)
-                link(task.id, args, model)
-                let session = model.session(args.string(sessionArg))?.id
-                let reason = (args.string("reason") ?? "").trimmingCharacters(in: .whitespaces)
-                var seen = Set<String>()
-                let links = ([ModalRoute.task(task.id).selectionKey] + (session.map { model.defaultLinks(forSession: $0) } ?? [])).filter { seen.insert($0).inserted }
-                model.notify(reason.isEmpty ? "\(task.key) is ready to check" : reason, level: .update,
-                             source: session, links: links)
-                var json = model.task(task.id)?.agentJSON(model) ?? [:]
-                json["note"] = "Review is no longer a status: \(task.key) stays doing, and the user has a notification. Next time: hq notify \"…\" --link \(task.key)"
-                return json
             } else {
                 guard let status = TaskStatus(rawValue: raw) else {
                     throw AgentError.usage(raw == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, done")
@@ -435,6 +425,23 @@ enum AgentCommands {
             let row = model.remind(text, at: due, level: level, source: model.session(args.string(sessionArg))?.id, links: links)
             return model.noticeJSON(row, section: .later)
         },
+        AgentCommand(name: "notification done", summary: "Mark a notification this session sent read, or a reminder it set done: it no longer needs the user.",
+                     params: [.init(name: "id", required: true, positional: true, help: "its id from hq notify, hq remind or hq ls notifications; its first 8 characters do"),
+                              .init(name: "not-mine", kind: .boolean, help: "one this session didn't send, that the user named")],
+                     example: "hq notification done 3F2A9C1B") { args, model in
+            let row = try ownNotice(args, model)
+            model.setDone(row.id, true)
+            let done = model.notices.first { $0.id == row.id } ?? row
+            return model.noticeJSON(done, section: model.section(of: done))
+        },
+        AgentCommand(name: "notification delete", summary: "Delete a notification this session sent or a reminder it set: a ping that no longer holds, a follow-up done early.",
+                     params: [.init(name: "id", required: true, positional: true, help: "its id from hq notify, hq remind or hq ls notifications; its first 8 characters do"),
+                              .init(name: "not-mine", kind: .boolean, help: "one this session didn't send, that the user named")],
+                     example: "hq notification delete 3F2A9C1B") { args, model in
+            let row = try ownNotice(args, model)
+            model.removeNotice(row.id)
+            return ["deleted": row.id.uuidString, "text": row.text]
+        },
         AgentCommand(name: "session new", summary: "Start a fresh, named Claude session in a new Ghostty tab. With --task it works on that task and is linked to it.",
                      params: [.init(name: "name", required: true, positional: true, help: "the session's name, short: \"T-12 Dedup layers\""),
                               .init(name: "task", help: "T-12: the task the new session works on"),
@@ -533,6 +540,23 @@ enum AgentCommands {
                 + "if it's the one the user means, run again with --not-mine")
         }
         return task
+    }
+
+    /// A notification by its id or the id's first characters, when this session sent or set it, or the user named it
+    /// (--not-mine). From a terminal, or a session HQ doesn't know, anything goes.
+    private static func ownNotice(_ args: Args, _ model: AppModel) throws -> Notice {
+        let ref = try args.required("id").trimmingCharacters(in: .whitespaces).uppercased()
+        let found = model.notices.filter { $0.id.uuidString.hasPrefix(ref) }
+        guard ref.count >= 4, found.count == 1, let row = found.first else {
+            throw AgentError.notFound(found.count > 1 ? "\(ref) starts several notifications: give more of its id"
+                                                      : "no notification \(ref). Run `hq ls notifications --all`")
+        }
+        guard let session = args.string(sessionArg), model.session(session) != nil, try args.bool("not-mine") != true else { return row }
+        guard row.source == session else {
+            throw AgentError.notMine("“\(row.text)” isn't from this session. Check the id (`hq ls notifications --all`); "
+                + "if it's the one the user means, run again with --not-mine")
+        }
+        return row
     }
 
     /// A URL, a session id or a file, linked to a task.

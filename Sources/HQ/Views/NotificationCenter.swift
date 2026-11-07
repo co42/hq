@@ -24,8 +24,9 @@ struct NotificationCenterView: View {
             ModalPage {
                 if model.composingReminder {
                     ModalBox(rows: true) { ReminderEditor(notice: nil) { finishEditing() } }
-                } else if blocked.isEmpty && needs.isEmpty && updates.isEmpty {
-                    caughtUp
+                }
+                if blocked.isEmpty && needs.isEmpty && updates.isEmpty {
+                    AllClear(title: "All caught up").surface()
                 }
                 if !blocked.isEmpty || !needs.isEmpty {
                     ModalGroup(title: "Needs You · \(blocked.count + needs.count)") {
@@ -104,19 +105,6 @@ struct NotificationCenterView: View {
 
     private func shownEarlier(_ rows: [Notice]) -> [Notice] {
         allEarlier ? rows : Array(rows.prefix(Self.earlierShown))
-    }
-
-    private var caughtUp: some View {
-        HStack(spacing: Space.md) {
-            KitIcon.allReviewed.image.font(.system(size: Metric.sectionTile)).foregroundStyle(Ink.done)
-            VStack(alignment: .leading, spacing: Metric.lineGap) {
-                Text("All caught up").kitType(.titleStrong)
-                Text("Nothing needs you, nothing new since you last looked.").kitType(.callout).foregroundStyle(.secondary)
-            }
-        }
-        .padding(Space.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .surface()
     }
 
     // MARK: Selection and keys

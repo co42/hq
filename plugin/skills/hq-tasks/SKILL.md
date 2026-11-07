@@ -19,8 +19,8 @@ When the user hands you a task ("do T-12 and its subtasks"), before the first ed
 ## The rule: `doing` the moment work starts
 
 - **Start**: as you begin work on a task, before its first edit or investigation, `hq task move T-n doing`. The same for each subtask, when you start it, the parent's doing never covers it. Working through several subtasks as one batch, or reading the code for several to plan them: that starts each of them, so move every one in it to doing then. No task covers the work yet? Create it already doing: `hq task add "Title" --type … --project … --status doing`. The user reads what's moving from Doing: a task left in todo while you work on it looks untouched.
-- **Finish**: the description's Status says what changed and where (commits, PR, files), its checklist ticked; then `hq task move T-n done`. Each subtask too, as it finishes.
-- **The user must check something first** (a PR to review or merge, a page to look at, a choice, an app to restart): put the link in the description, keep the task `doing`, and tell them: `hq notify "PR #418 is ready to merge" --link T-n` (the `hq` skill, Telling the user). It shows in their notification center. A PR that still waits for review or merge stays `doing`, not `done`; the user moves it on.
+- **Finished, for the user to check** (most work: a PR to review or merge, a page to look at, a choice, an app to restart): the description's Status says what changed and where, its checklist ticked, the link in it; keep the task `doing` and tell them what to check: `hq notify "PR #418 is ready to merge: the canary is green" --link T-n` (the `hq` skill, Telling the user). The user moves it to `done` once they've looked. A PR that still waits for review or merge stays `doing`.
+- **Finished, nothing to check** (a chore, a subtask whose parent they'll review, work they said needs no look): the same Status, then `hq task move T-n done`. Each subtask too, as it finishes.
 
 ## The description: one clear document, kept current
 
@@ -103,4 +103,4 @@ When the user asks to take a task to a new conversation, it's a new Claude sessi
 - **A task this session isn't on**, nor under one it's on: `task edit`, `move` and `delete` fail with exit code 5, naming the task the key hit. Check the key. Run it again with `--not-mine` only when it's the task the user named; never on a key you assumed (the key `task add` gave is in its output: read it there).
 - **A change went wrong** (the wrong task, the wrong parent): `hq task history T-n`, then `hq task undo T-n --yes`. It puts back every task that command changed; tasks it created or deleted stay so.
 - Exit code 4 means HQ isn't running: tell the user once and go on with the work.
-- Keep titles and reasons plain and short: the user reads them on one row.
+- Keep titles plain and short: the user reads them on one row.

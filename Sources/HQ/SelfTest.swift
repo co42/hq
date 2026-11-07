@@ -697,9 +697,9 @@ enum SelfTest {
                   && model.task(stray)?.order == before?.order, "\(String(describing: model.task(stray)?.parent))")
             agent("task delete", ["task": "T-\(stray)", "yes": "true"])
         }
-        agent("task move", ["task": key, "status": "review", "reason": "PR #418 is ready"])
-        check("the old task move review keeps the task doing and notifies", model.task(id)?.status == .doing
-              && model.notices.contains { $0.text == "PR #418 is ready" && $0.links.contains("task:\(id)") })
+        let review = agent("task move", ["task": key, "status": "review"])
+        check("task move review is refused, pointing to hq notify", (review["error"] as? JSONObject)?["code"] as? String == "usage"
+              && ((review["error"] as? JSONObject)?["message"] as? String)?.contains("hq notify") == true, "\(review)")
         let pinged = agent("notify", ["text": "Canary green", "important": "true", "link": key])
         check("hq notify --important lands in Needs You with its link", pinged["section"] as? String == "needsYou"
               && ((pinged["links"] as? [JSONObject])?.first?["id"] as? String) == key, "\(pinged)")
@@ -707,6 +707,14 @@ enum SelfTest {
         check("hq remind puts a reminder in Later", reminded["section"] as? String == "later" && reminded["due"] != nil, "\(reminded)")
         let unreadable = agent("remind", ["text": "Check", "at": "someday"])
         check("hq remind refuses a time it can't read", (unreadable["error"] as? JSONObject)?["code"] as? String == "usage")
+        let mine = agent("remind", ["text": "Look at the canary again", "at": "in 3h", "_session": session])
+        let mineID = String((mine["id"] as? String ?? "").prefix(8))
+        let others = agent("notification delete", ["id": String((reminded["id"] as? String ?? "").prefix(8)), "_session": session])
+        check("a session can't delete a notification it didn't send", (others["error"] as? JSONObject)?["code"] as? String == "not_mine", "\(others)")
+        let completed = agent("notification done", ["id": mineID, "_session": session])
+        check("hq notification done completes a reminder this session set", completed["read"] != nil, "\(completed)")
+        agent("notification delete", ["id": mineID, "_session": session])
+        check("hq notification delete removes it", !model.notices.contains { $0.text == "Look at the canary again" })
         let rows = (agent("ls", ["kind": "notifications"])["notifications"] as? [JSONObject]) ?? []
         check("hq ls notifications lists Needs You first, then Later", rows.first?["section"] as? String == "needsYou"
               && rows.contains { $0["text"] as? String == "Check the canary" && $0["section"] as? String == "later" })
@@ -714,12 +722,13 @@ enum SelfTest {
             try? (try? String(contentsOfFile: path, encoding: .utf8))?.replacingOccurrences(of: "type: bug", with: "type: bug\naliases: [dedup]")
                 .write(toFile: path, atomically: true, encoding: .utf8)
             await settle(0.8)
+            let statusBefore = model.task(id)?.status.rawValue
             agent("task edit", ["task": key, "body": "New description.", "add-tag": "chunks", "remove-tag": "perf", "type": "feature"])
             await settle()
             let note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
             check("task edit changes what it's given and keeps the rest",
                   note.body == "New description.\n" && note.list("tags") == ["chunks"] && note.string("type") == "feature"
-                    && note.list("aliases") == ["dedup"] && note.string("status") == "doing", note.text)
+                    && note.list("aliases") == ["dedup"] && note.string("status") == statusBefore, note.text)
         }
         agent("task link", ["task": key, "item": "https://github.com/acme/registry/pull/418"])
         check("task link adds a PR", model.task(id)?.links.map(\.absoluteString) == ["https://github.com/acme/registry/pull/418"])

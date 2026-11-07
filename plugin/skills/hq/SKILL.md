@@ -7,7 +7,7 @@ description: What HQ is and how to use the hq command, notifications and reminde
 
 HQ is the user's cockpit for their day with Claude Code: a native Mac app beside Ghostty. One page, top to bottom: the **Pull Requests** that wait on them, every open Claude **Session** as a card with a face, **Files and Artifacts**, then their tasks as one outline: **Tasks** (what they work on now) and the **Backlog** (later). A task's row shows the faces of the sessions on it, and under it its PRs, issues, files, artifacts and linked tasks. Anything opens in a sheet over the page. A bell in the toolbar (and the menu bar) opens the **notification center**: **Needs You** (sessions that wait on them, pings, reminders that are due), **Updates** (what sessions tell them, reviews and comments on their PRs), and **Later**.
 
-This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; `hq notify` when the user should look at something; `done` when finished, its description saying what changed; every task you create gets a `--type`. The `hq-tasks` and `hq-files` skills say how.
+This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; finished work the user should look at (most of it) stays `doing` with an `hq notify` saying what to check, and they move it to `done`; `done` yourself only when nothing needs their look, its description saying what changed; every task you create gets a `--type`. The `hq-tasks` and `hq-files` skills say how.
 
 ## The hq command
 
@@ -20,6 +20,7 @@ hq ls tasks [--overview|--backlog] [--all] [--type t] [--project p] [--tag t]
 hq ls sessions | prs | files | artifacts | projects | notifications   # prs: Reviews then Yours, as on the page
 hq notify "…" [--important] [--link T-12,<url>]   # tell the user (below)
 hq remind "…" --at "tomorrow 9:00" [--important] [--link …]   # a reminder: in Later, back at its time
+hq notification done|delete <id>          # one this session sent or set, that no longer needs the user
 hq project edit Registry [--folder ~/code/registry] [--repo acme/registry,acme/image-sync]
 hq task show|add|move|edit|link|unlink …   # see hq-tasks
 hq file new|write|show …                  # see hq-files
@@ -31,8 +32,9 @@ hq session new "T-12 Short name" --task T-12 [--cwd dir] [--message -]   # a fre
 The user doesn't watch every session. When a turn ends, its card shows it quietly; nothing notifies. Tell them yourself when they should look:
 
 - **`hq notify "…"`** (Updates): the work they asked for is ready to check, a write-up or a page is done, a PR is open for their review, a decision of theirs unblocks the next step. A sentence or two: what's ready, then what to check, like `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west's retries look fine to you."` The center shows two lines, and all of it when the user selects the row. It links this session's open tasks and the files, artifacts and PRs it made since its last notification; `--link` names other things instead. A second notification from this session before they read the first updates it, so don't hold back the last one. Not at every turn end, and not when the turn only waits on a background job or a build: notify when the result is there.
-- **`--important`** (Needs You, with a banner): only when the user asked to be pinged ("ping me when the deploy is green"), or when you can't go on without them and a question doesn't fit ("unlock the screen", "log in to AWS"). A question you ask with AskUserQuestion, a permission or a plan already shows in Needs You on its own.
-- **`hq remind "…" --at <when>`**: the user asks to be reminded (`--important`), or a follow-up you can't do now needs them later ("look at the canary again"). `--at`: `16:00`, `in 2h`, `tomorrow 9:00`, `monday`, `2026-11-09T09:00`.
+- **`--important`** (Needs You, with a banner): a ping. **"Ping me" always means `hq notify --important "…"`**, sent when what they're waiting for happens ("ping me when the deploy is green": notify the moment it's green, or failed). Also when you can't go on without them and a question doesn't fit ("unlock the screen", "log in to AWS"). Nothing else: a question you ask with AskUserQuestion, a permission or a plan already shows in Needs You on its own.
+- **`hq remind "…" --at <when>`**: the user asks to be reminded (`--important`), or a follow-up you can't do now needs them later ("look at the canary again"). `--at`: `16:00`, `in 2h`, `tomorrow 9:00`, `monday`, `next week`, `2026-11-09T09:00`.
+- **One that no longer holds**: the follow-up you set a reminder for got done early, a ping you sent is moot. `hq notification done <id>` (read, or done for a reminder) or `hq notification delete <id>`. The id starts the line `hq notify` and `hq remind` print; `hq ls notifications` lists them. Only yours: another's needs `--not-mine`, when the user names it.
 
 ## What links where
 

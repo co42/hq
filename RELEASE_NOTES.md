@@ -46,11 +46,14 @@
 - HQ opens at login. Settings › General turns that off.
 - Settings › Keys lists the notification center's keys.
 
-**The hq command, and hq plugin 0.7.0**
-- `hq notify "…"` tells you something is ready; `--important` pings you.
+**The hq command, and hq plugin 0.7.1**
+- `hq notify "…"` tells you something is ready; `--important` pings you. To a session, "ping me" means that.
 - `hq remind "…" --at "tomorrow 9:00"` sets a reminder.
 - `hq ls notifications` lists them.
-- The skills now have sessions notify you when work is ready, instead of moving tasks to Review.
+- `hq notification done|delete <id>` lets a session clear a ping or reminder of its own that no longer holds.
+- The skills have sessions keep finished work in Doing and notify you what to check; you move it to Done. They move a task to Done themselves only when it needs no look from you.
+- `hq task move … review` is refused, pointing to `hq notify`.
+- `--link` takes a file name with a comma in it.
 
 **For contributors**
 - Fixed: UI checks that failed now and then:

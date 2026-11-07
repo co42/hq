@@ -228,6 +228,7 @@ enum AgentCLI {
 
     /// Short plain lines for people. Agents use --json.
     static func human(_ result: Any) -> String {
+        if let object = result as? JSONObject, let line = notice(object) { return line }
         // A command with a text form (`ctx`) prints that.
         if let text = (result as? JSONObject)?["text"] as? String { return text }
         // A list (`ls`) carries its total; anything else is one item.
@@ -266,8 +267,17 @@ enum AgentCLI {
         return "\(kind): \(item["title"] as? String ?? "")\(state)\(place)"
     }
 
+    /// `3F2A9C1B [later] Check the canary · due 2026-11-07T18:00:00Z`: a notification, with the id its commands take.
+    private static func notice(_ object: JSONObject) -> String? {
+        guard let id = object["id"] as? String, let section = object["section"] as? String, object["level"] != nil else { return nil }
+        let due = (object["due"] as? String).map { " · due \($0)" } ?? ""
+        let read = object["read"] != nil ? " · read" : ""
+        return "\(id.prefix(8)) [\(section)] \(object["text"] as? String ?? "")\(due)\(read)"
+    }
+
     /// One line per item, short enough for a card: `T-4 [doing] Title #ui · bug · HQ`. `--json` has every field.
     private static func line(_ object: JSONObject) -> String {
+        if let notice = notice(object) { return notice }
         let tags = (object["tags"] as? [String]).flatMap { $0.isEmpty ? nil : " " + $0.map { "#\($0)" }.joined(separator: " ") } ?? ""
         let title = object["title"] as? String ?? object["name"] as? String ?? ""
         if let id = object["id"] as? String, id.hasPrefix("T-"), let status = object["status"] as? String {
