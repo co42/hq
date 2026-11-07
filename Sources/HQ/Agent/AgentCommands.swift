@@ -129,16 +129,17 @@ enum AgentCommands {
             json["linked"] = model.outputs(ofTask: task.id).map { model.linkJSON($0) }
             return json
         },
-        AgentCommand(name: "task add", summary: "Create a task, in the Backlog unless --now (Claude works on it now, with the user) or --parent.",
+        AgentCommand(name: "task add", summary: "Create a task, at the end of Tasks; at the top of the Backlog with --backlog, only when the user asks for the Backlog; under a task with --parent.",
                      params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status, a type or a project they name, else become tags"),
                               .init(name: "type", help: "story, bug, feature, chore, research or docs: set it"),
                               .init(name: "project", help: "the project it belongs to"),
                               .init(name: "tag", help: "tags, comma separated"),
                               .init(name: "parent", help: "T-12: a subtask of that task"),
-                              .init(name: "now", kind: .boolean, help: "at the end of Tasks, on the overview"),
+                              .init(name: "backlog", kind: .boolean, help: "at the top of the Backlog: only when the user says Backlog"),
+                              .init(name: "now", kind: .boolean, help: "at the end of Tasks: the default"),
                               .init(name: "status", help: "todo (default), doing (also puts it on Tasks) or done"),
                               .init(name: "body", help: "the description in markdown; - reads stdin")],
-                     example: "hq task add \"Dedup layers on push\" --type feature --now --body -") { args, model in
+                     example: "hq task add \"Dedup layers on push\" --type feature --project Registry --body -") { args, model in
             let titled = TitleTags.split((try? args.required("title")) ?? "").tags.compactMap { word -> TaskStatus? in
                 if case .status(let status) = model.titleWord(word) { status } else { nil }
             }.last
@@ -152,10 +153,10 @@ enum AgentCommands {
             if let ref = args.string("parent") {
                 guard let parent = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
                 placed = tree.placeNew(in: .task(parent.id))
-            } else if try args.bool("now") == true || status == .doing {
-                placed = tree.placeNew(in: .list(.overview))
-            } else {
+            } else if try args.bool("backlog") == true, status != .doing {
                 placed = tree.placeNew(in: .list(.backlog), at: 0)
+            } else {
+                placed = tree.placeNew(in: .list(.overview))
             }
             guard let (placement, renumber) = placed,
                   let task = model.addTask(title: try args.required("title"), placement: placement, status: status,

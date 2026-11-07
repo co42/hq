@@ -1,5 +1,11 @@
 # Release notes
 
+## v9.1 · 2026-11-07
+
+**The hq command, and hq plugin 0.7.2**
+- `hq task add` puts a task at the end of Tasks; `--backlog` puts it in the Backlog, which sessions do only when you say so.
+- The skills have sessions read their task again between pieces of work and before finishing: you may edit it or add subtasks meanwhile.
+
 ## v9 · 2026-11-07
 
 **Notifications**

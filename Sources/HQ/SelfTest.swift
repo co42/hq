@@ -364,7 +364,7 @@ enum SelfTest {
     /// Title words, completions, colors, the Story status and a description's first line.
     private static func labelChecks(_ model: AppModel) {
         guard let task = model.addTask(to: .backlog, title: "Labels") else { return check("a task for labels", false) }
-        let untyped = agent("task add", ["title": "No type yet"])
+        let untyped = agent("task add", ["title": "No type yet", "backlog": "true"])
         check("a task has no type until one is set", task.type == nil && untyped["type"] == nil && untyped["id"] != nil, "\(untyped)")
         if let key = untyped["id"] as? String, let id = TaskItem.key(key) {
             agent("task edit", ["task": key, "type": "bug", "title": "Typed now #infra"])
@@ -652,14 +652,14 @@ enum SelfTest {
     private static func cliChecks(_ model: AppModel) async {
         func settle(_ seconds: Double = 0.3) async { try? await Task.sleep(for: .seconds(seconds)) }
         let session = "5e550000-0000-4000-8000-000000000001"
-        let added = agent("task add", ["title": "Dedup layers on push #perf", "type": "bug", "project": "Registry", "body": "Goal.", "_session": session])
+        let added = agent("task add", ["title": "Dedup layers on push #perf", "type": "bug", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
         let key = added["id"] as? String ?? ""
         let id = TaskItem.key(key) ?? -1
-        check("task add goes to the top of the Backlog, with type, project, tags and the session",
+        check("task add --backlog goes to the top of the Backlog, with type, project, tags and the session",
               added["list"] as? String == "backlog" && model.taskTree.top(.backlog).first == id && added["type"] as? String == "bug"
                 && added["project"] as? String == "Registry" && (added["tags"] as? [String]) == ["perf"] && model.task(id)?.sessions == [session], "\(added)")
-        let now = agent("task add", ["title": "Pair on this", "now": "true"])
-        check("task add --now goes to the end of Tasks", now["list"] as? String == "overview" && model.taskTree.top(.overview).last == TaskItem.key(now["id"] as? String ?? ""))
+        let now = agent("task add", ["title": "Pair on this"])
+        check("task add goes to the end of Tasks unless the user asks for the Backlog", now["list"] as? String == "overview" && model.taskTree.top(.overview).last == TaskItem.key(now["id"] as? String ?? ""))
         if let mine = TaskItem.key(now["id"] as? String ?? "") {
             model.setStatus(mine, .done)
             model.setStatus(mine, .todo)

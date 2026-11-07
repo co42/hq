@@ -11,7 +11,7 @@ The user follows your work on HQ's overview, not in the chat. A task is a note i
 
 When the user hands you a task ("do T-12 and its subtasks"), before the first edit or investigation:
 
-1. **Read it and its subtasks**: `hq task show T-n` prints the tasks it's part of ("Part of:"), its description, its subtasks with their status, and what's linked to it (files, artifacts, PRs, tasks); `hq ls tasks --overview --json` gives each subtask's `parent`, `type` and `project`. The subtasks are your queue. The user adds more while you work: look again between pieces and take the new ones in.
+1. **Read it and its subtasks**: `hq task show T-n` prints the tasks it's part of ("Part of:"), its description, its subtasks with their status, and what's linked to it (files, artifacts, PRs, tasks); `hq ls tasks --overview --json` gives each subtask's `parent`, `type` and `project`. The subtasks are your queue. The user edits the task and adds subtasks while you work: `hq task show` again between pieces and before you finish, take the new subtasks in, and follow what they changed.
 2. **Take it**: `hq task move T-12 doing --not-mine`. It links this session to the task, and so to its subtasks. HQ refuses a session's changes to a task it isn't on, nor under one it's on: `--not-mine` says this is the task the user named (below).
 3. **Fix every one's fields**, the task's and each subtask's: a **type** that fits (set a missing one, correct a wrong one) and the **project** the work belongs to (below). `hq task edit T-n --type … --project …`.
 4. **Move each subtask to `doing` before you touch it**: before reading its code, planning it or editing for it, not only once you edit. The parent in doing doesn't move its subtasks: a subtask you work on while it shows todo looks untouched. Then keep every status true as you go (next section).
@@ -59,7 +59,8 @@ Merged in #418; the canary runs since 14:00. Next: watch it until 14:30, then do
 hq ctx                                              # what this session works on, and the overview
 hq ls tasks [--overview|--backlog] [--all] [--type bug] [--project Registry] [--tag perf]
 hq task show T-12                                   # parents, description, subtasks, links; --json for every field
-hq task add "Title" --type bug [--project p] [--tag a,b] [--body -]    # into the Backlog
+hq task add "Title" --type bug [--project p] [--tag a,b] [--body -]    # at the end of Tasks
+hq task add "Title" --type feature --backlog         # the Backlog: only when the user says so
 hq task add "Title" --type feature --status doing   # on Tasks, doing: you start it now
 hq task add "Part of it" --type chore --parent T-12 [--status doing]   # a subtask
 hq task move T-12 doing                             # todo | doing (also brings it to Tasks) | done | backlog
@@ -82,12 +83,12 @@ hq task undo T-12 --yes                             # put back every task its la
 
 - **Before starting**: `hq ctx`. If a task already covers the work, use it; don't create a duplicate.
 - **Work is agreed or planned**: one task per piece of work the user would track (a feature, a fix, an investigation), with its type. Title: a short imperative ("Dedup layers on push"). Description: the goal and how you'll know it's done, in a few lines. Parts the user wants to see on their own become subtasks (`--parent`); steps they don't need stay in the description as a checklist (`- [ ] …`).
-- **New tasks go to the Backlog**, unless you start now (`--status doing`) or the user wants it on Tasks as todo (`--now`).
+- **New tasks go to Tasks**, at the end, todo (or `--status doing` when you start now). The Backlog only when the user says so: `--backlog`.
 - **Progress or a decision**: at milestones the user would want to read (not after every command), update the description: tick what's done, rewrite Status, add the decision. `--body` replaces it all, so start from `hq task show T-n --json | jq -r .body`.
 - **You make something**: link it to the task, so it shows under its row: the PR or issue you open or work from (`hq task link T-n <url>`), a related or follow-up task (`hq task link T-n T-m`). Files from `hq file new` link themselves.
 - **Blocked or waiting on the user**: say what's needed in the description, and `hq notify` (`--important` when you can't go on without them).
 - **The user says later**: `hq task move T-n backlog`. **Dropped**: say why in the description; the user deletes it, or asks you to (`hq task delete`).
-- **The user asks to note something to do**: `hq task add "…" --type …` (it goes to the Backlog); an idea still to shape: `--type story`.
+- **The user asks to note something to do**: `hq task add "…" --type …` (on Tasks; `--backlog` when they say Backlog, or "later"); an idea still to shape: `--type story`.
 
 ## Continue a task in a fresh session
 

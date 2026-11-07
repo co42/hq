@@ -142,7 +142,7 @@ Known gap: Esc, a rejection or an interrupt sends nothing, so the state holds un
 Plugin `plugin/`, bundled into `HQ.app/Contents/Resources/Plugin` by `build.sh` and installed globally from there (`tools/install-plugin.sh`, also Setup › Install). Claude Code runs it from its own copy per version: a change under `plugin/` needs a version bump in `plugin.json` and `tools/install-plugin.sh`, and reaches sessions started after that.
 
 - `hooks/hooks.json`: the events above → `${CLAUDE_PLUGIN_ROOT}/bin/hq hook`, timeout 2 s. PreToolUse matcher `AskUserQuestion|ExitPlanMode`; PostToolUse unfiltered (artifacts, PR URLs).
-- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something (most work), the task stays doing and `hq notify` tells them, and the user moves it to done; `done` only when nothing needs their look; new tasks to the Backlog unless the user asked to work on them now), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
+- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something (most work), the task stays doing and `hq notify` tells them, and the user moves it to done; `done` only when nothing needs their look; new tasks at the end of Tasks, the Backlog only when the user says so; the task read again between pieces, since the user edits it and adds subtasks), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
 
 ```
 hq status                                      # whether HQ runs; needsYou, updates, and how many sessions, tasks, files, artifacts
@@ -151,7 +151,7 @@ hq ls tasks [--overview|--backlog|--all] [--type t] [--project p] [--tag t]
 hq ls sessions | prs | files | artifacts | projects
 hq ls notifications [--all]                    # Needs You, Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
-hq task add "Title" [--type t] [--project p] [--tag t] [--parent T-n] [--now] [--body -]
+hq task add "Title" [--type t] [--project p] [--tag t] [--parent T-n] [--backlog] [--body -]   # end of Tasks; --backlog: top of the Backlog
 hq task move T-n todo|doing|done|backlog       # review is refused, pointing to hq notify
 hq task edit T-n [--title …] [--body -] [--type t] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
 hq task show T-n                               # parents, description, subtasks, links
