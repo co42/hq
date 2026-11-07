@@ -30,6 +30,8 @@ public struct HookEvent: Sendable, Hashable {
     public var pid: Int32?
     public var tty: String?
     public var inGhostty: Bool?
+    /// When it happened, for an event HQ replays from `HookSpool`; nil: now.
+    public var at: Date?
 
     public init(name: String, sessionID: String) {
         self.name = name

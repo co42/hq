@@ -9,8 +9,7 @@ extension AppModel {
             noticeStore.githubSince = now
             return
         }
-        // Keys last three days: nothing older counts, so nothing notifies twice.
-        let floor = max(since, now.addingTimeInterval(-3 * 86_400))
+        let floor = githubFloor(since: since, now: now)
         let old = Dictionary((before?.items ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         var known = noticeStore.githubEvents
         for item in after.items where item.kind == .pullRequest && (item.state == .open || item.state == .draft) {
@@ -36,6 +35,11 @@ extension AppModel {
                    count: fresh.count)
         }
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
+    }
+
+    /// Events before this never notify: the first poll, or the lookback. Keys last as long, so nothing notifies twice.
+    func githubFloor(since: Date, now: Date = .now) -> Date {
+        max(since, now.addingTimeInterval(-Double(githubLookback) * 86_400))
     }
 
     /// "noor approved your PR", "theo asked for changes: “Split the GC job”", "lea commented: “LGTM”".

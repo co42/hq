@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ServiceManagement
 
 // HQ
 //   HQ                       the app
@@ -60,6 +61,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The socket lives with the app, not the window: hooks reach HQ even while its window is closed.
         AgentRouter.model = model
         AgentSocket.listen { AgentRouter.handle($0) }
+        // What sessions did while HQ was off; again a moment later for a hook that just missed the socket.
+        model.replayPendingHooks()
+        Task { [weak model] in
+            try? await Task.sleep(for: .seconds(3))
+            model?.replayPendingHooks()
+        }
         // The plugin, Ghostty access and the vault: the setup sheet until all three are ready.
         if !Store.isOverridden {
             model.checkSetup()
@@ -71,6 +78,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.mainWindow?.makeKeyAndOrderFront(nil)
                 NSApp.activate()
                 self?.model.openCenter()
+            }
+            // HQ opens at login, once set; Settings › General turns it off for good.
+            if !UserDefaults.standard.bool(forKey: "login.registered") {
+                UserDefaults.standard.set(true, forKey: "login.registered")
+                if SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
             }
         }
         // Started from a terminal, the process is not a foreground app yet.

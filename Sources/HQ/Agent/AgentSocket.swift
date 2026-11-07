@@ -7,6 +7,9 @@ import Foundation
 ///   <APP_STORE>.sock                                         a test run
 ///   APP_AGENT_SOCKET=<path>                                  any other place
 nonisolated enum AgentSocket {
+    /// Nothing listens on the socket: HQ isn't running.
+    static let notRunning = "not running"
+
     static var path: String {
         let env = ProcessInfo.processInfo.environment
         if let path = env["APP_AGENT_SOCKET"], !path.isEmpty { return path }
@@ -93,7 +96,7 @@ nonisolated enum AgentSocket {
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(client, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard connected == 0 else { throw AgentError.unavailable("not running") }
+        guard connected == 0 else { throw AgentError.unavailable(notRunning) }
         var timeout = timeval(tv_sec: seconds, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))

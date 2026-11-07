@@ -220,6 +220,12 @@ final class AppModel {
     /// When GitHub last answered, when that's later than `github`: a poll that changed nothing sets only this.
     var githubAnswered: Date?
     var githubUpdated: Date? { [githubAnswered, github?.fetchedAt].compactMap(\.self).max() }
+    /// How far back GitHub events notify, in days: what HQ catches up on after being off. Settings › GitHub.
+    var githubLookback = UserDefaults.standard.object(forKey: "github.lookbackDays") as? Int ?? AppModel.defaultLookback {
+        didSet { remember(githubLookback, as: "github.lookbackDays") }
+    }
+    static let defaultLookback = 10
+    static let lookbackChoices = [3, 7, 10, 14, 30]
     /// Files and Artifacts shows pinned items only, remembered.
     var pinnedOnly = UserDefaults.standard.bool(forKey: "files.pinnedOnly") {
         didSet { remember(pinnedOnly, as: "files.pinnedOnly") }

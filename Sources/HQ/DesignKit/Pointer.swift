@@ -46,6 +46,35 @@ extension View {
     func handCursors() -> some View { buttonStyle(HandButtonStyle()) }
 }
 
+extension View {
+    /// The pointing hand over a toolbar item. SwiftUI's pointer style there comes late and sticks; AppKit's tracking
+    /// follows the toolbar's layout, and leaving gives the arrow back.
+    func toolbarClickable() -> some View {
+        buttonStyle(.automatic).background(ToolbarHand())
+    }
+}
+
+struct ToolbarHand: NSViewRepresentable {
+    func makeNSView(context: Context) -> ToolbarHandView { ToolbarHandView() }
+    func updateNSView(_ view: ToolbarHandView, context: Context) {}
+}
+
+final class ToolbarHandView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Clicks go to the item; only the pointer is tracked here.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseEntered(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
+}
+
 /// A borderless icon button with the pointing hand: the outline rows' hover actions. It tracks the
 /// pointer only while shown, so 500 rows' hidden buttons cost nothing.
 final class HandButton: NSButton {

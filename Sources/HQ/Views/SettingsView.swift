@@ -175,6 +175,18 @@ struct GitHubSettings: View {
             Text("HQ reads your pull requests, the reviews asked of you, and the PRs and issues your tasks link, with the token of gh auth token. It never writes to GitHub.")
                 .foregroundStyle(.secondary)
         }
+        Section {
+            @Bindable var model = model
+            Picker("Notify about the last", selection: $model.githubLookback) {
+                ForEach(AppModel.lookbackChoices, id: \.self) { Text("\($0) days").tag($0) }
+            }
+            .uiTestAnchor("github-lookback")
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("Reviews, comments, mentions and review requests from this far back notify once, so HQ catches up after it was off.")
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -182,8 +194,9 @@ struct KeysSettings: View {
     private let keys: [(String, String)] = [
         ("Next or previous section", "Tab  ⇧Tab"),
         ("Select in a section, open", "↑  ↓, Return or Space"),
-        ("Review Next", "⌘J"),
-        ("Mark All Seen", "⇧⌘J"),
+        ("Notifications", "⌘J"),
+        ("Mark all notifications read", "⇧⌘J"),
+        ("New Reminder…", "⌃⌘R"),
         ("New Task", "⌘N"),
         ("New Backlog Task", "⌥⌘N"),
         ("New File…", "⌃⌘N"),
@@ -228,6 +241,14 @@ struct KeysSettings: View {
         ("Save, back to the row", "Escape  ⌘Return"),
         ("Edit the next title, this title", "Tab  ⇧Tab"),
     ]
+    private let noticeKeys: [(String, String)] = [
+        ("Next or previous", "↓  ↑"),
+        ("Open what it links, edit a reminder", "Return, or double-click"),
+        ("Read or unread, done or not", "E"),
+        ("Later", "L"),
+        ("Copy its text", "⌘C"),
+        ("Delete", "⌫"),
+    ]
 
     var body: some View {
         Section("Everywhere") { rows(keys) }
@@ -240,6 +261,7 @@ struct KeysSettings: View {
             Text("A task left with no title and no description is deleted; Undo brings it back.").foregroundStyle(.secondary)
         }
         Section("In a task’s description") { rows(descriptionKeys) }
+        Section("In the notifications") { rows(noticeKeys) }
     }
 
     private func rows(_ list: [(String, String)]) -> some View {

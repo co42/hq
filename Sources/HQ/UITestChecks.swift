@@ -446,6 +446,22 @@ extension UITest {
         await ui.settle(0.5)
         let bell = ui.anchor("bell")
         check("the toolbar has the bell, breathing while something needs the user", bell != nil && model.bellBreathes)
+        // The toolbar's hand is AppKit's: it shows on entering an item and leaves with the pointer.
+        func hands(_ view: NSView?) -> [ToolbarHandView] {
+            guard let view else { return [] }
+            return ((view as? ToolbarHandView).map { [$0] } ?? []) + view.subviews.flatMap(hands)
+        }
+        let toolbarHands = hands(ui.window.contentView?.superview)
+        if let hand = toolbarHands.first, let event = ui.mouseDown(.zero, clicks: 1) {
+            hand.mouseEntered(with: event)
+            let entered = NSCursor.current == NSCursor.pointingHand
+            hand.mouseExited(with: event)
+            check("the bell and New show the pointing hand, and leaving them gives the arrow back",
+                  toolbarHands.count == 2 && toolbarHands.allSatisfy { $0.trackingAreas.contains { $0.options.contains(.cursorUpdate) } }
+                  && entered && NSCursor.current == NSCursor.arrow, "\(toolbarHands.count) hands, entered \(entered)")
+        } else {
+            check("the toolbar's items track the pointing hand", false, "\(toolbarHands.count) hands")
+        }
         await ui.click(bell)
         await ui.until(2) { model.modal == .notifications }
         check("a click on the bell opens the center", model.modal == .notifications, "\(String(describing: model.modal))")

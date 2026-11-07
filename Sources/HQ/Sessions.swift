@@ -6,8 +6,21 @@ extension AppModel {
     // MARK: Hook events
 
     /// One hook event from `hq hook`. Every event of every session lands here: keep it quick.
+    /// What sessions did while HQ was off: the events `hq hook` kept (`HookSpool`), replayed in order with their times.
+    func replayPendingHooks() {
+        let url = Store.directory.appending(path: HookSpool.fileName)
+        let taken = url.appendingPathExtension("replaying")
+        try? FileManager.default.removeItem(at: taken)
+        guard (try? FileManager.default.moveItem(at: url, to: taken)) != nil else { return }
+        defer { try? FileManager.default.removeItem(at: taken) }
+        guard let data = try? Data(contentsOf: taken) else { return }
+        for entry in HookSpool.replayable(HookSpool.entries(data)) {
+            _ = AgentRouter.handle(JSON.data(["command": "hook", "args": entry.args]))
+        }
+    }
+
     func receive(_ event: HookEvent) {
-        let now = Date.now
+        let now = event.at ?? Date.now
         lastHookEvent = now
         var item = session(event.sessionID) ?? newItem(for: event, now: now)
         let waited = item.status.needsYou

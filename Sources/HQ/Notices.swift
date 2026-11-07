@@ -317,7 +317,9 @@ extension AppModel {
         // Read rows go after two weeks.
         let cutoff = Date.now.addingTimeInterval(-14 * 86_400)
         noticeStore.notices.removeAll { ($0.readAt ?? .distantFuture) < cutoff }
-        noticeStore.githubEvents = noticeStore.githubEvents.filter { $0.value > Date.now.addingTimeInterval(-3 * 86_400) }
+        // GitHub keys outlast the longest lookback, so raising it never notifies twice.
+        let keep = Date.now.addingTimeInterval(-Double(Self.lookbackChoices.max() ?? 30) * 86_400)
+        noticeStore.githubEvents = noticeStore.githubEvents.filter { $0.value > keep }
         fireDue()
     }
 

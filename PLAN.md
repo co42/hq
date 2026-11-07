@@ -21,7 +21,7 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 | App | SwiftUI on macOS 27 only (2026-11-05), AppKit where SwiftUI falls short (the outline, the session grid, the Ghostty bridge, text editors). Swift 6.4, a Swift package, no Xcode project |
 | Names | App `HQ`, bundle id `io.github.co42.hq`, CLI `hq` |
 | Process | One process, the app: store, vault index, hook socket, Ghostty bridge, GitHub poller. Stays alive when its window closes |
-| CLI | The app binary is the CLI (bama `agent-cli`): `~/.local/bin/hq` links into the bundle and talks to the running app over a Unix socket. If the app is closed, `hq` opens it in the background; `hq hook` never does |
+| CLI | The app binary is the CLI (bama `agent-cli`): `~/.local/bin/hq` links into the bundle and talks to the running app over a Unix socket. If the app is closed, `hq` opens it in the background; `hq hook` never does: it keeps the event in `pending-hooks.jsonl` (compact, 4 MB cap), which the app replays at launch with the events' own times |
 | Store | SwiftData in `~/Library/Application Support/HQ/`: sessions, artifacts and seen records. Beside it as JSON: GitHub's last answer, and `notifications.json` (the rows, when the user last opened the center, GitHub event keys and the date nothing before it notifies). Live session state stays in memory |
 | Vault | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes`; hq's folder is `hq/` with `tasks/` and `files/`. Front matter read and written line by line (`HQKit.FrontMatter`), so other keys keep their text |
 | Claude plugin | `plugin/` in this repo, installed globally through a local marketplace: hooks and skills. `Bash(hq:*)` allowed in `~/.claude/settings.json` |
@@ -108,7 +108,7 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 ### Notifications and seen
 
-`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 3 days) and the date nothing GitHub did before notifies (the first v9 poll). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
+`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 30 days, the longest lookback) and the date nothing GitHub did before notifies (the first v9 poll). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
 
 `SeenRecord(key, seenAt)` keeps what the user acknowledged: `review:<url>` (Mark Reviewed, until the PR's next commit) and `blink:<session id>` (a card stops breathing until its next state). Sessions keep their own unread flag (done after Stop, until the user opens them, or looks at their terminal: while Ghostty is in front, HQ reads its focused tty every 2.5 s and a done session on it is read). Nothing else is new or seen.
 
@@ -172,7 +172,7 @@ hq remind "…" --at <when> [--important] [--link …]        # Later until <whe
 hq hook                                        # used by the plugin
 ```
 
-`hq hook` reads stdin, adds Claude's pid, its tty and whether Ghostty is an ancestor, sends the event over the socket with a 1 s timeout and exits 0. Commands find their session from `CLAUDE_CODE_SESSION_ID`. Commands from the socket don't register Undo, and nothing they change notifies on its own: a session tells the user with `hq notify`. `hq notify` without `--link` links the session's open tasks and what it made since its last notification; a second one before the user reads the first updates that row.
+`hq hook` reads stdin, adds Claude's pid, its tty and whether Ghostty is an ancestor, sends the event over the socket with a 1 s timeout and exits 0. With nothing listening (HQ is off) it appends the event, without what HQ never reads (tool output, file contents), to `pending-hooks.jsonl` beside the store (`HookSpool`); the app replays it at launch, and again 3 s later, keeping every state event, the tool calls it reads something from and each session's last tool call, older than 7 days dropped. Commands find their session from `CLAUDE_CODE_SESSION_ID`. Commands from the socket don't register Undo, and nothing they change notifies on its own: a session tells the user with `hq notify`. `hq notify` without `--link` links the session's open tasks and what it made since its last notification; a second one before the user reads the first updates that row.
 
 ## 8. Build steps
 

@@ -52,11 +52,30 @@ enum AgentCLI {
             args["tty"] = claude.tty
             args["ghostty"] = claude.inGhostty ? "true" : "false"
         }
-        guard let reply = try? AgentSocket.sendOnce(JSON.data(["command": "hook", "args": args]), timeout: 1),
-              let object = try? JSONSerialization.jsonObject(with: reply) as? JSONObject,
+        let reply: Data
+        do {
+            reply = try AgentSocket.sendOnce(JSON.data(["command": "hook", "args": args]), timeout: 1)
+        } catch let error as AgentError where error.message == AgentSocket.notRunning {
+            return spool(args)
+        } catch {
+            return
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? JSONObject,
               let context = (object["result"] as? JSONObject)?["context"] as? String, !context.isEmpty else { return }
         // SessionStart: stdout becomes context for Claude.
         print(context)
+    }
+
+    /// HQ is off: the event waits in `pending-hooks.jsonl` for its next launch, under a size cap.
+    private static func spool(_ args: [String: String]) {
+        guard let event = args["event"],
+              let line = HookSpool.line(.init(event: event, pid: args["pid"], tty: args["tty"], ghostty: args["ghostty"], at: .now)) else { return }
+        let descriptor = open(Store.directory.appending(path: HookSpool.fileName).path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_size < HookSpool.maxBytes else { return }
+        _ = line.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
     }
 
     private static func run(_ words: [String], json: Bool) throws -> Int32 {

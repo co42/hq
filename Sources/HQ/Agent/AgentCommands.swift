@@ -463,14 +463,16 @@ enum AgentCommands {
                      params: [.init(name: "event", help: "the hook's JSON, read from stdin by the CLI"),
                               .init(name: "pid", kind: .integer, help: "Claude's process, added by the CLI"),
                               .init(name: "tty", help: "Claude's terminal, added by the CLI"),
-                              .init(name: "ghostty", kind: .boolean, help: "true when Claude runs in Ghostty, added by the CLI")],
+                              .init(name: "ghostty", kind: .boolean, help: "true when Claude runs in Ghostty, added by the CLI"),
+                              .init(name: "at", help: "when it happened (ISO 8601), for an event HQ replays after being off")],
                      example: "echo '{\"hook_event_name\":\"Stop\",\"session_id\":\"…\"}' | hq hook") { args, model in
             model.lastHookEvent = .now
             guard let json = args.string("event"),
-                  let event = HookEvent(json: Data(json.utf8), pid: args.string("pid").flatMap(Int32.init),
+                  var event = HookEvent(json: Data(json.utf8), pid: args.string("pid").flatMap(Int32.init),
                                         tty: args.string("tty"), inGhostty: try args.bool("ghostty")) else {
                 return ["received": false]
             }
+            event.at = args.string("at").flatMap { try? Date($0, strategy: .iso8601) }
             model.receive(event)
             // SessionStart's stdout reaches Claude: a short note on what it works on.
             if event.name == "SessionStart" { return ["received": true, "context": model.startContext(event.sessionID)] }

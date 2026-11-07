@@ -269,7 +269,7 @@ Notifications are events the user reads once; the page keeps showing state: face
 - **Where rows come from**:
   - `hq notify "…"` from a session: Updates. It links the session's open tasks and the files, artifacts and PRs it made since its last notification, or what `--link` names. With `--important`: Needs You, when the user asked to be pinged or the session can't go on without them.
   - Reminders, `hq remind "…" --at <when> [--important]` and New Reminder… (⌃⌘R): in Later until due, then Needs You if important, else Updates. Later on a row puts it there too, and it comes back at its own level.
-  - GitHub, all Updates: on the user's open PRs, a new review (approved, changes requested, reviewed) or comment by a person (never a bot, never the user), and checks turning failed; on others' PRs, a review asked of the user. Nothing GitHub did before the first v9 poll notifies, and event keys are kept 3 days, so nothing notifies twice.
+  - GitHub, all Updates: on the user's open PRs, a new review (approved, changes requested, reviewed) or comment by a person (never a bot, never the user), and checks turning failed; on others' PRs, a review asked of the user. Nothing GitHub did before the first v9 poll notifies, nor anything older than the lookback (Settings › GitHub, 10 days by default): what HQ catches up on when it starts after being off. Event keys are kept 30 days, so nothing notifies twice.
   - A task on the overview still in Review when HQ first reads the vault in v9: one Updates row, "T-12 was in Review: <reason>", linked to the task (§7, three statuses).
 - **Banners** (macOS notifications) for Needs You only: a ping, a due important reminder, a session starting to wait on the user (after 2 s, and not when the user already looks at its terminal in Ghostty). A click opens the center. While HQ is in front they go straight to macOS's list: the bell says it already. Never in test runs. Ghostty's own notifications for Claude are meant to be turned off.
 
@@ -341,7 +341,7 @@ Other symbols are SF Symbols named once in `KitIcon`; the self-test checks each 
 
 ### Pointer
 
-The pointing hand over everything a click acts on (over the Mac's arrow on push buttons): every button, toggle, pop-up, segmented control and switch while enabled, in the page, the modal, the toolbar and Settings (`handCursors()` on each SwiftUI root gives default-style buttons the hand; the window's own buttons keep the arrow); icons (status, type, pin, close, copy, open on GitHub, a row's hover actions), faces, chips (links, project, + tag) and checkboxes (`clickable()` in SwiftUI, `trackHandCursor()` in AppKit, a tracking area that follows scrolling). Rows, cards and text keep the arrow or the I-beam.
+The pointing hand over everything a click acts on (over the Mac's arrow on push buttons): every button, toggle, pop-up, segmented control and switch while enabled, in the page, the modal, the toolbar and Settings (`handCursors()` on each SwiftUI root gives default-style buttons the hand; the window's own buttons keep the arrow); icons (status, type, pin, close, copy, open on GitHub, a row's hover actions), faces, chips (links, project, + tag) and checkboxes (`clickable()` in SwiftUI, `trackHandCursor()` in AppKit, a tracking area that follows scrolling). The toolbar's items get it from AppKit too (`toolbarClickable()`): SwiftUI's pointer style there comes late and sticks. Rows, cards and text keep the arrow or the I-beam.
 
 ## 13. Commands and keys
 
@@ -386,7 +386,7 @@ Reasons read as sentences without a subject: "Wants to run Bash", "Asks: …", "
 ## 15. Setup, health, Settings
 
 - **First launch** shows a setup sheet: Claude plugin (Install), Ghostty access (Allow), Obsidian vault (found, or Choose…), GitHub (`gh` found and signed in, with the account; the fix when it isn't). It closes itself when the first three are green; GitHub is optional.
-- **Settings**, one grouped form per tab, 520 pt wide: General (open at login, vault), Projects (each project, its chip as the section's header: the folder its sessions start in, Choose…, or the folder its sessions ran in most as a secondary guess; its GitHub repositories, `owner/name`, comma separated; also from a project chip's context menu, "Folder and GitHub…"), Claude (plugin status and Reinstall, last hook event), Ghostty (access status), GitHub (account, last update). Only what works.
+- **Settings**, one grouped form per tab, 520 pt wide: General (open at login, on from the first launch until the user turns it off; vault), Projects (each project, its chip as the section's header: the folder its sessions start in, Choose…, or the folder its sessions ran in most as a secondary guess; its GitHub repositories, `owner/name`, comma separated; also from a project chip's context menu, "Folder and GitHub…"), Claude (plugin status and Reinstall, last hook event), Ghostty (access status), GitHub (account, last update; Notifications: how far back GitHub events notify, 3 to 30 days), Keys (every shortcut). Only what works.
 
 ## 16. Parts, gallery, sample data
 

@@ -32,6 +32,7 @@ enum SelfTest {
             await vaultChecks(model)
             await cliChecks(model)
             labelChecks(model)
+            spoolChecks(model)
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
@@ -127,6 +128,22 @@ enum SelfTest {
         model.noteGitHubEvents(before: before, after: snapshot)
         check("the same event never notifies twice", model.notices.filter { $0.source == url && $0.readAt == nil }.first?.count == 1)
         model.markAllRead()
+    }
+
+    /// A session that asked something while HQ was off: `hq hook` kept the event; HQ replays it at launch, with its time.
+    private static func spoolChecks(_ model: AppModel) {
+        let id = "5eed0000-5b00-4000-8000-000000000001"
+        let asked = Date.now.addingTimeInterval(-3600)
+        let event = "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"\(id)\",\"cwd\":\"/tmp\",\"tool_name\":\"AskUserQuestion\","
+            + "\"tool_input\":{\"questions\":[{\"question\":\"Which bucket?\",\"options\":[{\"label\":\"A\"}]}]}}"
+        let url = Store.directory.appending(path: HookSpool.fileName)
+        try? HookSpool.line(.init(event: event, at: asked))?.write(to: url)
+        model.replayPendingHooks()
+        let item = model.session(id)
+        check("an event kept while HQ was off replays at launch, with its time", item?.status.needsYou == true
+              && item.map { abs($0.status.since.timeIntervalSince(asked)) < 1 } == true, "\(String(describing: item?.status))")
+        check("and the kept events are gone", !FileManager.default.fileExists(atPath: url.path))
+        model.sessions.removeAll { $0.id == id }
     }
 
     // MARK: Faces

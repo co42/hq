@@ -28,6 +28,10 @@
   - type "tomorrow 9am", "in 2h", "fri" or "next friday at 3pm";
   - or pick In 1 Hour, This Evening, Tomorrow, Next Week, or a date and a time.
 - A macOS banner, the Dock badge, and a new bell in the menu bar with its count show what needs you, from any app.
+- **HQ catches up after being off**:
+  - reminders that came due;
+  - what happened on GitHub in the last 10 days (Settings › GitHub › Notifications, 3 to 30 days);
+  - what sessions did meanwhile: `hq hook` keeps their events while HQ is closed, and HQ replays them at launch, so a session that started waiting on you shows in Needs You, with a banner.
 - Gone: the blue dots on rows, chips and the section bar, the blue glow and the blue sky. A session that ends its turn shows Done on its card, lightly, with no glow and no blink.
 - Turn off Claude Code's own notifications in Ghostty: HQ's banners replace them. Set `"preferredNotifChannel": "notifications_disabled"` in `~/.claude/settings.json`.
 
@@ -36,6 +40,11 @@
 
 **Toolbar**
 - The + menu sits beside the bell, with New Reminder….
+- Fixed: the pointing hand over the bell and + showed late, and stayed after the pointer left.
+
+**App**
+- HQ opens at login. Settings › General turns that off.
+- Settings › Keys lists the notification center's keys.
 
 **The hq command, and hq plugin 0.7.0**
 - `hq notify "…"` tells you something is ready; `--important` pings you.

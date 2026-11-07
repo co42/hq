@@ -164,11 +164,12 @@ final class GitHubService {
     private func fetchThreads(token: String) async {
         guard let model, let since = model.noticeStore.githubSince,
               var components = URLComponents(string: "https://api.github.com/notifications") else { return }
-        components.queryItems = [.init(name: "participating", value: "true"), .init(name: "since", value: since.formatted(.iso8601))]
+        let floor = model.githubFloor(since: since)
+        components.queryItems = [.init(name: "participating", value: "true"), .init(name: "since", value: floor.formatted(.iso8601))]
         guard let url = components.url, let data = await get(url, token: token) else { return }
         let mine = Set((model.github?.items ?? []).filter(\.mine).map(\.url))
         var known = model.noticeStore.githubEvents
-        for thread in GitHubThreads.parse(data) where !mine.contains(thread.url) && thread.updatedAt > since {
+        for thread in GitHubThreads.parse(data) where !mine.contains(thread.url) && thread.updatedAt > floor {
             let key = "\(thread.url)|\(thread.reason)|\(Int(thread.updatedAt.timeIntervalSince1970))"
             guard known[key] == nil else { continue }
             known[key] = .now

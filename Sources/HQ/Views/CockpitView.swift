@@ -226,6 +226,7 @@ struct CockpitToolbar: ToolbarContent {
         ToolbarItem(id: "bell", placement: .navigation) {
             NotificationBell(needs: model.importantCount, updates: model.updateCount, breathing: model.bellBreathes) { model.openCenter() }
                 .help("\(model.noticeSummary). Open the notifications (⌘J)")
+                .toolbarClickable()
                 .uiTestAnchor("bell")
         }
         ToolbarItem(id: "new", placement: .primaryAction) {
@@ -238,7 +239,8 @@ struct CockpitToolbar: ToolbarContent {
                 Label("New", icon: .new)
             }
             .menuIndicator(.hidden)
-            .clickable()
+            .toolbarClickable()
+            .uiTestAnchor("new")
             .help("New task (⌘N), file, session or reminder (⌃⌘R)")
         }
     }
