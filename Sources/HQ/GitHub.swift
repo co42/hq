@@ -134,6 +134,7 @@ final class GitHubService {
             // A poll that changed nothing leaves the page alone: only the Refresh button's tooltip says when.
             model.githubAnswered = snapshot.fetchedAt
             set(nil)
+            await fetchThreads(token: token)
         } catch {
             failures += 1
             if failures >= 3 { set(.githubFailing) }
@@ -141,23 +142,57 @@ final class GitHubService {
         return false
     }
 
-    /// New commits, reviews or comments on the user's PRs and on linked issues turn them blue.
+    /// Reviews, comments and failed checks on the user's PRs, and review requests, go to the notification center.
     func apply(_ snapshot: GitHubSnapshot) {
         guard let model else { return }
-        let before = Dictionary((model.github?.items ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
-        for item in snapshot.items where item.mine || item.kind == .issue {
-            if let old = before[item.url], item.updatedAt > old.updatedAt { model.noteChange("gh:\(item.url)", by: "github") }
-        }
+        model.noteGitHubEvents(before: model.github, after: snapshot)
         model.github = snapshot
         model.setup.githubAccount = snapshot.viewer
     }
 
-    /// Every PR or issue a task or a session links.
+    /// Every PR or issue a task, a session or an unread notification links.
     private func linkedURLs() -> [String] {
         guard let model else { return [] }
         var seen = Set<String>()
-        let urls = model.tasks.flatMap(\.links).map(\.absoluteString) + model.sessions.flatMap(\.links)
+        let threads = model.notices.filter { $0.kind == .github && $0.readAt == nil }.compactMap(\.source)
+        let urls = model.tasks.flatMap(\.links).map(\.absoluteString) + model.sessions.flatMap(\.links) + threads
         return urls.filter { GitHubLinks.isItem($0) && seen.insert($0).inserted }
+    }
+
+    /// Mentions and comments on threads the user takes part in, outside their own PRs (the poll's query has those),
+    /// since the first poll. Never a bot's or the user's own.
+    private func fetchThreads(token: String) async {
+        guard let model, let since = model.noticeStore.githubSince,
+              var components = URLComponents(string: "https://api.github.com/notifications") else { return }
+        components.queryItems = [.init(name: "participating", value: "true"), .init(name: "since", value: since.formatted(.iso8601))]
+        guard let url = components.url, let data = await get(url, token: token) else { return }
+        let mine = Set((model.github?.items ?? []).filter(\.mine).map(\.url))
+        var known = model.noticeStore.githubEvents
+        for thread in GitHubThreads.parse(data) where !mine.contains(thread.url) && thread.updatedAt > since {
+            let key = "\(thread.url)|\(thread.reason)|\(Int(thread.updatedAt.timeIntervalSince1970))"
+            guard known[key] == nil else { continue }
+            known[key] = .now
+            var said: (author: String, bot: Bool, text: String?)?
+            if let link = thread.latestComment.flatMap(URL.init(string:)), let body = await get(link, token: token) { said = GitHubThreads.comment(body) }
+            if let said, said.bot || said.author == model.github?.viewer { continue }
+            let who = said?.author ?? "Someone"
+            let quote = said?.text.map { ": “\($0.count > 120 ? String($0.prefix(119)) + "…" : $0)”" } ?? ""
+            let text = thread.reason == "comment" ? "\(who) commented\(quote)" : "\(who) mentioned you\(quote)"
+            model.notify(text, level: .update, kind: .github, source: thread.url,
+                         links: [ModalRoute.github(thread.url).selectionKey] + model.tasks(linking: thread.url).map { ModalRoute.task($0.id).selectionKey })
+        }
+        if known != model.noticeStore.githubEvents { model.noticeStore.githubEvents = known }
+    }
+
+    private func get(_ url: URL, token: String) async -> Data? {
+        var request = URLRequest(url: url)
+        request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("HQ (macOS)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 20
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return data
     }
 
     private func set(_ problem: Problem?) {

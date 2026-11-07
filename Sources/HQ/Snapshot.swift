@@ -74,7 +74,13 @@ enum Snapshot {
                 model.search = "zzzz"
             },
             Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
-            Page(name: "modal-task-review", capture: .sheet, settle: 1) { reset($0); $0.open(.task(44)) },
+            Page(name: "modal-notifications", capture: .sheet, settle: 1) { reset($0); $0.openCenter() },
+            Page(name: "modal-reminder", capture: .sheet, settle: 1) { reset($0); $0.beginReminder() },
+            Page(name: "modal-notifications-selected", capture: .sheet, settle: 1) { model in
+                reset(model)
+                model.openCenter()
+                model.noticeSelection = model.notices(in: .updates).max { $0.text.count < $1.text.count }?.id.uuidString
+            },
             Page(name: "modal-session-question", capture: .sheet) { reset($0); $0.open(.session("250a8563-5c74-4592-a463-b41398dc5b55")) },
             Page(name: "modal-session-plan", capture: .sheet, settle: 0.5) { reset($0); $0.open(.session("83b6ab7a-8155-40ac-b149-16e2b8313b81")) },
             Page(name: "modal-file", capture: .sheet, settle: 1.5) { model in reset(model); if let file = model.files.first { model.open(.file(file.id)) } },

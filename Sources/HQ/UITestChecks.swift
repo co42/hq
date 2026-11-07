@@ -440,6 +440,128 @@ extension UITest {
         }
     }
 
+    /// The bell opens the center; a chip opens its item over it and Back returns; Read acts on a selected row; Remind Me… shows its form.
+    static func notificationCenter(_ model: AppModel, _ ui: Driver) async {
+        model.closeModal()
+        await ui.settle(0.5)
+        let bell = ui.anchor("bell")
+        check("the toolbar has the bell, breathing while something needs the user", bell != nil && model.bellBreathes)
+        await ui.click(bell)
+        await ui.until(2) { model.modal == .notifications }
+        check("a click on the bell opens the center", model.modal == .notifications, "\(String(describing: model.modal))")
+        check("and the bell stops breathing", !model.bellBreathes)
+        check("a session that waits shows in Needs You with Focus", model.blockedSessions.allSatisfy { ui.anchor("blocked:\($0.id)") != nil })
+        guard let row = model.notices(in: .updates).first(where: { $0.readAt == nil && !$0.links.isEmpty }) else { return check("an update with links", false) }
+        let link = row.links[0]
+        let chip = await ui.steadyAnchor("notice-chip:\(row.id.uuidString):\(link)")
+        check("a row shows its links as chips", chip != nil, link)
+        await ui.click(chip, inSheet: true)
+        await ui.until(2) { model.modal != .notifications }
+        check("a chip opens its item over the center", model.modal == ModalRoute(noticeKey: link) && model.modalStack.last == .notifications,
+              "\(String(describing: model.modal)) over \(model.modalStack)")
+        check("and reads its row", model.notices.first { $0.id == row.id }?.readAt != nil)
+        await ui.back()
+        await ui.until(2) { model.modal == .notifications }
+        check("Back returns to the center", model.modal == .notifications, "\(String(describing: model.modal))")
+        check("where the row read stays in place", model.notices(in: .updates).contains { $0.id == row.id })
+        model.noticeSelection = row.id.uuidString
+        await ui.settle(0.3)
+        check("and keeps its actions: Mark as Unread shows on it", ui.anchor("read:\(row.id.uuidString)") != nil)
+
+        // A long text: two lines at rest, all of it once selected.
+        if let long = model.notices(in: .updates).first(where: { $0.text.count > 200 }) {
+            model.noticeSelection = nil
+            await ui.settle(0.3)
+            let rest = ui.anchorFrame("notice:\(long.id.uuidString)")?.height ?? 0
+            model.noticeSelection = long.id.uuidString
+            await ui.settle(0.3)
+            let open = ui.anchorFrame("notice:\(long.id.uuidString)")?.height ?? 0
+            check("a selected row shows its whole text", open > rest + Space.sm, "\(rest) → \(open)")
+        } else {
+            check("an update with a long text", false)
+        }
+        if let other = model.notices(in: .updates).first(where: { $0.readAt == nil }) {
+            // Selected, as a click or the arrows select it: its Read shows.
+            model.noticeSelection = other.id.uuidString
+            await ui.settle(0.3)
+            await ui.click(await ui.steadyAnchor("read:\(other.id.uuidString)"), inSheet: true)
+            await ui.settle(0.3)
+            check("Read on a selected row reads it", model.notices.first { $0.id == other.id }?.readAt != nil)
+        } else {
+            check("a second unread update", false)
+        }
+
+        // A due reminder: what it links opens over the center and it stays to be done, with its actions.
+        let task = model.addTask(to: .overview, title: "Reminder's task")
+        let due = model.remind("Check the canary", at: .now.addingTimeInterval(-1), level: .important, links: task.map { ["task:\($0.id)"] } ?? [])
+        model.fireDue()
+        await ui.settle(0.4)
+        if let task {
+            await ui.click(await ui.steadyAnchor("notice-chip:\(due.id.uuidString):task:\(task.id)"), inSheet: true)
+            await ui.until(2) { model.modal == .task(task.id) }
+            check("a reminder's link opens over the center", model.modal == .task(task.id), "\(String(describing: model.modal))")
+            check("and leaves the reminder to be done", model.notices.first { $0.id == due.id }?.readAt == nil)
+            await ui.back()
+            await ui.until(2) { model.modal == .notifications }
+        }
+        model.noticeSelection = due.id.uuidString
+        await ui.settle(0.3)
+        check("a due reminder stays in Needs You with Edit, Later and Done", model.notices(in: .needsYou).contains { $0.id == due.id }
+              && ["edit", "later", "read"].allSatisfy { ui.anchor("\($0):\(due.id.uuidString)") != nil })
+        await ui.click(await ui.steadyAnchor("read:\(due.id.uuidString)"), inSheet: true)
+        await ui.settle(0.3)
+        check("Done completes it, in place", model.notices.first { $0.id == due.id }?.readAt != nil && model.notices(in: .needsYou).contains { $0.id == due.id })
+
+        // Editing a reminder: its row turns into the editor, filled in; Important and Save change it.
+        let waiting = model.remind("Call the bank", at: .now.addingTimeInterval(7200), level: .important)
+        await ui.settle(0.4)
+        model.noticeSelection = waiting.id.uuidString
+        await ui.settle(0.3)
+        await ui.click(await ui.steadyAnchor("edit:\(waiting.id.uuidString)"), inSheet: true)
+        await ui.settle(0.4)
+        func fields(_ view: NSView?) -> [NSTextField] {
+            guard let view else { return [] }
+            let own: [NSTextField] = (view as? NSTextField).map { [$0] } ?? []
+            return own + view.subviews.flatMap(fields)
+        }
+        let filled = fields(ui.window.attachedSheet?.contentView).first { $0.placeholderString == "Remind me to…" }
+        check("Edit turns a reminder into its editor, filled in", ui.anchor("reminder-text") != nil && filled?.stringValue == "Call the bank",
+              filled?.stringValue ?? "no field")
+        await ui.click(await ui.steadyAnchor("reminder-important"), inSheet: true)
+        await ui.click(await ui.steadyAnchor("reminder-add"), inSheet: true)
+        await ui.settle(0.4)
+        check("and Save keeps what changed", model.notices.first { $0.id == waiting.id }?.level == .update && ui.anchor("reminder-text") == nil)
+
+        // The When picker: the time of a row in Later opens it; a choice sets the time.
+        model.noticeSelection = waiting.id.uuidString
+        await ui.settle(0.3)
+        await ui.click(await ui.steadyAnchor("due:\(waiting.id.uuidString)"), inSheet: true)
+        await ui.settle(0.6)
+        if await ui.clickInPopover("when:tomorrow") {
+            check("a choice in the When picker sets the time", model.notices.first { $0.id == waiting.id }?.dueAt == ReminderTime.date(.tomorrow))
+        } else {
+            skip("a choice in the When picker sets the time")
+        }
+
+        await ui.click(ui.anchor("remind-me"), inSheet: true)
+        await ui.settle(0.5)
+        check("Remind Me… shows the editor", model.composingReminder && ui.anchor("reminder-text") != nil && ui.anchor("reminder-when") != nil)
+        model.composingReminder = false
+        model.markAllRead()
+        await ui.settle(0.3)
+        check("Mark All Read leaves nothing unread but due reminders and the sessions that wait", model.updateCount == 0
+              && model.importantCount == model.blockedSessions.count + model.notices.filter { $0.kind == .reminder && $0.level == .important && $0.readAt == nil && $0.dueAt == nil }.count)
+        model.closeModal()
+        await ui.settle(0.5)
+        check("once the center closes, what was read is in Earlier", model.notices(in: .earlier).contains { $0.id == row.id })
+        model.openCenter()
+        await ui.settle(0.6)
+        check("and Earlier shows, open, with the reminder just done", ui.anchor("notice:\(due.id.uuidString)") != nil)
+        model.closeModal()
+        if let task { model.deleteTasks([task.id]) }
+        await ui.settle(0.3)
+    }
+
     /// With one session on the grid, a real click on its face focuses it, its card selected or not.
     static func singleSessionFace(_ model: AppModel, _ ui: Driver) async {
         guard let collection = ui.find(SessionGrid.CardCollection.self), let grid = collection.delegate as? SessionGrid.Coordinator,
@@ -505,12 +627,6 @@ extension UITest {
         check("under the pointer it shows, to write one", !quiet.cell.note.isHidden && quiet.cell.note.toolTip?.hasPrefix("Write") == true)
         check("the hover actions don't repeat it", !hoverActions.contains { $0.toolTip?.contains("description") == true },
               hoverActions.compactMap(\.toolTip).joined(separator: ", "))
-        // On hover the grip and the attention dot (laid out with or without its color) keep a space between them.
-        if let grip = quiet.faces.subviews.first(where: { $0 is GripView }), let dot = quiet.faces.subviews.first(where: { $0 is DotView }) {
-            // The grip's dots end 2.7 pt short of its frame's right edge.
-            let gap = dot.frame.minX - (grip.frame.maxX - 2.7)
-            check("the grip and the attention dot keep apart", gap >= Space.xs - 0.5, "\(gap) pt")
-        }
         quiet.cell.setHovered(false)
         quiet.faces.setHovered(false)
         // A click on the toggle shows the description; it turns accent and hides it again.
@@ -784,13 +900,6 @@ extension UITest {
             model.closeModal()
             await ui.settle(0.5)
         }
-        // Mark All Seen undoes.
-        let seen = model.seen
-        model.markAllSeen()
-        await endUndoGroup(model)
-        model.undoManager?.undo()
-        await ui.settle(0.3)
-        check("Undo Mark All Seen brings back what was new", model.seen == seen)
     }
 
     /// The grid's validateDrop, with its in-out arguments kept valid for the call.
@@ -1049,9 +1158,9 @@ extension UITest {
         await ui.key(.return, .command)
         await ui.settle(0.3)
         check("Command-Return on a row moves it to the next status", model.task(new)?.status == .doing && rows())
-        for _ in 0..<3 { await ui.key(.return, .command) }
+        for _ in 0..<2 { await ui.key(.return, .command) }
         await ui.settle(0.3)
-        check("through Review to Done, then back to Todo, the row still selected", model.task(new)?.status == .todo && model.selectedTasks == [new] && rows(), state())
+        check("through Done, then back to Todo, the row still selected", model.task(new)?.status == .todo && model.selectedTasks == [new] && rows(), state())
         model.setStatus(new, .todo)
         let shown = model.descriptionShownInOutline(new)
         await ui.key(.return, .shift)
@@ -1062,7 +1171,7 @@ extension UITest {
         await ui.settle(0.4)
         check("and again", model.descriptionShownInOutline(new) == shown)
         model.hideDone = [.overview]
-        model.setStatus(new, .review)
+        model.setStatus(new, .doing)
         await ui.key(.return, .command)
         await ui.settle(0.5)
         check("a row that Hide Done hides gives the selection and the keyboard to the row above", model.selectedTasks == [b] && rows(), state())
@@ -1295,6 +1404,13 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
         model.shownDescriptions = []
         model.allDescriptions = []
+        // Run alone, the overview has none of the earlier groups' tasks.
+        if !model.taskTree.top(.overview).contains(where: { !model.taskTree.children(of: $0).isEmpty }),
+           let parent = model.addTask(to: .overview, title: "Looks parent") {
+            _ = model.addSubtask(to: parent.id, title: "Looks child")
+            _ = model.addTask(to: .overview, title: "Looks after")
+            await ui.settle(0.5)
+        }
         let top = model.taskTree.top(.overview)
         guard top.count >= 2, let parent = top.first(where: { !model.taskTree.children(of: $0).isEmpty }),
               let child = model.taskTree.children(of: parent).first else { return check("tasks with subtasks on the overview", false) }
@@ -1315,7 +1431,11 @@ extension UITest {
         model.setDescription(child, "**Why**: the canary flaps.\n\nMore below.")
         await ui.settle(0.5)
         let row = outline.row(forItem: coordinator.node(.task(child)))
-        guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return check("the subtask's row", false) }
+        guard let first = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return check("the subtask's row", false) }
+        // The edits below reload the row: always its current cell.
+        var cell: TaskCell {
+            outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell ?? first
+        }
         cell.layoutSubtreeIfNeeded()
         check("a hidden description shows its mark after the title", !cell.note.isHidden && cell.note.frame.minX >= cell.title.frame.maxX,
               "\(cell.note.isHidden) \(cell.note.frame)")
@@ -1351,9 +1471,9 @@ extension UITest {
         }
 
         // The status glyph picks any status; ⌘-click steps to the next.
-        cell.glyph.onPick(.review)
+        cell.glyph.onPick(.doing)
         await ui.settle(0.3)
-        check("the status menu sets the status it picks", model.task(child)?.status == .review)
+        check("the status menu sets the status it picks", model.task(child)?.status == .doing)
         cell.glyph.onNext()
         await ui.settle(0.3)
         check("Command-click on the status moves to the next one", model.task(child)?.status == .done)
@@ -1397,19 +1517,21 @@ extension UITest {
             check("a task's subtask count counts every level under it", parentCell?.progress.total == below,
                   "\(parentCell?.progress.total ?? -1) of \(below)")
             // Its ring has a segment per status.
-            model.setStatus(grandchild.id, .review)
+            model.setStatus(grandchild.id, .doing)
             await ui.settle(0.4)
             let statuses = model.taskTree.subtree(of: parent).filter { $0 != parent }.compactMap { model.task($0)?.status }
             let ring = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(parent))), makeIfNecessary: true) as? TaskCell)?.progress
-            check("a task's ring counts what's under it by status", ring?.counts[.review] == statuses.filter { $0 == .review }.count
-                  && ring?.toolTip?.contains("in review") == true, ring?.toolTip ?? "no ring")
+            check("a task's ring counts what's under it by status", ring?.counts[.doing] == statuses.filter { $0 == .doing }.count
+                  && ring?.toolTip?.contains("doing") == true, ring?.toolTip ?? "no ring")
             model.deleteTasks([grandchild.id])
             await ui.settle(0.3)
         }
 
         // A click on a row's key copies its key and title, through the outline as AppKit delivers it.
-        if let task = model.task(child) {
-            outline.scrollRowToVisible(row)
+        // The edits above reload rows: the row's cell now may be another view.
+        let keyRow = outline.row(forItem: coordinator.node(.task(child)))
+        if let task = model.task(child), let cell = outline.view(atColumn: 1, row: keyRow, makeIfNecessary: true) as? TaskCell {
+            outline.scrollRowToVisible(keyRow)
             cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
             cell.setHovered(true)
             ui.window.layoutIfNeeded()
@@ -1420,13 +1542,13 @@ extension UITest {
             await ui.settle(0.2)
             let copied = Pasteboard.copied
             check("a click on a task's key copies its key and title", copied == "\(task.key) \(task.title)" && cell.key.tracksHandCursor,
-                  "\(copied ?? "nothing"), hand \(cell.key.tracksHandCursor)")
+                  "\(copied ?? "nothing"), hand \(cell.key.tracksHandCursor), hits \(cell.button(at: point).map { String(describing: type(of: $0)) } ?? "none"), row \(outline.row(at: outline.convert(point, from: nil))) of \(keyRow), in outline \(cell.superview != nil), key \(cell.key.frame) hidden \(cell.key.isHidden), copies \(cell.key.copied)")
             check("and the key turns the accent color", cell.key.textColor == Ink.accentNS)
             cell.setHovered(false)
         }
 
         // A click on the faces starts a session on the task, through the outline as AppKit delivers it.
-        if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? FacesCell {
+        if let faces = outline.view(atColumn: 0, row: keyRow, makeIfNecessary: true) as? FacesCell {
             faces.layoutSubtreeIfNeeded()
             let point = faces.convert(NSPoint(x: faces.bounds.width - Space.xs - Metric.faceRow / 2, y: faces.gap + Metric.outlineRow / 2), to: nil)
             // The pointing hand: the view under the pointer tracks it, wherever the row scrolled.
@@ -1461,14 +1583,6 @@ extension UITest {
             }
         }
 
-        // Selecting a task marks it seen, as opening does.
-        model.changes["task:T-\(child)"] = Change(at: .now, by: "Claude")
-        outline.deselectAll(nil)
-        await ui.settle(0.2)
-        check("a task Claude changed is new", model.isNew(.task(child)))
-        outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        await ui.settle(0.2)
-        check("selecting it marks it seen", !model.isNew(.task(child)))
 
         // # in a title lists what it can become.
         let editor = NSTextView()

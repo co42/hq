@@ -26,16 +26,6 @@ enum Ink {
     static let needsYouText = Color(nsColor: needsYouTextNS)
     /// A tinted box or tag that needs the user.
     static let needsYouFill = Color(nsColor: .systemOrange).opacity(0.13)
-    /// New since the user looked.
-    static let unread = Color(nsColor: .systemBlue)
-    static let unreadNS = NSColor.systemBlue
-    static let unreadTextNS = NSColor(name: "unreadText") { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor.systemBlue.blended(withFraction: 0.18, of: .white) ?? .systemBlue
-            : NSColor.systemBlue.blended(withFraction: 0.2, of: .black) ?? .systemBlue
-    }
-    static let unreadText = Color(nsColor: unreadTextNS)
-    static let unreadFill = Color(nsColor: .systemBlue).opacity(0.12)
     /// Stopped on an error.
     static let failed = Color(nsColor: .systemRed)
     static let failedNS = NSColor.systemRed
@@ -116,6 +106,8 @@ enum Ink {
     static let draftTile = Color(nsColor: .systemGray)
     /// A symbol on a section's tinted tile.
     static let onTile = Color.white
+    /// A count on a tinted capsule: the bell's updates beside "3 need you".
+    static let onTileFill = Color.white.opacity(0.22)
 
     /// The sky over the top of the page: three soft colors that follow the day.
     static func sky(_ mood: SkyMood) -> [Color] {
@@ -154,11 +146,10 @@ enum Ink {
     static let dropNS = NSColor.controlAccentColor
     /// A row a dragged task would drop onto.
     static let rowDropNS = NSColor.controlAccentColor.withAlphaComponent(0.25)
-    /// An orange or blue tag's fill, in AppKit rows.
-    static let needsYouFillNS = NSColor.systemOrange.withAlphaComponent(0.13)
-    static let unreadFillNS = NSColor.systemBlue.withAlphaComponent(0.13)
     /// Hover on custom rows and cards.
     static let hoverFill = Color(nsColor: .quaternarySystemFill)
+    /// A notification read while the center shows: dimmed in place until it closes.
+    static let readRowOpacity = 0.55
     static let hoverFillNS = NSColor.quaternarySystemFill
     /// Selection while the list isn't focused or the window is inactive.
     static let selectionInactive = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
@@ -274,6 +265,8 @@ nonisolated enum Metric {
     static var listSearchMin: CGFloat { 96 * Zoom.factor }
     /// Link…'s list in its popover.
     static var linkPicker: CGFloat { 280 * Zoom.factor }
+    /// The When picker's popover.
+    static var whenPicker: CGFloat { 300 * Zoom.factor }
     /// A linked task's chip in a pull request's header, before it truncates.
     static var linkedTaskMax: CGFloat { 240 * Zoom.factor }
     /// The field + opens after a list of tags.
@@ -308,7 +301,6 @@ nonisolated enum Metric {
     static var pillIcon: CGFloat { 12 * Zoom.factor }
     /// Outline row parts that hide before the title shrinks under `titleMinimum`.
     static var titleMinimum: CGFloat { 120 * Zoom.factor }
-    static var reviewPillMax: CGFloat { 220 * Zoom.factor }
     static var projectPillMax: CGFloat { 140 * Zoom.factor }
     /// A chip's gap in flowing lists.
     static var chipGap: CGFloat { 6 * Zoom.factor }
@@ -337,7 +329,7 @@ enum Motion {
     static let faceFrameRate = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     /// Quick Open fading in.
     static let appearSeconds: TimeInterval = 0.18
-    /// A card that needs the user, or is done unread, glows and breathes: half a breath, from faint to bright, in seconds.
+    /// A card or the bell that needs the user glows and breathes: half a breath, from faint to bright, in seconds.
     static let blinkHalf: TimeInterval = 0.9
     /// A card rising under the pointer.
     static let lift = Animation.smooth(duration: liftSeconds)

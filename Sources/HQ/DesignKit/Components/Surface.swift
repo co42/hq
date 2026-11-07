@@ -70,7 +70,7 @@ private struct SurfaceBody: View {
 }
 
 /// The surface at its peak glow, drawn by SwiftUI in its own view, whose opacity Core Animation moves over the surface below.
-private struct BreathingGlow: NSViewRepresentable {
+struct BreathingGlow: NSViewRepresentable {
     let peak: AnyView
 
     func makeNSView(context: Context) -> BreathingView { BreathingView() }

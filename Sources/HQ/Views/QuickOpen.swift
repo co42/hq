@@ -48,7 +48,7 @@ enum QuickOpen {
         for session in sessions {
             add(.session(session.id), .sessions, session.name, session.status.needsYou ? "Needs you" : session.repo)
         }
-        let tasks = query.isEmpty ? model.tasks.filter { $0.status == .doing || $0.status == .review } : model.tasks
+        let tasks = query.isEmpty ? model.tasks.filter { $0.status == .doing } : model.tasks
         for task in tasks {
             add(.task(task.id), .tasks, task.title, task.key, match: "\(task.key) \(task.title)")
         }

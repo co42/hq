@@ -155,7 +155,7 @@ struct PRGroup<Accessory: View>: View {
                             .buttonStyle(.borderless)
                             .clickable()
                             .kitType(.callout)
-                            .padding(.leading, Space.sm + Metric.attentionDot + Space.sm)
+                            .padding(.leading, Space.sm)
                             .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
                             .help(expanded ? "Show the first \(Self.shown) only" : "Show every pull request in this group")
                     }
@@ -212,24 +212,18 @@ struct RowRule: View {
     }
 }
 
-/// The left of every PR, file and artifact row (DESIGN.md §6): the dot, one face against the kind's icon.
+/// The left of every PR, file and artifact row (DESIGN.md §6): one face against the kind's icon.
 /// The rows of the three cards line up.
 struct RowLead<Faces: View, Icon: View>: View {
-    /// Where a row's text starts: the row's padding, the dot and face, the icon.
-    static var textInset: CGFloat { Space.sm + Metric.attentionDot + Space.xs + Metric.faceRow + Space.sm + Metric.kindTile + Space.sm }
+    /// Where a row's text starts: the row's padding, the face, the icon.
+    static var textInset: CGFloat { Space.sm + Metric.faceRow + Space.sm + Metric.kindTile + Space.sm }
 
-    let needsYou: Bool
-    let isNew: Bool
     @ViewBuilder var faces: Faces
     @ViewBuilder var icon: Icon
 
     var body: some View {
         HStack(spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                AttentionDot(needsYou: needsYou, isNew: isNew)
-                faces
-            }
-            .frame(width: Metric.attentionDot + Space.xs + Metric.faceRow, alignment: .trailing)
+            faces.frame(width: Metric.faceRow)
             icon.frame(width: Metric.kindTile)
         }
     }
@@ -257,11 +251,10 @@ struct PRRow: View {
 
     var body: some View {
         let waits = model.waitsForReview(item)
-        let fresh = model.isNew(.github(item.url))
         let task = model.tasks(linking: item.url).first
         let sessions = model.byImportance(model.sessions(onPullRequest: item, includeEnded: true))
         HStack(spacing: Space.sm) {
-                RowLead(needsYou: waits, isNew: fresh) {
+                RowLead {
                     // As a task's faces: a click shows the first session's menu, or starts one.
                     FaceStack(sessions: Array(sessions.prefix(1)), size: Metric.faceRow, limit: 1)
                         .overlay {
@@ -280,7 +273,7 @@ struct PRRow: View {
                 }
                 VStack(alignment: .leading, spacing: Metric.lineGap) {
                     Text(item.title)
-                        .kitType(waits || fresh ? .titleStrong : .title)
+                        .kitType(waits ? .titleStrong : .title)
                         .lineLimit(1)
                     PRByline(item: item)
                 }

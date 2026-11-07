@@ -1,5 +1,54 @@
 # Release notes
 
+## v9 · 2026-11-07
+
+**Notifications**
+- One bell replaces "need you", "new", Review Next and Mark All Seen.
+  - Nothing waiting: a plain bell.
+  - Only updates: their count as a badge.
+  - Something needs you: a filled orange bell with that count, breathing until you open it.
+- ⌘J or the bell opens the **notification center**, a sheet like a file's. It has four sections:
+  - **Needs You**: sessions that wait on you, each with Focus; pings; important reminders that are due.
+  - **Updates**: what sessions tell you; reviews, comments and failed checks on your PRs; review requests; replies and mentions.
+  - **Later**.
+  - **Earlier**: what you read or did in the last day.
+- **A row** reads like a macOS notification:
+  - who and when, then two lines of text (all of it once you select the row), then its links;
+  - unread rows are bold with a dot, and nothing is dimmed;
+  - a link opens over the center, and Back returns to it.
+- **Acting on rows:**
+  - Later, Read (Done for a reminder) and More show on hover.
+  - Keys: ↑ ↓, Return opens, E reads, L puts it Later, ⌫ deletes, ⌘C copies its text.
+  - Mark All Read (⇧⌘J) is in the header.
+- One row per session and per PR: a new event updates its row. Bots and your own actions never notify.
+- **Reminders**: New Reminder… (⌃⌘R, in the + menu) or Remind Me… in the center, with any text, a time, and Important or not.
+  - A reminder is a to-do: it stays until you mark it Done (E). Opening what it links doesn't complete it.
+  - Edit one in place with Return, Edit or a double-click.
+- **One When picker** for Later, a reminder's time and its edits:
+  - type "tomorrow 9am", "in 2h", "fri" or "next friday at 3pm";
+  - or pick In 1 Hour, This Evening, Tomorrow, Next Week, or a date and a time.
+- A macOS banner, the Dock badge, and a new bell in the menu bar with its count show what needs you, from any app.
+- Gone: the blue dots on rows, chips and the section bar, the blue glow and the blue sky. A session that ends its turn shows Done on its card, lightly, with no glow and no blink.
+- Turn off Claude Code's own notifications in Ghostty: HQ's banners replace them. Set `"preferredNotifChannel": "notifications_disabled"` in `~/.claude/settings.json`.
+
+**Tasks**
+- No more Review status: Todo, Doing, Done. A task in Review becomes Doing, and its reason becomes a notification.
+
+**Toolbar**
+- The + menu sits beside the bell, with New Reminder….
+
+**The hq command, and hq plugin 0.7.0**
+- `hq notify "…"` tells you something is ready; `--important` pings you.
+- `hq remind "…" --at "tomorrow 9:00"` sets a reminder.
+- `hq ls notifications` lists them.
+- The skills now have sessions notify you when work is ready, instead of moving tasks to Review.
+
+**For contributors**
+- Fixed: UI checks that failed now and then:
+  - a click on a task's key;
+  - the outline checks after it;
+  - a chip in the center.
+
 ## v8 · 2026-11-06
 
 **Pull requests**

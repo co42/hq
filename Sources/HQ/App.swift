@@ -67,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.checkSetup() }
             }
+            MenuBarBell.shared.show { [weak self] in
+                self?.mainWindow?.makeKeyAndOrderFront(nil)
+                NSApp.activate()
+                self?.model.openCenter()
+            }
         }
         // Started from a terminal, the process is not a foreground app yet.
         NSApp.setActivationPolicy(Store.background ? .accessory : .regular)
@@ -120,10 +125,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let newTask = NSMenuItem(title: "New Task", action: #selector(dockNewTask), keyEquivalent: "")
         newTask.target = self
         menu.addItem(newTask)
-        let next = NSMenuItem(title: "Review Next", action: #selector(dockReviewNext), keyEquivalent: "")
-        next.target = self
-        next.isEnabled = !model.attentionQueue.isEmpty
-        menu.addItem(next)
+        let reminder = NSMenuItem(title: "New Reminder…", action: #selector(dockNewReminder), keyEquivalent: "")
+        reminder.target = self
+        menu.addItem(reminder)
+        let center = NSMenuItem(title: "Notifications", action: #selector(dockNotifications), keyEquivalent: "")
+        center.target = self
+        menu.addItem(center)
         return menu
     }
 
@@ -133,10 +140,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.focusQuickAdd(.overview)
     }
 
-    @objc private func dockReviewNext() {
+    @objc private func dockNewReminder() {
         mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
-        model.reviewNext()
+        model.beginReminder()
+    }
+
+    @objc private func dockNotifications() {
+        mainWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        model.openCenter()
     }
 
     /// The self-test's result becomes the exit code, after a normal quit.

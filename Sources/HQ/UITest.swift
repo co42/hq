@@ -61,7 +61,7 @@ enum UITest {
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
             ]
             for (name, run) in groups where only?.contains(name) ?? true { await run(model, ui) }
             if Store.background { check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
@@ -163,9 +163,50 @@ struct Driver {
         }
         // Clear of the toolbar and the section bar that float over the page, as the page lays out after a scroll.
         view.scrollToVisible(view.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
-        window.layoutIfNeeded()
+        (view.window ?? window).layoutIfNeeded()
         let frame = view.convert(view.bounds, to: nil)
         return NSPoint(x: frame.midX, y: frame.midY)
+    }
+
+    /// An anchor once it stops moving: a sheet that just opened still slides in.
+    func steadyAnchor(_ name: String, within seconds: Double = 1.5) async -> NSPoint? {
+        var last = anchor(name)
+        var waited = 0.0
+        while waited < seconds {
+            await settle(0.1)
+            waited += 0.1
+            let next = anchor(name)
+            if next == last { return next }
+            last = next
+        }
+        return last
+    }
+
+    /// An anchored view's frame in its window.
+    func anchorFrame(_ name: String) -> NSRect? {
+        guard let view = UITest.anchors[name, default: []].compactMap(\.view).last(where: { $0.window != nil }) else { return nil }
+        view.window?.layoutIfNeeded()
+        return view.convert(view.bounds, to: nil)
+    }
+
+    /// A click on an anchor in a popover's own window, as that window gets it. Nil when no popover shows it.
+    func clickInPopover(_ name: String) async -> Bool {
+        guard let view = UITest.anchors[name, default: []].compactMap(\.view)
+            .last(where: { $0.window != nil && $0.window !== window && $0.window !== window.attachedSheet }),
+            let popover = view.window else { return false }
+        popover.layoutIfNeeded()
+        let frame = view.convert(view.bounds, to: nil)
+        let point = NSPoint(x: frame.midX, y: frame.midY)
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: popover.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                               pressure: type == .leftMouseDown ? 1 : 0)
+        }
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return false }
+        NSApp.postEvent(up, atStart: false)
+        NSApp.sendEvent(down)
+        await settle(0.4)
+        return true
     }
 
     private func find<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
@@ -254,12 +295,12 @@ struct Driver {
     }
 
     /// Go › Back: ⌘[ in the key window; a background run's window is never key, so its menus are
-    /// off, and the toolbar's Back button stands in.
+    /// off, and the modal's Back button stands in.
     func back() async {
         if window.isKeyWindow {
             await key("[", .command)
         } else {
-            await click(anchor("back"))
+            await click(anchor("modal-back"), inSheet: true)
         }
     }
 

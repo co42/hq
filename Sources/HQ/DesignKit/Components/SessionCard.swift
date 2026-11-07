@@ -2,15 +2,15 @@ import HQKit
 import SwiftUI
 
 /// A session on the grid (DESIGN.md §5): a raised card on one row: its face; its name and how long it has lasted;
-/// its place and its state in a capsule. It glows when it needs the user (red when failed) or is done unread, and the
-/// glow breathes until the user looks. Hover lifts it.
+/// its place and its state in a capsule. It glows when it needs the user (red when failed), and the glow breathes
+/// until the user looks. Done and unread shows only in its state. Hover lifts it.
 struct SessionCard: View {
     let session: SessionItem
     let now: Date
     var selected = false
     /// A task hovers the card: dropping links it.
     var dropTarget = false
-    /// It needs the user, or is done unread, and the user hasn't clicked it, opened it or looked at its terminal since.
+    /// It needs the user, who hasn't clicked it, opened it or looked at its terminal since.
     var blinking = false
     @Environment(\.forcedPartState) private var forced
     @State private var hovering = false
@@ -26,7 +26,7 @@ struct SessionCard: View {
             VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                     Text(session.name)
-                        .kitType(session.status.isNew ? .titleBold : .titleStrong)
+                        .kitType(.titleStrong)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -72,12 +72,11 @@ struct SessionCard: View {
             .fixedSize()
     }
 
-    /// Needs the user (orange, red when failed) or done unread (blue): the card's glow.
+    /// Needs the user: the card glows orange, red when it failed. Done unread shows only in its state, lightly.
     private var glow: Color? {
         guard session.isRunning, !dropTarget else { return nil }
         if failed { return Ink.failed }
-        if needsYou { return Ink.needsYou }
-        return session.status.isNew ? Ink.unread : nil
+        return needsYou ? Ink.needsYou : nil
     }
 
     private var tint: Color? {
@@ -93,7 +92,7 @@ struct SessionCard: View {
 
     private var tone: (text: AnyShapeStyle, fill: AnyShapeStyle) {
         if needsYou { return failed ? (AnyShapeStyle(Ink.failedText), AnyShapeStyle(Ink.failedFill)) : (AnyShapeStyle(Ink.needsYouText), AnyShapeStyle(Ink.needsYouFill)) }
-        if session.status.isNew { return (AnyShapeStyle(Ink.unreadText), AnyShapeStyle(Ink.unreadFill)) }
+        if session.status.isNew { return (AnyShapeStyle(Ink.accentText), AnyShapeStyle(Ink.chipFill)) }
         if session.status.state == .working || session.status.state == .compacting { return (AnyShapeStyle(Ink.accentText), AnyShapeStyle(Ink.workingFill)) }
         return (AnyShapeStyle(.secondary), AnyShapeStyle(Ink.chipFill))
     }
@@ -103,7 +102,7 @@ struct SessionCard: View {
             SessionGlyph(kind: SessionGlyphKind(session.status))
             Text(stateText)
                 .kitType(.secondary)
-                .fontWeight(needsYou || session.status.isNew ? .semibold : .medium)
+                .fontWeight(needsYou ? .semibold : .medium)
                 .foregroundStyle(tone.text)
                 .lineLimit(1)
         }

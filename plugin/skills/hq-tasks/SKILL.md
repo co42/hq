@@ -1,6 +1,6 @@
 ---
 name: hq-tasks
-description: Keep HQ tasks current so the user can follow the work on HQ's overview. Use the moment work on something starts (read the task and its subtasks, set their type and project, move each to doing as you start it), and whenever work is agreed, planned, blocked, ready for the user to check or finished in this session, when you make progress worth reporting on a multi-step job, when the user asks to note something to do, or when the user mentions a task key like T-12, a subtask, Tasks, the Backlog, a story, todo, doing, review or done.
+description: Keep HQ tasks current so the user can follow the work on HQ's overview. Use the moment work on something starts (read the task and its subtasks, set their type and project, move each to doing as you start it), and whenever work is agreed, planned, blocked, ready for the user to check or finished in this session, when you make progress worth reporting on a multi-step job, when the user asks to note something to do, or when the user mentions a task key like T-12, a subtask, Tasks, the Backlog, a story, todo, doing or done.
 ---
 
 # HQ tasks
@@ -20,7 +20,7 @@ When the user hands you a task ("do T-12 and its subtasks"), before the first ed
 
 - **Start**: as you begin work on a task, before its first edit or investigation, `hq task move T-n doing`. The same for each subtask, when you start it, the parent's doing never covers it. Working through several subtasks as one batch, or reading the code for several to plan them: that starts each of them, so move every one in it to doing then. No task covers the work yet? Create it already doing: `hq task add "Title" --type … --project … --status doing`. The user reads what's moving from Doing: a task left in todo while you work on it looks untouched.
 - **Finish**: the description's Status says what changed and where (commits, PR, files), its checklist ticked; then `hq task move T-n done`. Each subtask too, as it finishes.
-- **The user must check something first** (a PR to review or merge, a page to look at, a choice, an app to restart): put the link in the description, then `hq task move T-n review --reason "…"`, one line saying what to check. Review turns the task orange on their overview. A PR that still waits for review or merge is `review`, not `done`.
+- **The user must check something first** (a PR to review or merge, a page to look at, a choice, an app to restart): put the link in the description, keep the task `doing`, and tell them: `hq notify "PR #418 is ready to merge" --link T-n` (the `hq` skill, Telling the user). It shows in their notification center. A PR that still waits for review or merge stays `doing`, not `done`; the user moves it on.
 
 ## The description: one clear document, kept current
 
@@ -46,7 +46,7 @@ Merged in #418; the canary runs since 14:00. Next: watch it until 14:30, then do
 
 ## Fields
 
-- **Status**: `todo`, `doing`, `review` (needs `--reason`), `done`. As a move target, `backlog` means todo, in the Backlog.
+- **Status**: `todo`, `doing`, `done`. As a move target, `backlog` means todo, in the Backlog. There is no review status: what the user must check goes to `hq notify`.
 - **Type**: `story` (a larger piece of work, still to shape), `bug`, `feature`, `chore`, `research` or `docs`. HQ lets it be empty; you don't. Pass `--type` every time you create a task. When you work on or look at a task that has none (no `type` in `hq task show T-n --json`), or a wrong one, set it: `hq task edit T-n --type …`.
 - **Project**: the product or area the work is for (HQ, Registry, Billing). HQ lets it be empty; you don't, when the work belongs to one. Pass `--project` when you create a task, and set it on any task you work on that has none. Reuse a project in use (`hq ls projects`); when none fits, create it by naming it: `--project "New Name"`, and give it its folder and repositories when you know them (`hq project edit`, see the `hq` skill). A tag that names a project (`#registry`) becomes the project: `--project Registry --remove-tag registry`.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`). Reuse the names already in use.
@@ -62,8 +62,8 @@ hq task show T-12                                   # parents, description, subt
 hq task add "Title" --type bug [--project p] [--tag a,b] [--body -]    # into the Backlog
 hq task add "Title" --type feature --status doing   # on Tasks, doing: you start it now
 hq task add "Part of it" --type chore --parent T-12 [--status doing]   # a subtask
-hq task move T-12 doing                             # todo | doing (also brings it to Tasks) | review | done | backlog
-hq task move T-12 review --reason "PR #418 is ready to merge"
+hq task move T-12 doing                             # todo | doing (also brings it to Tasks) | done | backlog
+hq notify "PR #418 is ready to merge" --link T-12   # the user must check something: the task stays doing
 hq task edit T-12 --body -                          # replace the whole description; the rest stays
 hq task edit T-12 [--title …] [--type t] [--project p] [--add-tag t] [--remove-tag t]
 hq task edit T-12 --parent T-34                     # move it under T-34, as its last subtask; --parent none: top level
@@ -76,7 +76,7 @@ hq task undo T-12 --yes                             # put back every task its la
 
 `--not-mine` on `task edit`, `move` and `delete`: for a task this session isn't on (see Rules).
 
-`--body -` reads stdin. A task you create, or move to doing or review, is linked to this session: its face shows on the task's row. Edits alone (title, description, type, project, tags) don't link it.
+`--body -` reads stdin. A task you create, or move to doing, is linked to this session: its face shows on the task's row. Edits alone (title, description, type, project, tags) don't link it.
 
 ## When
 
@@ -85,7 +85,7 @@ hq task undo T-12 --yes                             # put back every task its la
 - **New tasks go to the Backlog**, unless you start now (`--status doing`) or the user wants it on Tasks as todo (`--now`).
 - **Progress or a decision**: at milestones the user would want to read (not after every command), update the description: tick what's done, rewrite Status, add the decision. `--body` replaces it all, so start from `hq task show T-n --json | jq -r .body`.
 - **You make something**: link it to the task, so it shows under its row: the PR or issue you open or work from (`hq task link T-n <url>`), a related or follow-up task (`hq task link T-n T-m`). Files from `hq file new` link themselves.
-- **Blocked or waiting on the user**: say what's needed in the description, and `review` with the reason if they must act.
+- **Blocked or waiting on the user**: say what's needed in the description, and `hq notify` (`--important` when you can't go on without them).
 - **The user says later**: `hq task move T-n backlog`. **Dropped**: say why in the description; the user deletes it, or asks you to (`hq task delete`).
 - **The user asks to note something to do**: `hq task add "…" --type …` (it goes to the Backlog); an idea still to shape: `--type story`.
 

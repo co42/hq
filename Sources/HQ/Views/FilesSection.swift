@@ -205,7 +205,7 @@ private struct ItemGroup: View {
                             .buttonStyle(.borderless)
                             .clickable()
                             .kitType(.callout)
-                            .padding(.leading, Space.sm + Metric.attentionDot + Space.sm)
+                            .padding(.leading, Space.sm)
                             .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
                     }
                 }
@@ -228,9 +228,8 @@ private struct ItemRow: View {
 
     var body: some View {
         let item = model.listed(route)
-        let fresh = model.isNew(route)
         HStack(spacing: Space.sm) {
-            RowLead(needsYou: false, isNew: fresh) {
+            RowLead {
                 Group {
                     if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceRow) } else { FaceStack(sessions: [], size: Metric.faceRow) }
                 }
@@ -241,7 +240,7 @@ private struct ItemRow: View {
             }
             HStack(spacing: Space.sm) {
                 Text(model.title(of: route))
-                    .kitType(fresh ? .titleStrong : .title)
+                    .kitType(.title)
                     .lineLimit(1)
                 HStack(spacing: Space.xs) {
                     ProjectPicker(project: item.project, iconOnly: true) { model.setProject(of: route, $0) }

@@ -67,6 +67,7 @@ extension ModalRoute {
         case .github(let url): "github:\(url)"
         case .start: "start"
         case .closedSessions: "closed"
+        case .notifications: "notifications"
         }
     }
 }

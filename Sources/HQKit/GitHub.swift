@@ -7,6 +7,25 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
     public enum Review: String, Sendable, Codable { case approved, changesRequested, required, none }
     public enum Checks: String, Sendable, Codable { case passed, failed, running, none }
 
+    /// A review or a comment someone left.
+    public struct Activity: Sendable, Hashable, Codable {
+        public enum Kind: String, Sendable, Codable { case approved, changesRequested, reviewed, commented }
+        public var kind: Kind
+        public var author: String
+        public var bot: Bool
+        public var at: Date
+        /// Its first line, if it says something.
+        public var text: String?
+
+        public init(kind: Kind, author: String, bot: Bool = false, at: Date, text: String? = nil) {
+            self.kind = kind
+            self.author = author
+            self.bot = bot
+            self.at = at
+            self.text = text
+        }
+    }
+
     public struct Check: Sendable, Hashable, Codable {
         public var name: String
         public var checks: Checks
@@ -45,6 +64,8 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
     public var mine: Bool
     public var body: String?
     public var checkRuns: [Check]
+    /// Its latest reviews and comments, newest last: what the notification center tells about.
+    public var activity: [Activity] = []
 
     public var id: String { url }
 
@@ -126,7 +147,8 @@ public enum GitHubQuery {
         fragment pr on PullRequest {
           url number title isDraft state merged updatedAt body
           author { login } repository { nameWithOwner } headRefName reviewDecision
-          latestReviews(first: 20) { nodes { author { login } state submittedAt } }
+          latestReviews(first: 20) { nodes { author { __typename login } state submittedAt bodyText } }
+          comments(last: 5) { nodes { author { __typename login } createdAt bodyText } }
           timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent {
             createdAt requestedReviewer { __typename ... on User { login } } } } }
           commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 30) { nodes {
@@ -205,6 +227,18 @@ public enum GitHubQuery {
         case "CHANGES_REQUESTED": .changesRequested
         default: .none
         }
+        let comments = ((node["comments"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
+        item.activity = (reviews.compactMap { review -> GitHubItem.Activity? in
+            guard let at = date(review["submittedAt"]) else { return nil }
+            let kind: GitHubItem.Activity.Kind = switch review["state"] as? String {
+            case "APPROVED": .approved
+            case "CHANGES_REQUESTED": .changesRequested
+            default: .reviewed
+            }
+            return activity(kind, review, at: at)
+        } + comments.compactMap { comment in
+            date(comment["createdAt"]).map { activity(.commented, comment, at: $0) }
+        }).sorted { $0.at < $1.at }
         // Requests to the user, else to a team; never another user's.
         let requests = ((node["timelineItems"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
         let asked = requests.compactMap { event -> (at: Date, me: Bool)? in
@@ -231,6 +265,14 @@ public enum GitHubQuery {
             return nil
         }
         return item
+    }
+
+    static func activity(_ kind: GitHubItem.Activity.Kind, _ node: [String: Any], at: Date) -> GitHubItem.Activity {
+        let author = node["author"] as? [String: Any]
+        let login = author?["login"] as? String ?? "ghost"
+        let line = (node["bodyText"] as? String)?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }
+        return GitHubItem.Activity(kind: kind, author: login, bot: author?["__typename"] as? String == "Bot" || login.hasSuffix("[bot]"),
+                                   at: at, text: line?.isEmpty == false ? line : nil)
     }
 
     static func checks(_ state: String?) -> GitHubItem.Checks {
@@ -313,5 +355,53 @@ extension GitInfo {
             return path.isEmpty ? nil : String(path)
         }
         return nil
+    }
+}
+
+/// GitHub's notifications for threads the user takes part in: mentions and replies, where the PR query can't see them.
+public enum GitHubThreads {
+    public struct Thread: Sendable, Hashable {
+        public var reason: String
+        /// The PR's or issue's page.
+        public var url: String
+        public var title: String
+        public var updatedAt: Date
+        /// The API URL of the comment that made it unread.
+        public var latestComment: String?
+    }
+
+    /// What a reply or a mention is worth telling: a PR or an issue, mentioned or answered.
+    public static func parse(_ data: Data) -> [Thread] {
+        guard let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return list.compactMap { entry in
+            guard let reason = entry["reason"] as? String, ["mention", "team_mention", "comment"].contains(reason),
+                  let subject = entry["subject"] as? [String: Any], let api = subject["url"] as? String,
+                  let url = page(api), let updated = GitHubQuery.date(entry["updated_at"]) else { return nil }
+            return Thread(reason: reason, url: url, title: subject["title"] as? String ?? "", updatedAt: updated,
+                          latestComment: subject["latest_comment_url"] as? String)
+        }
+    }
+
+    /// A comment's author, whether a bot wrote it, and its first line.
+    public static func comment(_ data: Data) -> (author: String, bot: Bool, text: String?)? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let user = json["user"] as? [String: Any], let login = user["login"] as? String else { return nil }
+        let line = (json["body"] as? String)?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }
+        return (login, user["type"] as? String == "Bot" || login.hasSuffix("[bot]"), line?.isEmpty == false ? line : nil)
+    }
+
+    /// `https://api.github.com/repos/acme/registry/pulls/418` → `https://github.com/acme/registry/pull/418`.
+    public static func page(_ api: String) -> String? {
+        guard let range = api.range(of: "https://api.github.com/repos/") else { return nil }
+        let parts = api[range.upperBound...].split(separator: "/")
+        guard parts.count == 4, ["pulls", "issues"].contains(parts[2]) else { return nil }
+        return "https://github.com/\(parts[0])/\(parts[1])/\(parts[2] == "pulls" ? "pull" : "issues")/\(parts[3])"
+    }
+
+    /// "registry #418" from its page.
+    public static func reference(_ url: String) -> String? {
+        let parts = url.split(separator: "/")
+        guard parts.count >= 6, let number = Int(parts[5]) else { return nil }
+        return "\(parts[3]) #\(number)"
     }
 }

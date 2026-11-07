@@ -44,7 +44,6 @@ struct TaskModal: View {
                         .uiTestAnchor("modal-title")
                 }
                 properties(task)
-                if task.status == .review { reviewBox(task) }
                 ModalGroup(title: "On it") { onIt(task) }
                 ModalGroup(title: "Description") { DescriptionCard(id: id) }
                 ModalGroup(title: "Subtasks") { subtasks(task) }
@@ -98,30 +97,6 @@ struct TaskModal: View {
 
     private func label(_ text: String) -> some View {
         Text(text).kitType(.callout).foregroundStyle(.secondary).frame(width: Metric.propertyLabel, alignment: .leading)
-    }
-
-    private func reviewBox(_ task: TaskItem) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Space.md) {
-            VStack(alignment: .leading, spacing: Metric.lineGap) {
-                Text(task.review.map { "Review: \($0)" } ?? "Waiting for your review")
-                    .kitType(.titleStrong)
-                    .foregroundStyle(Ink.needsYouText)
-                Text(reviewByLine(task)).kitType(.secondary).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: Space.sm)
-            Button("Mark Done") { model.setStatus(id, .done) }
-                .buttonStyle(.glassProminent)
-                .clickable()
-                .help("Mark the task done")
-        }
-        .padding(Space.md)
-        .surface(glow: Ink.needsYou)
-    }
-
-    private func reviewByLine(_ task: TaskItem) -> String {
-        let who = task.reviewBy.flatMap { model.session($0)?.name } ?? (task.reviewBy == "you" ? "You" : "Claude")
-        let when = task.reviewAt.map { $0.formatted(.relative(presentation: .named)) } ?? ""
-        return when.isEmpty ? "Set by \(who)" : "Set by \(who) \(when)"
     }
 
     @ViewBuilder
@@ -260,7 +235,7 @@ struct SessionChip: View {
     }
 }
 
-/// Outputs as rows: dot, kind or face, title, kind and time; under a task, × unlinks what was linked by hand.
+/// Outputs as rows: kind or face, title, kind and time; under a task, × unlinks what was linked by hand.
 struct OutputRows: View {
     let routes: [ModalRoute]
     var task: Int?
@@ -269,13 +244,10 @@ struct OutputRows: View {
     var body: some View {
         ModalBox {
             ForEach(routes, id: \.self) { route in
-                let fresh = model.isNew(route)
                 HStack(spacing: Space.sm) {
-                        AttentionDot(needsYou: model.needsYou(route), isNew: fresh)
                         kindIcon(route)
                         if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceChip) }
                         Text(model.title(of: route))
-                            .fontWeight(fresh ? .semibold : .regular)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text(detail(route)).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)

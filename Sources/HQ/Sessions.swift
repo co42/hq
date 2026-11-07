@@ -10,6 +10,7 @@ extension AppModel {
         let now = Date.now
         lastHookEvent = now
         var item = session(event.sessionID) ?? newItem(for: event, now: now)
+        let waited = item.status.needsYou
         var live = item.live
         live.apply(event, now: now)
         item.live = live
@@ -58,6 +59,7 @@ extension AppModel {
             put(item)
         }
         watchTitle(of: item)
+        if item.status.needsYou, !waited { sessionBlocked(item.id) }
         if let published = event.artifact { capture(published, from: item) }
         if !event.pullRequests.isEmpty { pollGitHubSoon() }
         // After put: a process that already exited ends the stored session.
@@ -94,7 +96,6 @@ extension AppModel {
         guard let url = URL(string: published.url) else { return }
         let file = published.file.map { $0.hasPrefix("/") || $0.hasPrefix("~") ? $0 : (session.cwd as NSString).appendingPathComponent($0) }
         let title = file.flatMap(PublishedArtifact.title(ofPage:)) ?? published.title
-        noteChange("artifact:\(url.absoluteString)", by: session.id)
         if let index = artifacts.firstIndex(where: { $0.id == url }) {
             if let title, artifacts[index].title != title { artifacts[index].title = title }
             return
@@ -499,9 +500,9 @@ extension AppModel {
         }
     }
 
-    /// A card blinks while its session needs the user or is done unread, until the user clicks it, opens it or looks at its terminal.
+    /// A card blinks while its session needs the user, until the user clicks it, opens it or looks at its terminal.
     func blinks(_ session: SessionItem) -> Bool {
-        guard session.isRunning, session.status.needsYou || session.status.isNew else { return false }
+        guard session.isRunning, session.status.needsYou else { return false }
         return (seen["blink:\(session.id)"] ?? .distantPast) < session.status.since
     }
 
@@ -681,11 +682,8 @@ extension AppModel {
         } else {
             lines.append("HQ tracks this session. It works on: " + mine.prefix(5).map { "\($0.key) \($0.title) (\($0.status.rawValue))" }.joined(separator: "; ") + ".")
         }
-        let review = taskTree.outline(.overview).compactMap { task($0) }.filter { $0.status == .review }.count
         let doing = taskTree.outline(.overview).compactMap { task($0) }.filter { $0.status == .doing }
-        if !doing.isEmpty || review > 0 {
-            lines.append("On the overview: \(doing.count) doing, \(review) in review (`hq ctx`).")
-        }
+        if !doing.isEmpty { lines.append("On the overview: \(doing.count) doing (`hq ctx`).") }
         lines.append("Keep the work visible in HQ: use the hq-tasks skill for tasks and the hq-files skill for notes. "
                      + "Artifacts you publish land in HQ on their own.")
         return lines.joined(separator: "\n")

@@ -7,10 +7,10 @@ enum AgentCommands {
     static let all: [AgentCommand] = [
         AgentCommand(name: "status", summary: "Show whether HQ runs and what needs the user.",
                      example: "hq status --json", readOnly: true) { _, model in
-            ["running": true, "needsYou": model.needsYouCount, "new": model.newCount, "sessions": model.gridSessions.count,
+            ["running": true, "needsYou": model.importantCount, "updates": model.updateCount, "sessions": model.gridSessions.count,
              "tasks": model.tasks.count, "files": model.files.count, "artifacts": model.artifacts.count]
         },
-        AgentCommand(name: "ctx", summary: "Show this session's tasks, the overview's tasks in Review and Doing, recent files, and the other open sessions.",
+        AgentCommand(name: "ctx", summary: "Show this session's tasks, the overview's tasks in Doing, recent files, and the other open sessions.",
                      params: [.init(name: "session", help: "a session id (default: the Claude session running the command)")],
                      example: "hq ctx --json", readOnly: true) { args, model in
             let id = args.string("session") ?? args.string(sessionArg)
@@ -19,7 +19,7 @@ enum AgentCommands {
             }
             let mine = model.tasks(of: session.id)
             let overview = model.taskTree.outline(.overview).compactMap { model.task($0) }
-                .filter { ($0.status == .review || $0.status == .doing) && !mine.contains($0) }
+                .filter { $0.status == .doing && !mine.contains($0) }
             let mineIDs = Set(mine.map(\.id))
             let files = model.files.filter { file in file.sessions.contains(session.id) || file.tasks.contains(where: mineIDs.contains) }
                 .sorted { $0.modified > $1.modified }
@@ -55,8 +55,8 @@ enum AgentCommands {
                     "files": files.prefix(10).map(\.agentJSON), "artifacts": artifacts.prefix(10).map(\.agentJSON),
                     "sessions": others.map { $0.agentJSON(model) }]
         },
-        AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts or projects.",
-                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts or projects"),
+        AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts, projects or notifications.",
+                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts, projects or notifications (--all: with what was read today)"),
                               .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
                               .init(name: "all", kind: .boolean, help: "include closed sessions and done tasks"),
@@ -103,8 +103,12 @@ enum AgentCommands {
                 items = model.artifacts.sorted { $0.published > $1.published }.map(\.agentJSON)
             case "projects":
                 items = model.allProjects.map { model.projectJSON($0) }
+            case "notifications":
+                let sections: [NoticeSection] = all ? [.needsYou, .updates, .later, .earlier] : [.needsYou, .updates, .later]
+                items = model.blockedSessions.map { ["section": "needsYou", "session": $0.id, "text": $0.reason ?? $0.status.title] }
+                    + sections.flatMap { section in model.notices(in: section).map { model.noticeJSON($0, section: section) } }
             default:
-                throw AgentError.usage("no kind \"\(kind)\". Kinds: sessions, tasks, prs, files, artifacts, projects")
+                throw AgentError.usage("no kind \"\(kind)\". Kinds: sessions, tasks, prs, files, artifacts, projects, notifications")
             }
             let limit = try args.int("limit", default: 50)
             let offset = try args.int("offset", default: 0)
@@ -132,14 +136,14 @@ enum AgentCommands {
                               .init(name: "tag", help: "tags, comma separated"),
                               .init(name: "parent", help: "T-12: a subtask of that task"),
                               .init(name: "now", kind: .boolean, help: "at the end of Tasks, on the overview"),
-                              .init(name: "status", help: "todo (default), doing (also puts it on Tasks), review or done"),
+                              .init(name: "status", help: "todo (default), doing (also puts it on Tasks) or done"),
                               .init(name: "body", help: "the description in markdown; - reads stdin")],
                      example: "hq task add \"Dedup layers on push\" --type feature --now --body -") { args, model in
             let titled = TitleTags.split((try? args.required("title")) ?? "").tags.compactMap { word -> TaskStatus? in
                 if case .status(let status) = model.titleWord(word) { status } else { nil }
             }.last
             let status = try args.string("status").map { raw in
-                guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage(raw.lowercased() == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, review, done") }
+                guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage(raw.lowercased() == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, done") }
                 return status
             } ?? titled ?? .todo
             let session = model.session(args.string(sessionArg))
@@ -161,29 +165,39 @@ enum AgentCommands {
             }
             return task.agentJSON(model)
         },
-        AgentCommand(name: "task move", summary: "Set a task's status. Review needs --reason: what the user must check, with its link in the description.",
+        AgentCommand(name: "task move", summary: "Set a task's status: todo, doing or done. When the user must check something, keep it doing and tell them with hq notify.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "status", required: true, positional: true, help: "todo, doing (also brings it to Tasks), review or done (backlog: todo, in the Backlog)"),
-                              .init(name: "reason", help: "with review: one line, what the user must check"),
+                              .init(name: "status", required: true, positional: true, help: "todo, doing (also brings it to Tasks) or done (backlog: todo, in the Backlog)"),
+                              .init(name: "reason", help: "only for the old review: what the user must check, sent to their notifications"),
                               notMine],
-                     example: "hq task move T-12 review --reason \"PR #418 is ready to merge\"") { args, model in
+                     example: "hq task move T-12 doing") { args, model in
             let task = try ownTask(args, model)
             let raw = try args.required("status").lowercased()
             if raw == "backlog" {
                 model.setStatus(task.id, .todo)
                 model.move(task.id, to: .backlog)
+            } else if raw == "review" {
+                // Review was a status: the task stays doing, and what to check goes to the notification center.
+                model.setStatus(task.id, .doing)
+                link(task.id, args, model)
+                let session = model.session(args.string(sessionArg))?.id
+                let reason = (args.string("reason") ?? "").trimmingCharacters(in: .whitespaces)
+                var seen = Set<String>()
+                let links = ([ModalRoute.task(task.id).selectionKey] + (session.map { model.defaultLinks(forSession: $0) } ?? [])).filter { seen.insert($0).inserted }
+                model.notify(reason.isEmpty ? "\(task.key) is ready to check" : reason, level: .update,
+                             source: session, links: links)
+                var json = model.task(task.id)?.agentJSON(model) ?? [:]
+                json["note"] = "Review is no longer a status: \(task.key) stays doing, and the user has a notification. Next time: hq notify \"…\" --link \(task.key)"
+                return json
             } else {
                 guard let status = TaskStatus(rawValue: raw) else {
-                    throw AgentError.usage(raw.lowercased() == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, review, done")
+                    throw AgentError.usage(raw == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, done")
                 }
-                if status == .review, (args.string("reason") ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
-                    throw AgentError.usage("review needs --reason \"…\": one line saying what the user must check")
-                }
-                model.setStatus(task.id, status, reason: status == .review ? args.string("reason") : nil)
+                model.setStatus(task.id, status)
                 // Work started: a top-level task in the Backlog comes to Tasks.
                 if status == .doing, task.parent == nil, model.list(of: task.id) == .backlog { model.move(task.id, to: .overview) }
-                // The session works on it, or shipped it.
-                if status == .doing || status == .review { link(task.id, args, model) }
+                // The session works on it.
+                if status == .doing { link(task.id, args, model) }
             }
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
@@ -391,6 +405,36 @@ enum AgentCommands {
             }
             return model.importArtifact(url, title: title, published: date, task: task).agentJSON
         },
+        AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center: work ready to check, a write-up done. --important for a ping they asked for, or when you can't go on without them.",
+                     params: [.init(name: "text", required: true, positional: true, help: "one line, what they should know"),
+                              .init(name: "important", kind: .boolean, help: "Needs You, with a banner: they asked to be pinged, or you are blocked on them"),
+                              .init(name: "link", help: "what to open, comma-separated: T-12, a URL, a file, an artifact (default: this session's open tasks and what it made since its last notification)")],
+                     example: "hq notify \"Retry budget ready to check: the canary is green\" --link T-12") { args, model in
+            let text = try args.required("text").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw AgentError.usage("say what the user should know") }
+            let session = model.session(args.string(sessionArg))?.id
+            let links = try args.string("link").map { try noticeLinks($0, model) } ?? session.map { model.defaultLinks(forSession: $0) } ?? []
+            let level: Notice.Level = try args.bool("important") == true ? .important : .update
+            let row = model.notify(text, level: level, source: session, links: links)
+            return model.noticeJSON(row, section: model.section(of: row))
+        },
+        AgentCommand(name: "remind", summary: "Set a reminder in HQ's notification center: it shows in Later, then comes back at its time.",
+                     params: [.init(name: "text", required: true, positional: true, help: "what to remember, one line"),
+                              .init(name: "at", required: true, help: "when: 16:00, in 2h, tomorrow 9:00, monday, 2026-11-09T09:00"),
+                              .init(name: "important", kind: .boolean, help: "Needs You, with a banner, when it's due: the user asked to be reminded"),
+                              .init(name: "link", help: "what to open, comma-separated: T-12, a URL, a file, an artifact")],
+                     example: "hq remind \"Check the canary\" --at \"in 2h\" --important --link T-12") { args, model in
+            let text = try args.required("text").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { throw AgentError.usage("say what to remember") }
+            let raw = try args.required("at")
+            guard let due = ReminderTime.parse(raw), due > .now else {
+                throw AgentError.usage("--at \"\(raw)\" isn't a time to come: 16:00, in 2h, tomorrow 9:00, monday, 2026-11-09T09:00")
+            }
+            let links = try args.string("link").map { try noticeLinks($0, model) } ?? []
+            let level: Notice.Level = try args.bool("important") == true ? .important : .update
+            let row = model.remind(text, at: due, level: level, source: model.session(args.string(sessionArg))?.id, links: links)
+            return model.noticeJSON(row, section: .later)
+        },
         AgentCommand(name: "session new", summary: "Start a fresh, named Claude session in a new Ghostty tab. With --task it works on that task and is linked to it.",
                      params: [.init(name: "name", required: true, positional: true, help: "the session's name, short: \"T-12 Dedup layers\""),
                               .init(name: "task", help: "T-12: the task the new session works on"),
@@ -497,6 +541,12 @@ enum AgentCommands {
     }
 
     /// What `task link` and `task unlink` name: a task, an artifact, any other URL, a session, a file.
+    /// `T-12,https://…,Push plan`: each one's selection key.
+    private static func noticeLinks(_ list: String, _ model: AppModel) throws -> [String] {
+        try list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            .map { try item($0, model).selectionKey }
+    }
+
     private static func item(_ ref: String, _ model: AppModel) throws -> ModalRoute {
         if ref.uppercased().hasPrefix("T-"), let other = TaskItem.key(ref) {
             guard model.task(other) != nil else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
@@ -539,7 +589,6 @@ extension TaskItem {
         if let type { json["type"] = type.rawValue }
         if let project { json["project"] = project }
         if let parent { json["parent"] = "T-\(parent)" }
-        if let review, status == .review { json["review"] = review }
         if !links.isEmpty { json["links"] = links.map(\.absoluteString) }
         if !related.isEmpty { json["related"] = related.map { "T-\($0)" } }
         if let path { json["path"] = path }
@@ -582,8 +631,19 @@ extension AppModel {
             }
         case .task(let id): ["kind": "task", "id": "T-\(id)", "status": task(id)?.status.rawValue ?? "", "title": title(of: route)]
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
-        case .start, .closedSessions: ["kind": "other", "title": title(of: route)]
+        case .start, .closedSessions, .notifications: ["kind": "other", "title": title(of: route)]
         }
+    }
+
+    func noticeJSON(_ row: Notice, section: NoticeSection) -> JSONObject {
+        var json: JSONObject = ["id": row.id.uuidString, "section": "\(section)", "level": row.level.rawValue, "kind": row.kind.rawValue,
+                                "text": row.text, "at": JSON.date(row.at),
+                                "links": row.links.compactMap { ModalRoute(noticeKey: $0).map(linkJSON) }]
+        if let source = row.source { json["source"] = source }
+        if row.count > 1 { json["count"] = row.count }
+        if let due = row.dueAt { json["due"] = JSON.date(due) }
+        if let read = row.readAt { json["read"] = JSON.date(read) }
+        return json
     }
 }
 

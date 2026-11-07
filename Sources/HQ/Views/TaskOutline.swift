@@ -28,7 +28,7 @@ struct TaskOutline: NSViewRepresentable {
         }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
-             model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen, model.changes,
+             model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection)
         context.coordinator.width = width
@@ -1031,7 +1031,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let row = outline.selectedRow
         let id = row >= 0 ? (outline.item(atRow: row) as? OutlineNode)?.task : nil
         if model.focusedTask != id { model.focusedTask = id }
-        if let id, outline.selectedRowIndexes.count == 1 { model.markSeen(.task(id)) }
         let selected = outline.selectedRowIndexes.compactMap { (outline.item(atRow: $0) as? OutlineNode)?.task }
         if model.selectedTasks != selected { model.selectedTasks = selected }
         // A chip under a row unselects when the rows change; a click on a chip selects it again after.

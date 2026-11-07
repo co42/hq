@@ -77,7 +77,8 @@ nonisolated struct Vault: Sendable {
                         tags: tags(note), parent: parent == number ? nil : parent,
                         list: note.string("list").flatMap(TaskList.init(rawValue:)) ?? .backlog,
                         order: note.string("order").flatMap(Double.init) ?? Double(number),
-                        review: note.string("review").flatMap { $0.isEmpty ? nil : $0 },
+                        // Review was a status: such a note reads as doing, its reason kept until the center has it.
+                        review: note.string("status")?.trimmingCharacters(in: .whitespaces).lowercased() == "review" ? note.string("review") ?? "" : nil,
                         reviewBy: note.string("review_by"), reviewAt: note.string("review_at").flatMap(NoteDate.parse),
                         done: note.string("done").flatMap(NoteDate.parse),
                         links: note.list("links").compactMap(URL.init(string:)),
@@ -120,9 +121,10 @@ nonisolated struct Vault: Sendable {
         // The list belongs to top-level tasks; a subtask shows in its root's.
         optional(&note, "list", task.parent == nil ? task.list.rawValue : nil)
         note.set("order", Self.number(task.order))
-        optional(&note, "review", task.status == .review ? task.review : nil)
-        optional(&note, "review_by", task.status == .review ? task.reviewBy : nil)
-        optional(&note, "review_at", task.status == .review ? task.reviewAt.map(NoteDate.minute) : nil)
+        // Review was a status: its keys go once the task is written again.
+        optional(&note, "review", nil)
+        optional(&note, "review_by", nil)
+        optional(&note, "review_at", nil)
         optional(&note, "done", task.status == .done ? task.done.map(NoteDate.minute) : nil)
         if !task.links.isEmpty || note.has("links") { note.set("links", list: task.links.map(\.absoluteString)) }
         if !task.related.isEmpty || note.has("related") { note.set("related", list: task.related.map { "T-\($0)" }) }

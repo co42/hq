@@ -50,6 +50,8 @@ struct HQCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .control])
             Button("New Session…") { model.beginStart() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("New Reminder…") { model.beginReminder() }
+                .keyboardShortcut("r", modifiers: [.command, .control])
             Divider()
             // ⌘P opens it too (AppDelegate), as in Zed: HQ prints nothing.
             Button("Quick Open…", action: quickOpen)
@@ -120,16 +122,16 @@ struct HQCommands: Commands {
         }
 
         CommandMenu("Go") {
-            Button("Review Next") { model.reviewNext() }
+            Button("Notifications") { model.openCenter() }
                 .keyboardShortcut("j")
-                .disabled(!menu.hasAttention)
+                .disabled(menu.inCenter)
             Button("Back") { model.back() }
                 .keyboardShortcut("[")
                 .disabled(!menu.canGoBack)
             Divider()
-            Button("Mark All Seen") { model.markAllSeen() }
+            Button("Mark All Read") { model.markAllRead() }
                 .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(!menu.hasNew)
+                .disabled(!menu.hasUnread)
             Button("Mark Reviewed") { if case .github(let url) = model.menuRoute { model.markReviewed(url) } }
                 .disabled(!menu.reviewable)
         }

@@ -56,7 +56,7 @@ struct SessionGlyph: View {
             case .plan: Disc(fill: fill(Ink.needsYou), mark: .lines)
             case .failed: Disc(fill: fill(Ink.failed), mark: .cross)
             case .unread:
-                Circle().fill(fill(Ink.unread)).frame(width: Metric.unreadDot, height: Metric.unreadDot)
+                Circle().fill(fill(Ink.accent)).frame(width: Metric.unreadDot, height: Metric.unreadDot)
             case .working:
                 ZStack {
                     Ring(style: fill(Ink.accentText).opacity(0.3))
@@ -92,11 +92,6 @@ struct TaskGlyph: View {
                 ZStack {
                     Ring(style: style(AnyShapeStyle(Ink.doing)))
                     Pie(share: 0.5).fill(style(AnyShapeStyle(Ink.doing)))
-                }
-            case .review:
-                ZStack {
-                    Ring(style: style(AnyShapeStyle(Ink.needsYou)))
-                    Pie(share: 0.75).fill(style(AnyShapeStyle(Ink.needsYou)))
                 }
             case .done: Disc(fill: style(AnyShapeStyle(Ink.done)), mark: .check)
             }
@@ -289,10 +284,6 @@ class TaskGlyphView: NSView {
             ctx.setStrokeColor(color(Ink.doingNS))
             ctx.strokeEllipse(in: ring)
             pie(0.5, Ink.doingNS)
-        case .review:
-            ctx.setStrokeColor(color(Ink.needsYouNS))
-            ctx.strokeEllipse(in: ring)
-            pie(0.75, Ink.needsYouNS)
         case .done:
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
             ctx.setFillColor(color(Ink.doneNS))

@@ -28,6 +28,7 @@ Pipe the markdown in, for example `printf '%s\n' '# Push path plan' '' 'The regi
 - **Before creating** a note, check `hq ctx` and `hq ls files`. If one covers the subject, update it with `hq file write`.
 - **A plan, design, investigation or report** you write for the user: always as an HQ file linked to its task, not in the chat alone and not loose in the repo (unless the user asks for a repo file).
 - **When the work moves on**: update the note so it stays true.
+- **A plan or report is ready for the user to read**: `hq notify "Push path plan ready to read"`. It links the notes this session wrote since its last notification (the `hq` skill, Telling the user).
 - **The user asks to note something** that isn't a thing to do (a fact, a decision, an idea to keep): an HQ file.
 
 ## Content

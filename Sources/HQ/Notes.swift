@@ -64,6 +64,7 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             rollDoneTasks()
+            migrateReviews()
             // A note read too early (downloading, mid-write) keeps its last read: read it again soon.
             let unreadable = Set(result.unreadable)
             if unreadable != vaultUnreadable {
@@ -208,7 +209,6 @@ extension AppModel {
         }
         guard !previous.isEmpty else { return }
         tasks = next
-        for task in previous { noteChange("task:T-\(task.id)") }
         registerUndo(action) { model in
             model.editTasks(action) { tasks in
                 for task in previous where tasks[task.id] != nil { tasks[task.id] = task }
@@ -259,7 +259,6 @@ extension AppModel {
         wrote(item.path)
         place(renumber, "New Task")
         tasks.append(item)
-        noteChange("task:T-\(item.id)")
         registerUndo("New Task") { $0.deleteTasks([item.id], action: "New Task") }
         return item
     }
@@ -308,7 +307,6 @@ extension AppModel {
                 guard task.status != status else { continue }
                 task.status = status
                 task.done = status == .done ? .now : nil
-                if status == .review { task.reviewBy = actor ?? "you"; task.reviewAt = .now }
             case .type(let type): task.type = type
             case .project(let project): task.project = project
             case .tag(let tag): if !task.tags.contains(tag) { task.tags.append(tag) }
@@ -316,16 +314,27 @@ extension AppModel {
         }
     }
 
-    func setStatus(_ id: Int, _ status: TaskStatus, reason: String? = nil) {
+    func setStatus(_ id: Int, _ status: TaskStatus) {
         changeTask(id, status == .done ? "Mark Done" : "Move to \(status.title)") { task in
-            guard task.status != status || reason != nil else { return }
+            guard task.status != status else { return }
             task.status = status
             task.done = status == .done ? (task.done ?? .now) : nil
-            if status == .review {
-                task.review = reason ?? task.review
-                task.reviewBy = actor ?? "you"
-                task.reviewAt = .now
+        }
+    }
+
+    /// Tasks still in Review from before v9: doing now, and on the overview a row in the center with their reason.
+    func migrateReviews() {
+        let pending = tasks.filter { $0.review != nil }
+        guard !pending.isEmpty else { return }
+        undoManager?.disableUndoRegistration()
+        defer { undoManager?.enableUndoRegistration() }
+        for task in pending {
+            if list(of: task.id) == .overview {
+                let reason = task.review.flatMap { $0.isEmpty ? nil : $0 }
+                notify("\(task.key) was in Review" + (reason.map { ": \($0)" } ?? ""), level: .update, source: nil,
+                       links: [ModalRoute.task(task.id).selectionKey])
             }
+            changeTask(task.id, "Review") { $0.review = nil; $0.reviewBy = nil; $0.reviewAt = nil }
         }
     }
 
@@ -466,7 +475,7 @@ extension AppModel {
             if GitHubLinks.isItem(url) && githubItem(url) == nil { pollGitHubSoon() }
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions: break
+        case .start, .closedSessions, .notifications: break
         }
     }
 
@@ -477,7 +486,7 @@ extension AppModel {
         case .github(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions: break
+        case .start, .closedSessions, .notifications: break
         }
     }
 
@@ -489,7 +498,7 @@ extension AppModel {
         case .github(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true || task(other)?.related.contains(id) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions: false
+        case .start, .closedSessions, .notifications: false
         }
     }
 
@@ -544,7 +553,6 @@ extension AppModel {
         }
         wrote(item.path)
         files.append(item)
-        noteChange("file:\(item.id)")
         return item
     }
 
@@ -607,12 +615,10 @@ extension AppModel {
     func saveFileBody(_ id: FileItem.ID, _ body: String) {
         guard let path = files.first(where: { $0.id == id })?.path else {
             fileDrafts[id] = body
-            noteChange("file:\(id)")
             return
         }
         report { try vault?.saveBody(body, at: path) }
         wrote(path)
-        noteChange("file:\(id)")
     }
 
     // MARK: Obsidian and the Trash

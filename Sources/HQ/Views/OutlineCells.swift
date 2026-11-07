@@ -173,7 +173,7 @@ final class ProgressRingView: NSView {
     private(set) var counts: [TaskStatus: Int] = [:]
     var total: Int { counts.values.reduce(0, +) }
     /// Clockwise from twelve, most finished first; todo is the track left over.
-    private static let segments: [(status: TaskStatus, word: String)] = [(.done, "done"), (.review, "in review"), (.doing, "doing"), (.todo, "to do")]
+    private static let segments: [(status: TaskStatus, word: String)] = [(.done, "done"), (.doing, "doing"), (.todo, "to do")]
 
     override var isFlipped: Bool { true }
 
@@ -205,7 +205,7 @@ final class ProgressRingView: NSView {
         ctx.strokeEllipse(in: ring)
         // Flipped: angles turn clockwise, from twelve o'clock.
         var start = -CGFloat.pi / 2
-        for (status, color) in [(TaskStatus.done, Ink.doneNS), (.review, Ink.needsYouNS), (.doing, Ink.doingNS)] {
+        for (status, color) in [(TaskStatus.done, Ink.doneNS), (.doing, Ink.doingNS)] {
             guard let count = counts[status], count > 0 else { continue }
             let end = start + 2 * .pi * CGFloat(count) / CGFloat(total)
             ctx.setStrokeColor(color.cgColor)
@@ -214,78 +214,6 @@ final class ProgressRingView: NSView {
             start = end
         }
     }
-}
-
-/// A small capsule: orange "Review: …", blue "2 new", or a quiet project with its symbol.
-final class PillView: NSView {
-    enum Tone { case needsYou, new, quiet }
-    var text = "" {
-        didSet {
-            invalidateIntrinsicContentSize()
-            needsDisplay = true
-            // Only a pill that shows tracks the pointer.
-            if text.isEmpty != oldValue.isEmpty { trackHandCursor(!text.isEmpty) }
-        }
-    }
-    var tone = Tone.quiet { didSet { needsDisplay = true } }
-    var icon: NSImage? { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
-    var onClick: (() -> Void)?
-
-    override var isFlipped: Bool { true }
-
-    private var attributes: [NSAttributedString.Key: Any] {
-        let color: NSColor = switch tone {
-        case .needsYou: Ink.needsYouTextNS
-        case .new: Ink.unreadTextNS
-        case .quiet: Ink.secondaryTextNS
-        }
-        let font = tone == .quiet ? KitType.secondary.nsFont : KitType.groupLabel.nsFont
-        return [.font: font, .foregroundColor: color]
-    }
-
-    override var intrinsicContentSize: NSSize {
-        let text = (self.text as NSString).size(withAttributes: attributes)
-        let iconWidth = icon == nil ? 0 : Metric.glyphSlot - Space.xs + Space.xs
-        let padding = tone == .quiet ? 0 : Metric.pillPadding * 2
-        return NSSize(width: ceil(text.width) + iconWidth + padding, height: Metric.chipHeight)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let rect = bounds
-        if tone != .quiet {
-            (tone == .needsYou ? Ink.needsYouFillNS : Ink.unreadFillNS).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: Radius.chip, yRadius: Radius.chip).fill()
-        }
-        var x: CGFloat = tone == .quiet ? 0 : Metric.pillPadding
-        if let icon {
-            let side = Metric.pillIcon
-            let tinted = icon
-            tinted.isTemplate = true
-            NSGraphicsContext.saveGraphicsState()
-            let imageRect = NSRect(x: x, y: (rect.height - side) / 2, width: side, height: side)
-            tinted.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            Ink.secondaryTextNS.set()
-            imageRect.fill(using: .sourceAtop)
-            NSGraphicsContext.restoreGraphicsState()
-            x += side + Space.xs
-        }
-        let size = (text as NSString).size(withAttributes: attributes)
-        (text as NSString).draw(with: NSRect(x: x, y: (rect.height - size.height) / 2, width: rect.width - x, height: size.height),
-                                options: [.truncatesLastVisibleLine, .usesLineFragmentOrigin], attributes: attributes)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        if let onClick { onClick(); takeRelease() } else { super.mouseDown(with: event) }
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        if onClick != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
-    }
-
-    override func isAccessibilityElement() -> Bool { !text.isEmpty }
-    override func accessibilityRole() -> NSAccessibility.Role? { onClick == nil ? .staticText : .button }
-    override func accessibilityLabel() -> String? { text }
-    override func accessibilityPerformPress() -> Bool { onClick?(); return onClick != nil }
 }
 
 /// The project and tags after a title: colored chips, whole, as many as fit.
@@ -499,7 +427,6 @@ final class TaskCell: NSTableCellView {
     let labels = LabelStripView()
     /// After the labels, the description's toggle: when the task has one, and under the pointer to write one.
     let note = HandButton()
-    let review = PillView()
     /// Everything under it, as a ring that fills as it gets done.
     let progress = ProgressRingView()
     /// It has a description: the toggle shows at rest.
@@ -550,7 +477,6 @@ final class TaskCell: NSTableCellView {
         key.alignment = .right
         key.toolTip = KeyField.help
         key.setAccessibilityLabel("Copy key and title")
-        review.tone = .needsYou
         for (icon, help, action) in [(KitIcon.new, "Add a subtask (⇧N)", #selector(addSubtask)),
                                      (.toBacklog, "Move to the Backlog (⇧⌘B)", #selector(toggleList)),
                                      (.trash, "Delete the task (⌘⌫)", #selector(deleteTask))] {
@@ -565,7 +491,7 @@ final class TaskCell: NSTableCellView {
             button.isHidden = true
             actions.append(button)
         }
-        for view in [glyph, title, project, labels, note, review, progress, key] as [NSView] + actions { addSubview(view) }
+        for view in [glyph, title, project, labels, note, progress, key] as [NSView] + actions { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -595,12 +521,6 @@ final class TaskCell: NSTableCellView {
         project.onPick = { [weak model] choice in model?.setProject(id, choice) }
         labels.labels = task.tags.map { LabelStripView.Label(text: $0, color: model.labelColor(.tag, $0), icon: LabelStripView.tagIcon) }
         hasNote = !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        review.text = task.status == .review ? "Review" + (task.review.map { ": \($0)" } ?? "") : ""
-        // Quiet in the Backlog: it waits for later, not for the user.
-        let tone: PillView.Tone = model.needsYou(.task(id)) ? .needsYou : .quiet
-        if review.tone != tone { review.tone = tone }
-        review.onClick = { [weak model] in model?.open(.task(id)) }
-        review.toolTip = task.review
         let outputs = model.outputs(ofTask: id)
         if outputs.isEmpty {
             linksHost?.removeFromSuperview()
@@ -644,8 +564,6 @@ final class TaskCell: NSTableCellView {
             self.descriptionHost = nil
         }
         var spoken = ["\(task.key) \(task.title)", task.status.title]
-        if model.needsYou(.task(id)) { spoken.append("needs you") } else if model.isNew(.task(id)) { spoken.append("new") }
-        if task.status == .review, let reason = task.review { spoken.append("review: \(reason)") }
         if let project = task.project ?? model.project(ofTask: id) { spoken.append("project \(project)") }
         if !task.tags.isEmpty { spoken.append("tags " + task.tags.joined(separator: ", ")) }
         if !below.isEmpty { spoken.append("\(below.filter { $0.status == .done }.count) of \(below.count) subtasks done") }
@@ -720,12 +638,10 @@ final class TaskCell: NSTableCellView {
         place(key, width: keyWidth, height: ceil(key.intrinsicContentSize.height), visible: active)
         // What doesn't fit hides, the title truncating first: the progress ring, then labels, then the description mark.
         let minimumTitle = Metric.titleMinimum
-        let reviewWidth = review.text.isEmpty ? 0 : min(review.intrinsicContentSize.width, Metric.reviewPillMax)
         let progressWidth = progress.total == 0 ? 0 : Metric.glyphSlot
-        let trailing = [reviewWidth, progressWidth].filter { $0 > 0 }.reduce(0) { $0 + $1 + Space.sm }
+        let trailing = progressWidth > 0 ? progressWidth + Space.sm : 0
         let showProgress = progressWidth > 0 && right - trailing - titleX >= minimumTitle
         place(progress, width: progressWidth, height: Metric.glyphSlot, visible: showProgress)
-        place(review, width: reviewWidth, visible: reviewWidth > 0)
         let available = max(right - titleX, 40)
         let projectWidth = project.project == nil && !active ? 0 : project.naturalWidth
         let tagsWidth = labels.naturalWidth
@@ -786,11 +702,10 @@ final class TaskCell: NSTableCellView {
 
 // MARK: Faces column
 
-/// Grip on hover, the attention dot, and the faces of the sessions on the task: a click on them starts a session.
+/// Grip on hover, and the faces of the sessions on the task: a click on them starts a session.
 final class FacesCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
     private let grip = GripView()
-    private let dot = DotView()
     private let faces = FaceStackView()
     /// Space above the task's line.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
@@ -806,7 +721,7 @@ final class FacesCell: NSTableCellView {
         faces.limit = OutlineCoordinator.faces
         faces.showsMore = false
         faces.clickable = true
-        for view in [grip, dot, faces] { addSubview(view) }
+        for view in [grip, faces] as [NSView] { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -819,7 +734,6 @@ final class FacesCell: NSTableCellView {
                                label: "\(session.name), \(session.isRunning ? session.status.title.lowercased() : "ended")" + (session.status.isNew ? ", new" : ""),
                                working: session.isWorking, ended: !session.isRunning, session: session.id)
         }
-        let route = ModalRoute.task(id)
         onStart = { [weak model] in model?.beginStart(task: id) }
         onMenu = { [weak model] session, point, view in
             if let menu = model?.faceMenu(session, task: id) { FaceMenu.show(menu, session, point, view) }
@@ -834,8 +748,6 @@ final class FacesCell: NSTableCellView {
         faces.faceActions = sessions.map { session in
             (name: "Menu for \(session.name)", run: { [weak self] in if let self { self.onMenu(session.id, menuPoint(), self) } })
         } + [(name: "Start Session…", run: { [weak model] in model?.beginStart(task: id) })]
-        dot.color = model.needsYou(route) ? Ink.needsYouNS : model.isNew(route) ? Ink.unreadNS : nil
-        dot.setAccessibilityLabel(model.needsYou(route) ? "Needs you" : model.isNew(route) ? "New" : nil)
         faces.isHidden = faces.faces.isEmpty && !hovered
         needsLayout = true
     }
@@ -858,11 +770,9 @@ final class FacesCell: NSTableCellView {
         super.layout()
         let line = Metric.outlineRow
         grip.frame = NSRect(x: 0, y: gap + (line - Metric.glyphSlot) / 2, width: Space.md, height: Metric.glyphSlot)
-        // The faces sit against the task, the dot just before them.
+        // The faces sit against the task.
         let facesX = bounds.width - Space.xs - faces.contentWidth
         faces.frame = NSRect(x: facesX, y: gap, width: faces.contentWidth, height: line)
-        dot.frame = NSRect(x: facesX - Space.xs - Metric.attentionDot, y: gap + (line - Metric.attentionDot) / 2,
-                           width: Metric.attentionDot, height: Metric.attentionDot)
     }
 
     /// The faces start a session; the rest of the cell drags the row. The face stack takes the hit, so the
@@ -904,19 +814,6 @@ final class GripView: NSView {
                 NSBezierPath(ovalIn: NSRect(x: x, y: y, width: 1.8, height: 1.8)).fill() // grid: ok drawn mark
             }
         }
-    }
-}
-
-/// An orange or blue dot, or nothing.
-final class DotView: NSView {
-    var color: NSColor? { didSet { needsDisplay = true; setAccessibilityElement(color != nil) } }
-
-    override func accessibilityRole() -> NSAccessibility.Role? { .image }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let color else { return }
-        color.setFill()
-        NSBezierPath(ovalIn: bounds).fill()
     }
 }
 
@@ -1216,31 +1113,28 @@ struct FlowChips: View {
 struct OutputChip: View {
     let route: ModalRoute
     var compact = false
+    /// Only drawn: what holds it acts on clicks (the notification center).
+    var plain = false
     /// Under a task's row on the page: that task.
     var task: Int?
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let fresh = model.isNew(route)
         HStack(spacing: compact ? Space.xs : Metric.chipGap) {
                 icon
                 if !compact, let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceChip) }
                 Text(model.title(of: route))
                     .lineLimit(1)
-                    .fontWeight(fresh ? .semibold : .regular)
-                    .foregroundStyle(fresh ? AnyShapeStyle(Ink.unreadText) : AnyShapeStyle(compact ? .secondary : .primary))
+                    .foregroundStyle(compact ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             }
             .kitType(compact ? .secondary : .callout)
             .padding(.horizontal, compact ? Space.xs + 2 : Space.sm)
             .frame(height: compact ? Metric.chipHeight : Metric.rowAction)
-            .background(fresh ? AnyShapeStyle(Ink.unreadFill) : compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
+            .background(compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
                         in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-            .modifier(ChipClick(route: route, task: task))
-            .accessibilityValue(fresh ? "New" : "")
-            .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+            .modifier(ChipClick(route: route, task: task, active: !plain))
             .clickable()
             .help(model.title(of: route))
-            .uiTestAnchor(task.map { route.chipKey(task: $0) } ?? "chip:\(route.selectionKey)")
     }
 
     @ViewBuilder
@@ -1261,15 +1155,22 @@ struct OutputChip: View {
 private struct ChipClick: ViewModifier {
     let route: ModalRoute
     let task: Int?
+    var active = true
     @Environment(AppModel.self) private var model
 
     func body(content: Content) -> some View {
-        if let task {
+        if !active {
+            content
+        } else if let task {
             content
                 .selectOpen(route.chipKey(task: task), in: .tasks) { model.open(route, push: model.modal != nil) }
                 .accessibilityAction(named: "Show Menu") { FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), .zero, nil) }
+                .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+                .uiTestAnchor(route.chipKey(task: task))
         } else {
             content.selectOpen(route.selectionKey) { model.open(route, push: model.modal != nil) }
+                .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+                .uiTestAnchor("chip:\(route.selectionKey)")
         }
     }
 }
@@ -1428,6 +1329,7 @@ extension AppModel {
         case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? url
         case .start: "Start a session"
         case .closedSessions: "Closed Sessions"
+        case .notifications: "Notifications"
         }
     }
 }

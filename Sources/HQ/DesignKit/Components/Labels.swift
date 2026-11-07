@@ -112,25 +112,6 @@ struct Chip: View {
     }
 }
 
-/// An orange tag (needs the user: "Review: PR #418 is ready") or a blue one ("2 new").
-struct AttentionTag: View {
-    enum Tone { case needsYou, new }
-    let text: String
-    let tone: Tone
-
-    var body: some View {
-        Text(text)
-            .kitType(.secondary)
-            .fontWeight(.semibold)
-            .lineLimit(1)
-            .foregroundStyle(tone == .needsYou ? Ink.needsYouText : Ink.unreadText)
-            .padding(.horizontal, Space.xs + 2)
-            .frame(height: Metric.chipHeight)
-            .background(tone == .needsYou ? Ink.needsYouFill : Ink.unreadFill,
-                        in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-    }
-}
-
 /// A task key like T-12: monospaced, tertiary.
 struct KeyLabel: View {
     let key: String
@@ -189,20 +170,6 @@ struct GitHubStateIcon: View {
     }
 }
 
-/// A dot before a row: orange when it needs the user, blue when it's new.
-struct AttentionDot: View {
-    let needsYou: Bool
-    let isNew: Bool
-
-    var body: some View {
-        Circle()
-            .fill(needsYou ? AnyShapeStyle(Ink.needsYou) : isNew ? AnyShapeStyle(Ink.unread) : AnyShapeStyle(.clear))
-            .frame(width: Metric.attentionDot, height: Metric.attentionDot)
-            .accessibilityElement()
-            .accessibilityLabel(needsYou ? "Needs you" : isNew ? "New" : "")
-            .accessibilityHidden(!needsYou && !isNew)
-    }
-}
 
 /// A labeled group in the modal: a quiet label, then its content.
 struct ModalGroup<Content: View>: View {
@@ -221,14 +188,39 @@ struct ModalGroup<Content: View>: View {
     }
 }
 
-/// Rows in a quiet box: subtasks, outputs, details.
+/// Rows in a quiet box: subtasks, outputs, details. With `rows`, inset so a `rowHighlight` nests in its corners.
 struct ModalBox<Content: View>: View {
+    var rows = false
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
+            .padding(rows ? Space.xs + 2 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .surface()
+    }
+}
+
+/// A row's hover and selection in a card, as the outline draws them: `Radius.row`, concentric with the card's corners
+/// when the row sits `Space.xs + 2` in. The accent selection while its list has the keyboard, the quiet one otherwise.
+struct RowHighlight: ViewModifier {
+    let selected: Bool
+    let hovering: Bool
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content.background(fill, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
+    }
+
+    private var fill: Color {
+        if selected { return active ? Ink.rowSelection : Ink.selectionInactive }
+        return hovering ? Ink.hoverFill : .clear
+    }
+}
+
+extension View {
+    func rowHighlight(selected: Bool, hovering: Bool = false, active: Bool = true) -> some View {
+        modifier(RowHighlight(selected: selected, hovering: hovering, active: active))
     }
 }
 
@@ -301,5 +293,14 @@ enum Pasteboard {
         guard !Store.isOverridden else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// The unread dot before a notification: orange when it needs the user, the accent for an update, nothing once read.
+struct NoticeDot: View {
+    let color: Color?
+
+    var body: some View {
+        Circle().fill(color ?? .clear).frame(width: Metric.attentionDot, height: Metric.attentionDot).accessibilityHidden(true)
     }
 }

@@ -1,8 +1,8 @@
 import Foundation
 
-/// A task's status. A task in Review waits for the user.
+/// A task's status.
 public enum TaskStatus: String, Sendable, Hashable, CaseIterable, Identifiable, Codable {
-    case todo, doing, review, done
+    case todo, doing, done
 
     public var id: String { rawValue }
 
@@ -10,16 +10,17 @@ public enum TaskStatus: String, Sendable, Hashable, CaseIterable, Identifiable, 
         switch self {
         case .todo: "Todo"
         case .doing: "Doing"
-        case .review: "Review"
         case .done: "Done"
         }
     }
 
-    /// Reads a stored or typed status; the old `backlog` reads as todo.
+    /// Reads a stored or typed status; the old `backlog` reads as todo, the old `review` as doing.
     public init?(parsing text: String) {
         let word = text.trimmingCharacters(in: .whitespaces).lowercased()
         if word == "backlog" {
             self = .todo
+        } else if word == "review" {
+            self = .doing
         } else if let status = TaskStatus(rawValue: word) {
             self = status
         } else {

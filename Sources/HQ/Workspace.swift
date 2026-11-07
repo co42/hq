@@ -113,7 +113,7 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     /// Tasks or the Backlog; a subtask shows in its root's.
     var list: TaskList = .backlog
     var order: Double = 0
-    /// Why it waits for the user, while in Review.
+    /// Read from a note still in Review, the status v9 dropped: its reason, until the center has it (`migrateReviews`).
     var review: String?
     /// Who put it in Review (a session id, or "you"), and when.
     var reviewBy: String?

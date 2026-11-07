@@ -44,15 +44,23 @@ struct KitGallery: View {
                     SessionCard(session: sessions[0], now: now, dropTarget: true)
                 }
             }
+            section("The bell") {
+                HStack(spacing: Space.sm) {
+                    NotificationBell(needs: 0, updates: 0) {}
+                    NotificationBell(needs: 0, updates: 4) {}
+                    NotificationBell(needs: 3, updates: 4) {}
+                }
+            }
+            section("The When picker") {
+                WhenPicker(now: now) { _ in }.surface(radius: Radius.control)
+            }
             section("Tags, pills, chips") {
                 HStack(spacing: Space.sm) {
-                    AttentionTag(text: "Review: PR #418 is ready to merge", tone: .needsYou)
-                    AttentionTag(text: "2 new", tone: .new)
                     Chip(text: "Registry", icon: .project)
                     Chip(text: "#perf")
                     KeyLabel(key: "T-13")
-                    AttentionDot(needsYou: true, isNew: false)
-                    AttentionDot(needsYou: false, isNew: true)
+                    NoticeDot(color: Ink.needsYou)
+                    NoticeDot(color: Ink.accent)
                 }
             }
             section("Face stacks") {

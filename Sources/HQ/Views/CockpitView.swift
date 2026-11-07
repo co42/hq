@@ -168,7 +168,7 @@ private struct PageTitle: View {
     }
 }
 
-/// The floating section bar (DESIGN.md §3): every section with its attention dot, the one in view highlighted.
+/// The floating section bar (DESIGN.md §3): every section, the one in view highlighted.
 /// A click scrolls to it. Glass: it floats over the page as the toolbar does.
 private struct SectionBar: View {
     let tops: SectionTops
@@ -181,7 +181,6 @@ private struct SectionBar: View {
         GlassEffectContainer {
             HStack(spacing: Metric.lineGap) {
                 ForEach(PageSection.allCases, id: \.self) { section in
-                    let tone = model.attention(in: section)
                     Button { go(section) } label: {
                         HStack(spacing: Space.xs + 2) {
                             section.icon.image
@@ -191,11 +190,6 @@ private struct SectionBar: View {
                             Text(section.shortTitle)
                                 .kitType(current == section ? .titleStrong : .title)
                                 .foregroundStyle(current == section ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                            if let tone {
-                                Circle()
-                                    .fill(tone == .needsYou ? Ink.needsYou : Ink.unread)
-                                    .frame(width: Metric.attentionDot, height: Metric.attentionDot)
-                            }
                         }
                         .padding(.horizontal, Space.md)
                         .frame(height: Metric.sectionBarItem)
@@ -210,7 +204,7 @@ private struct SectionBar: View {
                     }
                     .buttonStyle(.plain)
                     .pointerStyle(.link)
-                    .help("Go to \(section.title)" + (tone == .needsYou ? ": something needs you" : tone == .new ? ": something is new" : ""))
+                    .help("Go to \(section.title)")
                     .accessibilityLabel(section.title)
                     .accessibilityAddTraits(current == section ? .isSelected : [])
                 }
@@ -224,109 +218,35 @@ private struct SectionBar: View {
     }
 }
 
-/// The toolbar (DESIGN.md §3): the counts as glass lights, Review Next prominent, then Mark All Seen and New.
+/// The toolbar (DESIGN.md §3): the bell and New; the search on the trailing side.
 struct CockpitToolbar: ToolbarContent {
     @Environment(AppModel.self) private var model
 
     var body: some ToolbarContent {
-        ToolbarItem(id: "title", placement: .navigation) {
-            CountLights()
+        ToolbarItem(id: "bell", placement: .navigation) {
+            NotificationBell(needs: model.importantCount, updates: model.updateCount, breathing: model.bellBreathes) { model.openCenter() }
+                .help("\(model.noticeSummary). Open the notifications (⌘J)")
+                .uiTestAnchor("bell")
         }
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarItem(id: "review-next", placement: .primaryAction) {
-            Button("Review Next") { model.reviewNext() }
-                .buttonStyle(.glassProminent)
-                .tint(model.needsYouCount > 0 ? Ink.needsYou : Ink.accent)
-                .clickable()
-                .disabled(model.attentionQueue.isEmpty)
-                .help("Open the next item that needs you or is new (⌘J)")
-        }
-        .sharedBackgroundVisibility(.hidden)
-        ToolbarSpacer(.fixed, placement: .primaryAction)
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button("Mark All Seen", icon: .markSeen) { model.markAllSeen() }
-                .clickable()
-                .disabled(model.newCount == 0)
-                .help("Mark everything new as seen (⇧⌘J)")
+        ToolbarItem(id: "new", placement: .primaryAction) {
             Menu {
                 Button("New Task") { model.focusQuickAdd(.overview) }
                 Button("New File…") { model.beginNewFile() }
                 Button("New Session…") { model.beginStart() }
+                Button("New Reminder…") { model.beginReminder() }
             } label: {
                 Label("New", icon: .new)
             }
             .menuIndicator(.hidden)
             .clickable()
-            .help("New task (⌘N), file or session")
+            .help("New task (⌘N), file, session or reminder (⌃⌘R)")
         }
-    }
-}
-
-/// "8 need you" and "5 new" as small tinted glass lights; "All clear" when both are zero. A click is Review Next;
-/// the tooltip says what they count.
-private struct CountLights: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let needs = model.needsYouCount
-        let fresh = model.newCount
-        GlassEffectContainer(spacing: Space.xs) {
-            HStack(spacing: Space.xs + 2) {
-                if needs == 0 && fresh == 0 {
-                    Label("All clear", icon: .checkPassed)
-                        .labelStyle(.titleAndIcon)
-                        .kitType(.titleStrong)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, Space.md)
-                        .frame(height: Metric.headerControl)
-                        .glassEffect(.regular, in: Capsule())
-                }
-                if needs > 0 { light("\(needs) need\(needs == 1 ? "s" : "") you", tint: Ink.needsYou) }
-                if fresh > 0 { light("\(fresh) new", tint: Ink.unread) }
-            }
-        }
-        .fixedSize()
-        // Apart from Review Next, which sits right after it.
-        .padding(.trailing, Space.md)
-        .help(model.attentionSummary)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func light(_ text: String, tint: Color) -> some View {
-        Button { model.reviewNext() } label: {
-            Text(text)
-                .kitType(.titleStrong)
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .foregroundStyle(Ink.onTile)
-                .padding(.horizontal, Space.md)
-                .frame(height: Metric.headerControl)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .pointerStyle(.link)
-        .glassEffect(.regular.tint(tint).interactive(), in: Capsule())
     }
 }
 
 extension AppModel {
-    /// The sky's mood: warm while something needs the user, blue with news, calm otherwise.
-    var skyMood: SkyMood {
-        if needsYouCount > 0 { return .needsYou }
-        return newCount > 0 ? .news : .calm
-    }
-
-    /// What needs the user, or is new, in a section: the section bar's dot.
-    func attention(in section: PageSection) -> AttentionTag.Tone? {
-        let routes = attentionQueue.filter { route in
-            switch (section, route) {
-            case (.pullRequests, .github), (.sessions, .session), (.files, .file), (.files, .artifact), (.tasks, .task): true
-            default: false
-            }
-        }
-        if routes.contains(where: needsYou) { return .needsYou }
-        return routes.isEmpty ? nil : .new
-    }
+    /// The sky's mood: warm while something needs the user, calm otherwise.
+    var skyMood: SkyMood { importantCount > 0 ? .needsYou : .calm }
 
     /// "3 working · 2 wait for your review · 8 tasks open": one line under the day.
     var daySummary: String {

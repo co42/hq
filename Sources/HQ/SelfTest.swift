@@ -26,7 +26,7 @@ enum SelfTest {
             check("every KitIcon symbol exists", missing.isEmpty, missing.joined(separator: ", "))
             oldStore()
             SeedData.fill(model, now: .now)
-            attentionChecks(model)
+            noticeChecks(model)
             faceChecks(model)
             await sessionChecks(model)
             await vaultChecks(model)
@@ -50,32 +50,83 @@ enum SelfTest {
         }
     }
 
-    // MARK: Attention
+    // MARK: Notifications
 
-    private static func attentionChecks(_ model: AppModel) {
-        check("orange counts sessions that wait, tasks in Review and PRs waiting for review",
-              model.needsYouCount == 4 + 2 + 2, "\(model.needsYouCount)")
-        let queue = model.attentionQueue
-        check("Review Next starts at the top of the page: the first PR that waits for the user", queue.first == .github("https://github.com/acme/registry/pull/430"), "\(queue.prefix(3))")
-        check("then the first card that needs the user", queue.first { if case .session = $0 { true } else { false } } == .session("250a8563-5c74-4592-a463-b41398dc5b55"))
-        if let pr = queue.firstIndex(where: { if case .github = $0 { true } else { false } }),
-           let outline = queue.firstIndex(of: .task(45)) {
-            check("Review Next walks cards, then PRs, then the outline", pr < outline)
+    private static func noticeChecks(_ model: AppModel) {
+        let s1 = "ef032aac-66d1-4b82-b6e1-03b8ee32dc93"
+        check("Needs You counts sessions that wait and unread important rows", model.importantCount == 4 + 2, "\(model.importantCount)")
+        check("Updates counts unread updates; Later and Earlier wait", model.updateCount == 4 && model.notices(in: .later).count == 2
+              && model.notices(in: .earlier).count == 2, "\(model.updateCount)")
+        check("the bell breathes for what came after the center last opened", model.bellBreathes)
+        model.notify("Retry budget merged", level: .update, source: s1, links: model.defaultLinks(forSession: s1))
+        let row = model.notices.first { $0.source == s1 && $0.readAt == nil }
+        check("a session's next notice updates its unread row", model.notices.filter { $0.source == s1 && $0.readAt == nil }.count == 1
+              && row?.count == 3 && row?.text == "Retry budget merged", "\(String(describing: row))")
+        check("a notice links the session's open tasks by default", row?.links.contains("task:13") == true, "\(row?.links ?? [])")
+        model.closeModal()
+        model.openCenter()
+        check("⌘J opens the center, and the bell stops breathing", model.modal == .notifications && !model.bellBreathes)
+        guard let id = row?.id else { return }
+        model.markRead(id)
+        check("a row read while the center shows stays in place", model.notices(in: .updates).contains { $0.id == id } && model.updateCount == 3)
+        model.setDone(id, false)
+        check("E again marks it unread", model.updateCount == 4)
+        model.markRead(id)
+        model.open(.task(13), push: true)
+        check("a link opens over the center, which stays to go back to", model.modal == .task(13) && model.centerOpen)
+        model.back()
+        check("Back returns to the center", model.modal == .notifications)
+        model.closeModal()
+        check("once the center closes, a read row is in Earlier", model.notices(in: .earlier).contains { $0.id == id })
+        let other = model.notices(in: .updates)[0].id
+        model.snooze(other, until: .now.addingTimeInterval(3600))
+        check("Later puts a row away until its time", model.notices(in: .later).contains { $0.id == other } && model.updateCount == 2)
+        if let index = model.notices.firstIndex(where: { $0.id == other }) { model.notices[index].dueAt = .now.addingTimeInterval(-1) }
+        model.fireDue()
+        check("a row comes back unread when it's due", model.notices(in: .updates).contains { $0.id == other } && model.updateCount == 3)
+        let reminder = model.remind("Call noor", at: .now.addingTimeInterval(-1), level: .important, links: ["task:13"])
+        model.fireDue()
+        check("a due important reminder needs the user, with a banner", model.notices(in: .needsYou).contains { $0.id == reminder.id }
+              && model.ghosttyLog.contains("banner Reminder: Call noor"))
+        model.openCenter()
+        model.openNotice(reminder)
+        check("opening what a reminder links leaves it to be done", model.modal == .task(13) && model.notices.first { $0.id == reminder.id }?.readAt == nil)
+        model.back()
+        model.setDone(reminder.id, true)
+        check("Done completes a reminder, which keeps its place while the center shows",
+              model.notices(in: .needsYou).contains { $0.id == reminder.id } && model.notices.first { $0.id == reminder.id }?.readAt != nil)
+        model.closeModal()
+        check("then it's in Earlier", model.notices(in: .earlier).first?.id == reminder.id)
+        model.setDone(reminder.id, false)
+        check("and undone, it needs the user again", model.notices(in: .needsYou).contains { $0.id == reminder.id })
+        model.editReminder(reminder.id, text: "Call noor at 4", due: .now.addingTimeInterval(7200), level: .update)
+        let edited = model.notices.first { $0.id == reminder.id }
+        check("an edited reminder takes its words, time and level", edited?.text == "Call noor at 4" && edited?.level == .update
+              && model.notices(in: .later).contains { $0.id == reminder.id })
+        model.editReminder(reminder.id, text: "Call noor now", due: nil, level: .important)
+        check("with no time, it's due now", model.notices(in: .needsYou).contains { $0.id == reminder.id })
+        model.markAllRead()
+        check("Mark All Read reads every notification; due reminders and waiting sessions stay",
+              model.updateCount == 0 && model.importantCount == 4 + 2, "\(model.importantCount)")
+        for row in model.notices where row.kind == .reminder && row.dueAt == nil { model.setDone(row.id, true) }
+        // GitHub: reviews and comments on the user's PRs, never a bot's, never twice.
+        guard var snapshot = model.github, let index = snapshot.items.firstIndex(where: { $0.mine && $0.kind == .pullRequest && $0.state == .open }) else {
+            return check("a PR of the user's in the fixture", false)
         }
-        model.closeModal()
-        model.reviewNext()
-        let first = model.modal
-        model.reviewNext()
-        check("Review Next moves on", model.modal != first && model.modal != nil, "\(String(describing: first)) → \(String(describing: model.modal))")
-        model.closeModal()
-        let before = model.newCount
-        model.open(.task(45))
-        check("opening a new item marks it seen", !model.isNew(.task(45)) && model.newCount == before - 1)
-        model.closeModal()
-        model.markAllSeen()
-        check("Mark All Seen clears every blue item, orange stays", model.newCount == 0 && model.needsYouCount == 8)
-        model.markReviewed("https://github.com/acme/static-cdn/pull/512")
-        check("Mark Reviewed quiets a PR until its next commit", model.needsYouCount == 7)
+        let before = snapshot
+        snapshot.items[index].activity = [GitHubItem.Activity(kind: .approved, author: "noor", at: .now, text: "Nice"),
+                                          GitHubItem.Activity(kind: .commented, author: "codecov", bot: true, at: .now)]
+        let url = snapshot.items[index].url
+        // As after the first v9 poll: what GitHub did before it never notifies.
+        model.noticeStore.githubSince = .now.addingTimeInterval(-60)
+        let rows = model.notices.count
+        model.noteGitHubEvents(before: before, after: snapshot)
+        let added = model.notices.first { $0.source == url && $0.readAt == nil }
+        check("an approval on the user's PR notifies, a bot's comment doesn't", model.notices.count == rows + 1 && added?.count == 1
+              && added?.text == "noor approved your PR: “Nice”", "\(String(describing: added))")
+        model.noteGitHubEvents(before: before, after: snapshot)
+        check("the same event never notifies twice", model.notices.filter { $0.source == url && $0.readAt == nil }.first?.count == 1)
+        model.markAllRead()
     }
 
     // MARK: Faces
@@ -124,7 +175,7 @@ enum SelfTest {
         hook("PostToolUse", id, #","tool_name":"Bash","tool_input":{"command":"gh pr create --fill"},"tool_response":{"stdout":"https://github.com/acme/registry/pull/999\n"}"#)
         check("a PR the session opens links to it", model.session(id)?.links == ["https://github.com/acme/registry/pull/999"])
         hook("Stop", id, #","last_assistant_message":"Done.""#)
-        check("Stop makes the session new, not orange", model.session(id)?.status.isNew == true && model.session(id)?.status.needsYou == false)
+        check("Stop leaves the session done and unread, not orange", model.session(id)?.status.isNew == true && model.session(id)?.status.needsYou == false)
         // A /rename writes the transcript only: HQ sees it without waiting for the next prompt.
         let transcript = "/tmp/HQ-self-transcript.jsonl"
         try? "{\"type\":\"ai-title\",\"aiTitle\":\"Registry push path\"}\n".write(toFile: transcript, atomically: false, encoding: .utf8)
@@ -265,12 +316,14 @@ enum SelfTest {
         model.move(1, to: .overview)
         await settle()
         check("Move to Tasks writes the list", note(1).string("list") == "overview" && model.taskTree.top(.overview).last == 1)
-        model.setStatus(3, .review, reason: "PR is ready")
+        // Review was a status: a task still in Review becomes doing, and on the overview its reason a notification.
+        check("an old note in Review reads as doing", TaskStatus(parsing: "review") == .doing)
+        model.move(3, to: .overview)
+        model.changeTask(3, "Seed") { $0.review = "PR is ready" }
+        model.migrateReviews()
         await settle()
-        check("Review writes its reason", note(3).string("status") == "review" && note(3).string("review") == "PR is ready")
-        model.setStatus(3, .doing)
-        await settle()
-        check("leaving Review drops its reason", !note(3).has("review"))
+        check("a task in Review moves on: no reason left, a notification instead", model.task(3)?.review == nil && !note(3).has("review")
+              && model.notices.contains { $0.text == "T-3 was in Review: PR is ready" && $0.links == ["task:3"] })
         model.setDescription(2, "- [ ] one\n- [ ] two")
         model.toggleCheckbox(2, at: 1)
         await settle()
@@ -281,8 +334,6 @@ enum SelfTest {
         model.rollDoneTasks()
         await settle()
         check("a done task moves to the top of the Backlog the next morning", model.list(of: 1) == .backlog && model.taskTree.top(.backlog).first == 1)
-        // The user's own edits never make anything blue.
-        check("the user's edits never make a task new", !model.isNew(.task(3)))
         model.deleteTasks([3])
         await settle()
         check("Delete moves the note to the Trash", !FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path))
@@ -346,8 +397,8 @@ enum SelfTest {
         let again = vault.scan(early.cache)
         check("and is read again once it's whole", again.tasks.first { $0.id == 2 }?.title == "Child, renamed" && again.unreadable.isEmpty)
         try? FileManager.default.removeItem(at: notes)
-        let completions = model.titleCompletions("re")
-        check("completions after # list statuses first, then projects and tags", completions.first == "review", "\(completions)")
+        let completions = model.titleCompletions("do")
+        check("completions after # list statuses first, then projects and tags", completions.first == "doing", "\(completions)")
         check("completions find projects by their dashed name", model.titleCompletions("mach").contains("Machine-Identities"), "\(model.titleCompletions("mach"))")
         let automatic = model.labelColor(.tag, "infra")
         check("a tag's color follows its name until picked", automatic == LabelColor.automatic("infra") && model.labelColor(.tag, "Infra") == automatic)
@@ -436,18 +487,8 @@ enum SelfTest {
         let mine = model.ownPullRequests
         check("Yours lists the latest updated first", mine.count > 1 && mine.map(\.updatedAt) == mine.map(\.updatedAt).sorted(by: >),
               mine.map { "\($0.number)" }.joined(separator: " "))
-        // A new PR selected is seen, as a task is; so is one under a task as a chip.
-        let seenBefore = model.seen
-        if let fresh = (all + mine).first(where: { model.isNew(.github($0.url)) }) {
-            model.selectedItem = ModalRoute.github(fresh.url).selectionKey
-            check("a new PR a click selects is seen", !model.isNew(.github(fresh.url)))
-            model.selectedItem = nil
-        } else {
-            check("a new PR to select", false)
-        }
         check("a chip's selection key names its link", ModalRoute(selectionKey: ModalRoute.github("https://github.com/a/b/pull/1").chipKey(task: 12))
               == .github("https://github.com/a/b/pull/1") && ModalRoute(selectionKey: "task:12") == nil)
-        model.seen = seenBefore
         // hq ls prs: as on the page, every review then Yours, each with its status.
         let listed = (agent("ls", ["kind": "prs"])["prs"] as? [JSONObject]) ?? []
         let cards = listed.compactMap { $0["card"] as? String }
@@ -496,12 +537,12 @@ enum SelfTest {
         asks.tty = "/dev/ttys902"
         model.put(done)
         model.put(asks)
-        check("a card blinks while its session asks or is done unread", model.blinks(done) && model.blinks(asks))
+        check("a card blinks while its session asks; one done unread doesn't", !model.blinks(done) && model.blinks(asks))
         model.lookedAt(tty: "/dev/ttys902")
         model.lookedAt(tty: "/dev/ttys901")
         check("looking at a done session's terminal reads it; a question waits", model.session("look-done")?.status.unread == false
               && model.session("look-asks")?.status.needsYou == true)
-        check("and both stop blinking", model.session("look-asks").map(model.blinks) == false && model.session("look-done").map(model.blinks) == false)
+        check("and neither blinks", model.session("look-asks").map(model.blinks) == false && model.session("look-done").map(model.blinks) == false)
         model.sessions.removeAll { $0.id.hasPrefix("look-") }
         // A task added below one with a project takes it; a first child has it from its parent.
         if let above = model.addTask(to: .backlog, title: "Above") {
@@ -600,13 +641,10 @@ enum SelfTest {
         check("task add goes to the top of the Backlog, with type, project, tags and the session",
               added["list"] as? String == "backlog" && model.taskTree.top(.backlog).first == id && added["type"] as? String == "bug"
                 && added["project"] as? String == "Registry" && (added["tags"] as? [String]) == ["perf"] && model.task(id)?.sessions == [session], "\(added)")
-        check("Claude's new task in the Backlog is not blue: the Backlog is for later", !model.isNew(.task(id)) && !model.attentionQueue.contains(.task(id)))
         let now = agent("task add", ["title": "Pair on this", "now": "true"])
         check("task add --now goes to the end of Tasks", now["list"] as? String == "overview" && model.taskTree.top(.overview).last == TaskItem.key(now["id"] as? String ?? ""))
-        check("Claude's new task in Tasks is blue", model.isNew(.task(TaskItem.key(now["id"] as? String ?? "") ?? -1)))
         if let mine = TaskItem.key(now["id"] as? String ?? "") {
             model.setStatus(mine, .done)
-            check("a task the user changes themselves is no longer blue", !model.isNew(.task(mine)))
             model.setStatus(mine, .todo)
             if let other = model.sessions.first(where: { $0.id != session })?.id {
                 let refused = (agent("task edit", ["task": "T-\(mine)", "project": "Registry", "_session": other])["error"] as? JSONObject) ?? [:]
@@ -642,11 +680,19 @@ enum SelfTest {
                   && model.task(stray)?.order == before?.order, "\(String(describing: model.task(stray)?.parent))")
             agent("task delete", ["task": "T-\(stray)", "yes": "true"])
         }
-        let refused = agent("task move", ["task": key, "status": "review"])
-        check("review needs a reason", (refused["error"] as? JSONObject)?["code"] as? String == "usage")
         agent("task move", ["task": key, "status": "review", "reason": "PR #418 is ready"])
-        check("task move review sets the reason", model.task(id)?.status == .review && model.task(id)?.review == "PR #418 is ready")
-        check("a task in Review in the Backlog doesn't need the user", !model.needsYou(.task(id)) && !model.attentionQueue.contains(.task(id)))
+        check("the old task move review keeps the task doing and notifies", model.task(id)?.status == .doing
+              && model.notices.contains { $0.text == "PR #418 is ready" && $0.links.contains("task:\(id)") })
+        let pinged = agent("notify", ["text": "Canary green", "important": "true", "link": key])
+        check("hq notify --important lands in Needs You with its link", pinged["section"] as? String == "needsYou"
+              && ((pinged["links"] as? [JSONObject])?.first?["id"] as? String) == key, "\(pinged)")
+        let reminded = agent("remind", ["text": "Check the canary", "at": "in 2h"])
+        check("hq remind puts a reminder in Later", reminded["section"] as? String == "later" && reminded["due"] != nil, "\(reminded)")
+        let unreadable = agent("remind", ["text": "Check", "at": "someday"])
+        check("hq remind refuses a time it can't read", (unreadable["error"] as? JSONObject)?["code"] as? String == "usage")
+        let rows = (agent("ls", ["kind": "notifications"])["notifications"] as? [JSONObject]) ?? []
+        check("hq ls notifications lists Needs You first, then Later", rows.first?["section"] as? String == "needsYou"
+              && rows.contains { $0["text"] as? String == "Check the canary" && $0["section"] as? String == "later" })
         if let path = model.task(id)?.path {
             try? (try? String(contentsOfFile: path, encoding: .utf8))?.replacingOccurrences(of: "type: bug", with: "type: bug\naliases: [dedup]")
                 .write(toFile: path, atomically: true, encoding: .utf8)
@@ -656,7 +702,7 @@ enum SelfTest {
             let note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
             check("task edit changes what it's given and keeps the rest",
                   note.body == "New description.\n" && note.list("tags") == ["chunks"] && note.string("type") == "feature"
-                    && note.list("aliases") == ["dedup"] && note.string("review") == "PR #418 is ready", note.text)
+                    && note.list("aliases") == ["dedup"] && note.string("status") == "doing", note.text)
         }
         agent("task link", ["task": key, "item": "https://github.com/acme/registry/pull/418"])
         check("task link adds a PR", model.task(id)?.links.map(\.absoluteString) == ["https://github.com/acme/registry/pull/418"])

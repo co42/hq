@@ -136,7 +136,7 @@ final class SeenRecord {
     }
 }
 
-/// When Claude or GitHub last changed an item, and who.
+/// Unused: kept so the store opens without a migration.
 @Model
 final class ChangeRecord {
     var key: String = ""
@@ -148,13 +148,6 @@ final class ChangeRecord {
         self.changedAt = changedAt
         self.by = by
     }
-}
-
-/// A change Claude or GitHub made, as AppModel keeps it.
-nonisolated struct Change: Hashable, Sendable {
-    var at: Date
-    /// A session id, or "github".
-    var by: String
 }
 
 /// HQ's store (PLAN.md §2): what has no file of its own. The app is its only writer.
@@ -199,26 +192,6 @@ final class Storage {
         }
         for record in byKey.values { context.delete(record) }
         commit("seen items")
-    }
-
-    func changes() -> [String: Change] {
-        Dictionary(((try? context.fetch(FetchDescriptor<ChangeRecord>())) ?? []).map { ($0.key, Change(at: $0.changedAt, by: $0.by)) },
-                   uniquingKeysWith: { $0.at > $1.at ? $0 : $1 })
-    }
-
-    func save(changes: [String: Change]) {
-        let records = (try? context.fetch(FetchDescriptor<ChangeRecord>())) ?? []
-        var byKey = Dictionary(records.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        for (key, change) in changes {
-            if let record = byKey.removeValue(forKey: key) {
-                if record.changedAt != change.at { record.changedAt = change.at }
-                if record.by != change.by { record.by = change.by }
-            } else {
-                context.insert(ChangeRecord(key: key, changedAt: change.at, by: change.by))
-            }
-        }
-        for record in byKey.values { context.delete(record) }
-        commit("changes")
     }
 
     /// Changed records update, new ones insert, missing ones go. Saves only when something changed.

@@ -2,8 +2,7 @@ import AppKit
 import HQKit
 import SwiftUI
 
-/// The modal (DESIGN.md §8): a sheet over the page, about 88% of the window, with Close, Back,
-/// what's left to look at and Next, then the kind's actions.
+/// The modal (DESIGN.md §8): a sheet over the page, about 88% of the window, with Close, Back and the kind's actions.
 struct ModalHost: View {
     @Environment(AppModel.self) private var model
     /// The route and Back stack last shown: the sheet keeps them while it animates out, so it never
@@ -30,6 +29,7 @@ struct ModalHost: View {
                 case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
+                case .notifications: NotificationCenterView()
                 case nil: EmptyView()
                 }
             }
@@ -38,10 +38,10 @@ struct ModalHost: View {
         .frame(width: min(size.width, max(model.windowSize.width, Metric.modalMin.width)),
                height: min(size.height, max(model.windowSize.height, Metric.modalMin.height)))
         .background(alignment: .top) {
-            // The item's own sky: warm when it needs the user, blue when it's new.
+            // The item's own sky: warm while it needs the user.
             ZStack(alignment: .top) {
                 Ink.content
-                SkyView(mood: route.map { model.needsYou($0) ? .needsYou : model.isNew($0) ? .news : .calm } ?? .calm)
+                SkyView(mood: model.mood(of: route))
                     .opacity(0.7)
             }
         }
@@ -71,7 +71,7 @@ struct ModalHost: View {
     }
 }
 
-/// Close, Back, the title, "3 more to look at" and Next, then the kind's actions.
+/// Close, Back, the title, then the kind's actions.
 private struct ModalHeader: View {
     let route: ModalRoute?
     let stack: [ModalRoute]
@@ -105,17 +105,6 @@ private struct ModalHeader: View {
                 .truncationMode(.tail)
                 .padding(.leading, Space.xs)
             Spacer(minLength: Space.sm)
-            let more = model.moreToLookAt
-            if more > 0, route != .start, route != .closedSessions {
-                Text("\(more) more to look at").kitType(.callout).foregroundStyle(.secondary).lineLimit(1).fixedSize()
-                Button("Next") { model.reviewNext() }
-                    .buttonStyle(.glassProminent)
-                    .tint(model.needsYouCount > 0 ? Ink.needsYou : Ink.accent)
-                    .clickable()
-                    .help("Open the next item that needs you or is new (⌘J)")
-                    .uiTestAnchor("modal-next")
-                    .padding(.trailing, Space.sm)
-            }
             // The kind's actions float as one glass group, as a toolbar's do.
             GlassEffectContainer(spacing: Space.sm) {
                 HStack(spacing: Space.sm) { ModalActions(route: route) }
@@ -135,6 +124,7 @@ private struct ModalHeader: View {
         case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
+        case .notifications: "Notifications"
         case nil: ""
         }
     }
@@ -209,6 +199,13 @@ private struct ModalActions: View {
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
             }
+        case .notifications:
+            Button("Remind Me…", icon: .newReminder) { model.composingReminder = true }
+                .help("Add a reminder: it waits in Later, then comes back at its time (⌃⌘R)")
+                .uiTestAnchor("remind-me")
+            Button("Mark All Read", icon: .markRead) { model.markAllRead() }
+                .disabled(model.unreadNotices == 0)
+                .help("Mark every notification read; sessions that wait on you stay (⇧⌘J)")
         case .start, .closedSessions, nil:
             EmptyView()
         }

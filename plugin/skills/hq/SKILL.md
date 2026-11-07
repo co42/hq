@@ -1,28 +1,38 @@
 ---
 name: hq
-description: What HQ is and how to use the hq command. Use at the start of work, when the user mentions HQ, the overview, Tasks, the Backlog, sessions, or pull requests, files or artifacts in HQ, or asks what this session works on, which tasks, notes or artifacts belong to it, or which other sessions run beside it.
+description: What HQ is and how to use the hq command, notifications and reminders included. Use at the start of work, when the user mentions HQ, the overview, Tasks, the Backlog, sessions, notifications, or pull requests, files or artifacts in HQ, asks what this session works on, which tasks, notes or artifacts belong to it, or which other sessions run beside it, when work the user asked for is ready for them to look at, and when the user asks to be pinged or reminded.
 ---
 
 # HQ
 
-HQ is the user's cockpit for their day with Claude Code: a native Mac app beside Ghostty. One page, top to bottom: the **Pull Requests** that wait on them, every open Claude **Session** as a card with a face, **Files and Artifacts**, then their tasks as one outline: **Tasks** (what he works on now) and the **Backlog** (later). A task's row shows the faces of the sessions on it, and under it its PRs, issues, files, artifacts and linked tasks. Anything opens in a sheet over the page. Orange means the user must act (a session that asks, a task in Review, a PR waiting for their review); blue means new since he looked.
+HQ is the user's cockpit for their day with Claude Code: a native Mac app beside Ghostty. One page, top to bottom: the **Pull Requests** that wait on them, every open Claude **Session** as a card with a face, **Files and Artifacts**, then their tasks as one outline: **Tasks** (what they work on now) and the **Backlog** (later). A task's row shows the faces of the sessions on it, and under it its PRs, issues, files, artifacts and linked tasks. Anything opens in a sheet over the page. A bell in the toolbar (and the menu bar) opens the **notification center**: **Needs You** (sessions that wait on them, pings, reminders that are due), **Updates** (what sessions tell them, reviews and comments on their PRs), and **Later**.
 
-This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; `review --reason` when the user must check something; `done` when finished, its description saying what changed; every task you create gets a `--type`. The `hq-tasks` and `hq-files` skills say how.
+This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; `hq notify` when the user should look at something; `done` when finished, its description saying what changed; every task you create gets a `--type`. The `hq-tasks` and `hq-files` skills say how.
 
 ## The hq command
 
 `hq` talks to the running app. Every command takes `--json`; `hq help` lists them all, `hq help <command>` shows a command's options.
 
 ```
-hq ctx                                    # this session's tasks, the overview's Review and Doing, recent files and artifacts, other sessions
-hq status                                 # whether HQ runs, and what needs the user
+hq ctx                                    # this session's tasks, the overview's Doing, recent files and artifacts, other sessions
+hq status                                 # whether HQ runs, and how much needs the user
 hq ls tasks [--overview|--backlog] [--all] [--type t] [--project p] [--tag t]
-hq ls sessions | prs | files | artifacts | projects   # prs: Reviews then Yours, each with its status, as on the page
+hq ls sessions | prs | files | artifacts | projects | notifications   # prs: Reviews then Yours, as on the page
+hq notify "…" [--important] [--link T-12,<url>]   # tell the user (below)
+hq remind "…" --at "tomorrow 9:00" [--important] [--link …]   # a reminder: in Later, back at its time
 hq project edit Registry [--folder ~/code/registry] [--repo acme/registry,acme/image-sync]
 hq task show|add|move|edit|link|unlink …   # see hq-tasks
 hq file new|write|show …                  # see hq-files
 hq session new "T-12 Short name" --task T-12 [--cwd dir] [--message -]   # a fresh Claude session in a new Ghostty tab
 ```
+
+## Telling the user
+
+The user doesn't watch every session. When a turn ends, its card shows it quietly; nothing notifies. Tell them yourself when they should look:
+
+- **`hq notify "…"`** (Updates): the work they asked for is ready to check, a write-up or a page is done, a PR is open for their review, a decision of theirs unblocks the next step. One line saying what's ready, like `hq notify "Retry budget ready to check: the canary is green"`. It links this session's open tasks and the files, artifacts and PRs it made since its last notification; `--link` names other things instead. A second notification from this session before they read the first updates it, so don't hold back the last one. Not at every turn end, and not when the turn only waits on a background job or a build: notify when the result is there.
+- **`--important`** (Needs You, with a banner): only when the user asked to be pinged ("ping me when the deploy is green"), or when you can't go on without them and a question doesn't fit ("unlock the screen", "log in to AWS"). A question you ask with AskUserQuestion, a permission or a plan already shows in Needs You on its own.
+- **`hq remind "…" --at <when>`**: the user asks to be reminded (`--important`), or a follow-up you can't do now needs them later ("look at the canary again"). `--at`: `16:00`, `in 2h`, `tomorrow 9:00`, `monday`, `2026-11-09T09:00`.
 
 ## What links where
 

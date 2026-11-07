@@ -1,6 +1,6 @@
 # hq — plan
 
-hq is the user's cockpit for a day of work with Claude Code: a native macOS app docked on the right half of the screen, with Ghostty on the left. One page shows their Claude sessions with their faces and live state, the pull requests that wait on them, and their tasks with their Backlog as one outline; anything bigger opens in a sheet over it. hq indexes and links; other apps do the work: Ghostty runs sessions, Obsidian holds the notes, the browser shows artifacts, GitHub holds PRs and issues.
+hq is the user's cockpit for a day of work with Claude Code: a native macOS app docked on the right half of the screen, with Ghostty on the left. One page shows their Claude sessions with their faces and live state, the pull requests that wait on them, and their tasks with their Backlog as one outline; anything bigger, the notification center included, opens in a sheet over it. hq indexes and links; other apps do the work: Ghostty runs sessions, Obsidian holds the notes, the browser shows artifacts, GitHub holds PRs and issues.
 
 How it looks and behaves: [DESIGN.md](DESIGN.md). The build plan this was rebuilt from: the HQ file "2026-11-04 - HQ cockpit build plan" (T-46).
 
@@ -11,7 +11,7 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 - **Tailored to the user.** Built from their workflow (Ghostty, Obsidian, worktrees, GitHub), not from another tool. Never look at, copy or model anything on claude-run: not its code, UI, data model, words or skills.
 - **One page.** The cockpit is the only view; everything else is a sheet over it. No folders, sidebar, view picker, inspector or comments (2026-11-04).
 - **hq never owns a terminal.** The user arranges Ghostty as they like. hq finds a session's terminal and focuses it, or opens a tab to start or resume one.
-- **Files are the truth where they exist.** Tasks and files are Obsidian notes; hq writes only the front matter keys it owns. hq's store holds only what has no file: sessions, artifacts, what the user has seen.
+- **Files are the truth where they exist.** Tasks and files are Obsidian notes; hq writes only the front matter keys it owns. hq's store holds only what has no file: sessions, artifacts, notifications, what the user acknowledged.
 - **Hooks never slow Claude.** Fast, always exit 0; the next event repairs a missed one.
 
 ## 2. Decisions
@@ -22,13 +22,14 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 | Names | App `HQ`, bundle id `io.github.co42.hq`, CLI `hq` |
 | Process | One process, the app: store, vault index, hook socket, Ghostty bridge, GitHub poller. Stays alive when its window closes |
 | CLI | The app binary is the CLI (bama `agent-cli`): `~/.local/bin/hq` links into the bundle and talks to the running app over a Unix socket. If the app is closed, `hq` opens it in the background; `hq hook` never does |
-| Store | SwiftData in `~/Library/Application Support/HQ/`: sessions, artifacts, seen and change records. GitHub's last answer is cached beside it as JSON. Live session state stays in memory |
+| Store | SwiftData in `~/Library/Application Support/HQ/`: sessions, artifacts and seen records. Beside it as JSON: GitHub's last answer, and `notifications.json` (the rows, when the user last opened the center, GitHub event keys and the date nothing before it notifies). Live session state stays in memory |
 | Vault | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes`; hq's folder is `hq/` with `tasks/` and `files/`. Front matter read and written line by line (`HQKit.FrontMatter`), so other keys keep their text |
 | Claude plugin | `plugin/` in this repo, installed globally through a local marketplace: hooks and skills. `Bash(hq:*)` allowed in `~/.claude/settings.json` |
 | Ghostty | AppleScript in-process (`NSAppleScript`). Automation permission |
 | GitHub | GraphQL with the token from `gh auth token`, one aliased query per poll, read-only |
 | Artifacts | claude.ai links captured from hooks, shown live in a web view with HQ's own claude.ai sign-in |
 | Signing | Apple Development certificate, installed to `/Applications/HQ.app` |
+| Notifications | Events go to a notification center, a sheet, and are read once; the page shows state only. macOS banners, the Dock badge and a menu bar bell for what needs the user (2026-11-06) |
 | Look | Native chrome (toolbar, sheets, menus); raised cards on a canvas under a sky that follows the day; Liquid Glass for everything that floats (toolbar, section bar, section controls, hover controls, the modal's header); the Mac's accent and system colors for meaning. All of it in DESIGN.md |
 
 ## 3. Verified facts
@@ -59,13 +60,13 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
                        ▼                                  │
              ┌───────────────── HQ.app ───────────────────┴─┐
              │ sessions: hook events (memory) + store       │
-             │ store: sessions, artifacts, seen, changes    │◄── GraphQL ── api.github.com
+             │ store: sessions, artifacts, notifications    │◄── GraphQL ── api.github.com
              │ vault index: tasks, files (memory)           │◄── FSEvents ── <vault>/hq/
              └──────────────────────────────────────────────┘
 ```
 
 - `Sources/HQKit`: no UI. Task statuses and types, the task tree and its operations, the vault migration planner, the done rule, front matter, markdown blocks and checkbox toggling, face specs and their palette, GitHub parsing and link rules, hook events and the session state machine.
-- `Sources/HQ`: the app. `CockpitView` (the page), `SessionGrid` (`NSCollectionView`), `TaskOutline` (`NSOutlineView`), `ModalHost` (the sheet and its kinds), `DesignKit/` (tokens and parts), `Agent/` (CLI and socket).
+- `Sources/HQ`: the app. `CockpitView` (the page), `SessionGrid` (`NSCollectionView`), `TaskOutline` (`NSOutlineView`), `ModalHost` (the sheet and its kinds), `Notices` and `NotificationCenterView` (the notification center, reminders, banners), `DesignKit/` (tokens and parts), `Agent/` (CLI and socket).
 
 ## 5. Model
 
@@ -74,14 +75,13 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 ```yaml
 ---
 title: Retry budget for blob uploads
-status: review          # todo | doing | review | done
+status: doing           # todo | doing | done
 type: feature           # story | bug | feature | chore | research | docs (optional: Claude sets it, and adds it where missing)
 project: Registry       # optional
 tags: [perf]
 parent: T-9             # optional: subtasks are their own notes
 list: overview          # overview | backlog (top-level tasks only)
 order: 3.5              # among siblings
-review: PR #418 is ready to merge   # while status is review
 done: 2026-11-04T16:20  # when it was done
 links: [https://github.com/acme/registry/pull/418]
 sessions: [2f1c9e0a-…]
@@ -94,6 +94,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 - `HQKit.TaskTree`: built from (parent, list, order); a missing parent or a cycle puts a task at the top level. Operations return the notes that change: insert after, insert first child, indent, outdent, move among siblings, move to a list, drop (on a row: last child; between rows: sibling at that index; on a list header: last top-level task), delete with the subtree. Never into its own subtree. Order is fractional: the midpoint between neighbors, the siblings renumbered when a gap falls under 1e-6.
 - **Migration** (once, then idempotent; `HQKit.TaskMigration` plans it, the app applies it after zipping `<vault>/hq/tasks` to `~/Library/Application Support/HQ/Backups/tasks-<date>.zip`): `status: backlog` → `todo` + `list: backlog`; `todo` → `list: backlog`; `doing`, `review` → `list: overview`; `done` → `list: backlog` with `done:` from the file's modification date. A missing type stays missing.
 - **Done rule**: a done top-level task on the overview moves to the top of the Backlog at the first 05:00 local after it was done.
+- **Review** is no status (2026-11-06): a note whose front matter says `status: review` reads as doing. On the first vault scan each overview task still in Review gets an Updates row, "T-12 was in Review: <reason>", linked to it; its `review`, `review_by` and `review_at` keys go the next time HQ writes the note.
 
 ### Session (SwiftData `SessionRecord`)
 
@@ -105,13 +106,15 @@ Task ↔ session links live in the task notes (`sessions:`), many to many. They 
 
 Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their front matter. Artifacts (`ArtifactRecord`) hold the URL, title, session and `tasks`. A file written or an artifact published by a session is linked to the session, and to its task when it works on exactly one.
 
-### Seen and changed
+### Notifications and seen
 
-`SeenRecord(key, seenAt)` and `ChangeRecord(key, changedAt, by)` with keys `task:T-13`, `file:<id>`, `artifact:<url>`, `gh:<url>`. A change is recorded when it comes through the socket (Claude), a hook (artifact) or GitHub (`updatedAt` moved, for the user's PRs and linked issues). New = `changedAt > seenAt`. Sessions keep their own unread flag (done after Stop, until the user opens them, or looks at their terminal: while Ghostty is in front, HQ reads its focused tty every 2.5 s and a done session on it is read).
+`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 3 days) and the date nothing GitHub did before notifies (the first v9 poll). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
+
+`SeenRecord(key, seenAt)` keeps what the user acknowledged: `review:<url>` (Mark Reviewed, until the PR's next commit) and `blink:<session id>` (a card stops breathing until its next state). Sessions keep their own unread flag (done after Stop, until the user opens them, or looks at their terminal: while Ghostty is in front, HQ reads its focused tty every 2.5 s and a done session on it is read). Nothing else is new or seen.
 
 ### GitHub
 
-`gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`). Every 60 s while HQ is visible, 5 minutes otherwise, at once when it becomes active; back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
+`gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. Every 60 s while HQ is visible, 5 minutes otherwise, at once when it becomes active; back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
 
 ## 6. Sessions
 
@@ -127,7 +130,7 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 | UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure | working |
 | PreToolUse AskUserQuestion / ExitPlanMode | needs you: question / plan, until that tool's PostToolUse |
 | PermissionRequest, Notification `permission_prompt`, Elicitation | needs you: permission, unless already question or plan |
-| Stop | done, new until the user opens it or sends the next prompt |
+| Stop | done, unread until the user opens it, looks at its terminal or sends the next prompt; it notifies nothing |
 | StopFailure | failed |
 | PreCompact → PostCompact | compacting → the previous state |
 | SessionEnd (reason ≠ `clear`), pid exit | ended |
@@ -139,15 +142,17 @@ Known gap: Esc, a rejection or an interrupt sends nothing, so the state holds un
 Plugin `plugin/`, bundled into `HQ.app/Contents/Resources/Plugin` by `build.sh` and installed globally from there (`tools/install-plugin.sh`, also Setup › Install). Claude Code runs it from its own copy per version: a change under `plugin/` needs a version bump in `plugin.json` and `tools/install-plugin.sh`, and reaches sessions started after that.
 
 - `hooks/hooks.json`: the events above → `${CLAUDE_PLUGIN_ROOT}/bin/hq hook`, timeout 2 s. PreToolUse matcher `AskUserQuestion|ExitPlanMode`; PostToolUse unfiltered (artifacts, PR URLs).
-- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; `review --reason` when the user must check something; never `done` unless the user says so; new tasks to the Backlog unless the user asked to work on them now), `hq-files` (notes linked to their task).
+- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something, the task stays doing and `hq notify` tells them; never `done` unless the user says so; new tasks to the Backlog unless the user asked to work on them now), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
 
 ```
-hq ctx                                         # this session's tasks, the overview's Review and Doing, recent files, sibling sessions
+hq status                                      # whether HQ runs; needsYou, updates, and how many sessions, tasks, files, artifacts
+hq ctx                                         # this session's tasks, the overview's Doing, recent files, sibling sessions
 hq ls tasks [--overview|--backlog|--all] [--type t] [--project p] [--tag t]
 hq ls sessions | prs | files | artifacts | projects
+hq ls notifications [--all]                    # Needs You, Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
 hq task add "Title" [--type t] [--project p] [--tag t] [--parent T-n] [--now] [--body -]
-hq task move T-n todo|doing|review|done [--reason "…"]       # --reason with review
+hq task move T-n todo|doing|done|backlog       # review --reason "…" (older sessions): stays doing, the reason an Update
 hq task edit T-n [--title …] [--body -] [--type t] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
 hq task show T-n                               # parents, description, subtasks, links
 hq task link T-n <url | T-m | session id | path>
@@ -162,10 +167,12 @@ hq file show <path>
 hq file delete <path> [--yes]                  # to the Trash; without --yes: what it would delete
 hq artifact add <url> --title t [--date d] [--task T-n]     # one HQ didn't capture; a ?sk= share key is dropped
 hq session new "Name" [--task T-n] [--cwd dir] [--message -]
+hq notify "…" [--important] [--link T-n,<url>,…]          # Updates; --important: Needs You, with a banner
+hq remind "…" --at <when> [--important] [--link …]        # Later until <when> (16:00, in 2h, tomorrow 9:00, monday)
 hq hook                                        # used by the plugin
 ```
 
-`hq hook` reads stdin, adds Claude's pid, its tty and whether Ghostty is an ancestor, sends the event over the socket with a 1 s timeout and exits 0. Commands find their session from `CLAUDE_CODE_SESSION_ID`. Commands from the socket don't register Undo, and they mark what they change as new.
+`hq hook` reads stdin, adds Claude's pid, its tty and whether Ghostty is an ancestor, sends the event over the socket with a 1 s timeout and exits 0. Commands find their session from `CLAUDE_CODE_SESSION_ID`. Commands from the socket don't register Undo, and nothing they change notifies on its own: a session tells the user with `hq notify`. `hq notify` without `--link` links the session's open tasks and what it made since its last notification; a second one before the user reads the first updates that row.
 
 ## 8. Build steps
 
@@ -181,9 +188,9 @@ Steps 0 to 13 are done; step 14 ships.
 5. The cockpit shell: one window, the toolbar, the page and its empty states, menus, Quick Open, the Dock menu.
 6. Session cards: the grid, drag to reorder, a task dropped on a card, Closed Sessions, Resume, Close.
 7. The outline: rows, keys, descriptions, quick add, filters, drag and drop, the done rule.
-8. The modal: the sheet, Back and Next, the task, session, file, artifact, start and closed-sessions kinds, the markdown viewer and editor.
+8. The modal: the sheet, Back, the task, session, file, artifact, start and closed-sessions kinds, the markdown viewer and editor.
 9. GitHub: the poller, the PR section, PR and issue modals, links.
-10. Attention: seen and changes, the toolbar's counts, Review Next, Mark All Seen, the Dock badge; starting a session end to end.
+10. Attention: what needs the user, the toolbar, the Dock badge; starting a session end to end.
 11. CLI, hooks, skills; plugin 0.5.0.
 12. Clean up what the cockpit replaced.
 13. Full review and polish (DESIGN.md §17), with a fresh-eyes review.

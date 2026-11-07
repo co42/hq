@@ -85,9 +85,9 @@ enum SeedData {
         }
         let gh = "https://github.com/acme/"
         let rows: [Row] = [
-            Row(id: 13, title: "Retry budget for blob uploads", status: .review, project: "Registry", tags: ["perf"], order: 1,
+            Row(id: 13, title: "Retry budget for blob uploads", status: .doing, project: "Registry", tags: ["perf"], order: 1,
                 body: "Blob uploads retry with **no budget**: a slow S3 multipart complete turns into minutes of retries.\n\n## Done when\n- [x] At most 3 attempts per part, full jitter\n- [x] A `503` on complete retries once, then reaches the client\n- [ ] The canary stays green for 30 minutes\n\n```toml\n[upload]\nretry_budget = 3\n```\n\n> Keep the budget per upload: a push of 40 layers must not retry 40 × 3 times.",
-                sessions: [s1], links: [gh + "registry/pull/418"], review: "PR #418 is ready to merge", reviewBy: s1),
+                sessions: [s1], links: [gh + "registry/pull/418"]),
             Row(id: 47, title: "Budget per upload in upload::retry", status: .done, parent: 13, order: 1),
             Row(id: 48, title: "A 503 on multipart complete retries once", status: .done, parent: 13, order: 2),
             Row(id: 49, title: "Canary on registry-staging, 30 minutes green", status: .doing, parent: 13, order: 3),
@@ -106,9 +106,9 @@ enum SeedData {
             Row(id: 14, title: "Prefetch window for the CDN chunk bridge", status: .doing, project: "CDN", tags: ["perf"], order: 4,
                 body: "The bridge fetches one range at a time. Prefetch the next window while serving the current one.\n\n```\nprefetch_window = 8 MiB\n```",
                 sessions: [s4], links: [gh + "static-cdn/pull/520", gh + "static-cdn/pull/512"]),
-            Row(id: 44, title: "HQ overview: sessions on top, tasks as an outline", status: .review, project: "HQ", tags: ["ui"], order: 5,
+            Row(id: 44, title: "HQ overview: sessions on top, tasks as an outline", status: .doing, project: "HQ", tags: ["ui"], order: 5,
                 body: "One page for the day: **sessions on top**, the task outline below, a click opens anything big.\n\n- [x] First mockup\n- [x] Faces for sessions, an outline for tasks\n- [ ] Types, tags and projects\n- [ ] Plan, then build",
-                sessions: [s5], review: "the mockup is ready", reviewBy: s5),
+                sessions: [s5]),
             Row(id: 54, title: "Mockup with fake data", status: .done, parent: 44, order: 1),
             Row(id: 55, title: "Plan", parent: 44, order: 2),
             Row(id: 56, title: "Build it", parent: 44, order: 3),
@@ -163,14 +163,29 @@ enum SeedData {
         model.setup = SetupStatus(pluginInstalled: true, ghosttyAllowed: true, vaultPath: SetupStatus.defaultVault,
                                   ghPath: "/opt/homebrew/bin/gh", githubAccount: "alex")
         model.seen = [:]
-        model.changes = [
-            "task:T-45": Change(at: ago(10), by: s5),
-            "file:\(model.files[1].id)": Change(at: ago(20), by: s2),
-            "artifact:https://claude.ai/artifact/5eed-canary": Change(at: ago(70), by: s1),
-            "artifact:https://claude.ai/artifact/5eed-mockup": Change(at: ago(3), by: s5),
-            "gh:\(gh)registry/pull/418": Change(at: ago(20), by: "github"),
-            "gh:\(gh)image-sync/issues/77": Change(at: ago(60), by: "github"),
-        ]
+        // The center: two pings, updates from sessions and GitHub, reminders in Later, what was read earlier.
+        let pr418 = gh + "registry/pull/418", pr520 = gh + "static-cdn/pull/520", pr80 = gh + "image-sync/pull/80"
+        model.noticeStore = NoticeStore(notices: [
+            Notice(kind: .session, level: .important, source: s8, text: "Push progress works on a 10 GB image. Watch it run before I merge?",
+                   links: ["task:53", "github:\(pr80)"], at: ago(8)),
+            Notice(kind: .reminder, level: .important, text: "Call noor about the GPU quota", at: ago(5)),
+            Notice(kind: .session, level: .update, source: s1, text: "Retry budget ready to check: PR #418 is open, the canary is green. The plan has the numbers per region: eu-west still retries twice on large layers, left for a follow-up since the fix touches the S3 client. Merge when you're happy with the canary.",
+                   count: 2, links: ["task:13", "file:2026-11-04 - Retry budget plan.md", "artifact:https://claude.ai/artifact/5eed-canary", "github:\(pr418)"],
+                   at: ago(15)),
+            Notice(kind: .session, level: .update, source: s5, text: "The mockup is ready to look at",
+                   links: ["task:44", "artifact:https://claude.ai/artifact/5eed-mockup"], at: ago(3)),
+            Notice(kind: .github, level: .update, source: pr418, text: "noor approved your PR: “Nice, the budget per upload reads well”",
+                   count: 3, links: ["github:\(pr418)", "task:13"], at: ago(20)),
+            Notice(kind: .github, level: .update, source: pr520, text: "theo asked for changes: “Split the window change from the metrics”",
+                   links: ["github:\(pr520)", "task:14"], at: ago(55)),
+            Notice(kind: .reminder, level: .update, text: "Write the Q1 infra plan", at: ago(600),
+                   dueAt: ReminderTime.date(.nextWeek, now: now)),
+            Notice(kind: .github, level: .update, source: gh + "registry/pull/430", text: "Look again once theo pushes the fixes",
+                   links: ["github:\(gh)registry/pull/430"], at: ago(120), dueAt: ReminderTime.date(.tomorrow, now: now)),
+            Notice(kind: .session, level: .update, source: e1, text: "The cron analysis is published", links: ["task:23", "artifact:https://claude.ai/artifact/5eed-cron"],
+                   at: ago(270), readAt: ago(200)),
+            Notice(kind: .session, level: .update, source: s7, text: "Notes for the weekly infra sync are in the vault", at: ago(95), readAt: ago(80)),
+        ], bellSeenAt: ago(30), githubSince: ago(3_000))
         model.collapsed = [13]
         model.shownDescriptions = [44]
     }
@@ -187,7 +202,7 @@ enum SeedData {
             let id = start + index
             let parent: Int? = index % 5 == 0 ? nil : start + index - index % 5
             let title = (0..<4).map { words[(index * 7 + $0 * 3) % words.count] }.joined(separator: " ").capitalized
-            tasks.append(TaskItem(id: id, title: title, status: TaskStatus.allCases[index % 4], type: TaskType.allCases[index % 5],
+            tasks.append(TaskItem(id: id, title: title, status: TaskStatus.allCases[index % TaskStatus.allCases.count], type: TaskType.allCases[index % 5],
                                   project: ["Registry", "CDN", "HQ", nil][index % 4], tags: index % 3 == 0 ? ["perf"] : [],
                                   parent: parent, list: index % 10 < 3 ? .overview : .backlog, order: Double(index),
                                   created: now, modified: now, body: index % 25 == 0 ? "A description with a list:\n\n- [ ] one\n- [x] two" : ""))

@@ -15,7 +15,8 @@ public enum TaskMigration {
             }
             if raw == "done", !note.has("done") { changes["done"] = NoteDate.minute(modified) }
         }
-        if raw == "backlog" || TaskStatus(rawValue: raw) == nil { changes["status"] = TaskStatus.todo.rawValue }
+        // Review stays for the v9 review migration to read.
+        if raw == "backlog" || (TaskStatus(rawValue: raw) == nil && raw != "review") { changes["status"] = TaskStatus.todo.rawValue }
         return changes
     }
 

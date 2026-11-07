@@ -3,6 +3,7 @@ import Combine
 import HQKit
 import Observation
 import SwiftUI
+import UserNotifications
 
 /// What the modal shows. Opening an item from inside the modal pushes; from the page it starts fresh.
 enum ModalRoute: Hashable {
@@ -13,17 +14,7 @@ enum ModalRoute: Hashable {
     case github(String)
     case start
     case closedSessions
-
-    /// The key its unread state goes by.
-    var seenKey: String? {
-        switch self {
-        case .task(let id): "task:T-\(id)"
-        case .file(let id): "file:\(id)"
-        case .artifact(let url): "artifact:\(url.absoluteString)"
-        case .github(let url): "gh:\(url)"
-        case .session, .start, .closedSessions: nil
-        }
-    }
+    case notifications
 }
 
 /// The Start a session form, before it starts.
@@ -58,14 +49,13 @@ enum ReviewFilter: String, CaseIterable, Identifiable {
 
 struct BacklogFilter: Hashable {
     enum Status: String, CaseIterable, Identifiable {
-        case open, todo, doing, review, done, any
+        case open, todo, doing, done, any
         var id: String { rawValue }
         var title: String {
             switch self {
             case .open: "Open"
             case .todo: "Todo"
             case .doing: "Doing"
-            case .review: "Review"
             case .done: "Done"
             case .any: "Any"
             }
@@ -89,7 +79,6 @@ struct BacklogFilter: Hashable {
         case .open: task.status != .done
         case .todo: task.status == .todo
         case .doing: task.status == .doing
-        case .review: task.status == .review
         case .done: task.status == .done
         case .any: true
         }
@@ -159,26 +148,37 @@ struct SetupStatus: Hashable {
 @Observable
 final class AppModel {
     /// Every session HQ heard of. Saved a second after a change.
-    var sessions: [SessionItem] = [] { didSet { attentionCache = nil; outputsCache = nil; syncMenu(); saveSessionsSoon() } }
+    var sessions: [SessionItem] = [] { didSet { outputsCache = nil; syncMenu(); saveSessionsSoon() } }
     /// Notes in the vault; a change writes the notes that changed.
     var tasks: [TaskItem] = [] {
         didSet {
             tasksVersion += 1
-            attentionCache = nil; outputsCache = nil
+            outputsCache = nil
             taskIndex = Dictionary(tasks.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
             persistTasks(from: oldValue)
             syncMenu()
         }
     }
-    var files: [FileItem] = [] { didSet { attentionCache = nil; outputsCache = nil; persistFiles(from: oldValue) } }
+    var files: [FileItem] = [] { didSet { outputsCache = nil; persistFiles(from: oldValue) } }
     /// Pages Claude published, captured from its hooks. Saved at once.
-    var artifacts: [ArtifactItem] = [] { didSet { attentionCache = nil; outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
+    var artifacts: [ArtifactItem] = [] { didSet { outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
     /// GitHub's last answer, shown while the next one comes.
-    var github: GitHubSnapshot? { didSet { attentionCache = nil; outputsCache = nil; syncMenu() } }
+    var github: GitHubSnapshot? { didSet { outputsCache = nil; syncMenu() } }
 
-    /// When the user last opened each item, and when Claude or GitHub last changed it.
-    var seen: [String: Date] = [:] { didSet { attentionCache = nil; outputsCache = nil; saveAttentionSoon(); syncMenu() } }
-    var changes: [String: Change] = [:] { didSet { attentionCache = nil; outputsCache = nil; saveAttentionSoon(); syncMenu() } }
+    /// When the user acknowledged a card (`blink:<id>`) or marked a PR reviewed (`review:<url>`).
+    var seen: [String: Date] = [:] { didSet { saveAttentionSoon() } }
+    /// The notification center's rows, and what it remembers (`notifications.json`).
+    var noticeStore = NoticeStore() { didSet { saveNoticesSoon(); syncMenu() } }
+    var notices: [Notice] {
+        get { noticeStore.notices }
+        set { noticeStore.notices = newValue }
+    }
+    /// Rows read, completed or brought back while the center shows: they stay in the section they were in until it closes.
+    var noticePins: [Notice.ID: NoticeSection] = [:]
+    /// The row the center has selected: a notification's id, or `session:<id>` for one that waits.
+    var noticeSelection: String?
+    /// The center's reminder form is open.
+    var composingReminder = false
 
     // MARK: The page
 
@@ -257,8 +257,6 @@ final class AppModel {
         didSet {
             guard selectedItem != oldValue else { return }
             syncMenu()
-            // Selected, a new PR, file or artifact is seen, as a task is.
-            if let route = selectedItem.flatMap(ModalRoute.init(selectionKey:)) { markSeen(route) }
         }
     }
     /// The outline's rows or a title have the keyboard: the Task menu's keys follow.
@@ -329,6 +327,10 @@ final class AppModel {
     @ObservationIgnored var titleReads: Set<String> = []
     @ObservationIgnored var sessionSave: Task<Void, Never>?
     @ObservationIgnored var attentionSave: Task<Void, Never>?
+    @ObservationIgnored var noticeSave: Task<Void, Never>?
+    /// Wakes when the next reminder or row put Later is due.
+    @ObservationIgnored var dueTimer: Task<Void, Never>?
+    @ObservationIgnored let bannerDelegate = BannerDelegate()
     @ObservationIgnored var vault: Vault? = AppModel.resolveVault()
     @ObservationIgnored var vaultWatcher: VaultWatcher?
     @ObservationIgnored var vaultCache = Vault.Cache()
@@ -347,8 +349,6 @@ final class AppModel {
     @ObservationIgnored var foundCache: [TaskList: (key: String, found: Set<Int>)] = [:]
     @ObservationIgnored var treeCache: (version: Int, tree: TaskTree)?
     @ObservationIgnored var taskIndex: [Int: Int] = [:]
-    /// The attention queue until sessions, tasks, outputs, GitHub or what the user saw change.
-    @ObservationIgnored var attentionCache: [ModalRoute]?
     /// Every task's outputs, by task.
     @ObservationIgnored var outputsCache: [Int: [ModalRoute]]?
     /// The status a done task had, for ⌘Return twice.
@@ -376,7 +376,7 @@ final class AppModel {
         sessions = storage?.sessions() ?? []
         artifacts = storage?.artifacts() ?? []
         seen = storage?.seen() ?? [:]
-        changes = storage?.changes() ?? [:]
+        loadNotices()
         Zoom.factor = Store.isOverridden ? 1 : zoom
         KitType.resetFonts()
         if Store.isOverridden {
@@ -400,6 +400,10 @@ final class AppModel {
         startVault()
         gitHubService = GitHubService(model: self)
         watchGhosttyFocus()
+        if !Store.isOverridden {
+            bannerDelegate.model = self
+            UNUserNotificationCenter.current().delegate = bannerDelegate
+        }
     }
 
     /// Saves a preference, except in test and snapshot runs.
@@ -449,7 +453,7 @@ final class AppModel {
             modalStack = []
         }
         modal = route
-        markSeen(route)
+        if case .session(let id) = route { markSessionSeen(id) }
     }
 
     func back() {
@@ -511,6 +515,7 @@ final class AppModel {
         saveModalEdits()
         modal = nil
         modalStack = []
+        composingReminder = false
     }
 
     /// Leaving a modal keeps what was typed.
@@ -554,7 +559,8 @@ final class AppModel {
 
     func syncMenu() {
         MenuState.shared.update(model: self)
-        let count = needsYouCount
+        let count = importantCount
+        MenuBarBell.shared.update(count: count)
         let badge = count > 0 ? "\(count)" : nil
         if NSApp?.dockTile.badgeLabel != badge { NSApp?.dockTile.badgeLabel = badge }
     }
@@ -571,8 +577,9 @@ final class MenuState: ObservableObject {
     @Published private(set) var sessionRunning = false
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
     @Published private(set) var canGoBack = false
-    @Published private(set) var hasAttention = false
-    @Published private(set) var hasNew = false
+    /// Something unread in the center: Mark All Read.
+    @Published private(set) var hasUnread = false
+    @Published private(set) var inCenter = false
     @Published private(set) var backlogOpen = false
     @Published private(set) var folded: Set<PageSection> = []
     /// A task's modal is open: the Task menu acts on it, not on the outline behind it.
@@ -620,9 +627,8 @@ final class MenuState: ObservableObject {
         set(\.sessionClosable, session.map { $0.isRunning && $0.tty != nil } ?? false)
         set(\.outlineKeyboard, model.modal == nil ? model.outlineKeyboard : .none)
         set(\.canGoBack, !model.modalStack.isEmpty)
-        let queue = model.attentionQueue
-        set(\.hasAttention, !queue.isEmpty)
-        set(\.hasNew, queue.contains { model.isNew($0) })
+        set(\.hasUnread, model.unreadNotices > 0)
+        set(\.inCenter, model.modal == .notifications)
         set(\.backlogOpen, model.backlogOpen)
         set(\.folded, model.folded)
         set(\.inModal, modalTask != nil)
