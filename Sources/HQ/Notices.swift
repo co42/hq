@@ -44,8 +44,6 @@ nonisolated struct NoticeStore: Codable, Sendable {
     var bellSeenAt: Date = .distantPast
     /// GitHub events already turned into rows, by key, for a few days.
     var githubEvents: [String: Date] = [:]
-    /// Nothing GitHub did before this notifies.
-    var githubSince: Date?
 }
 
 extension ModalRoute {
@@ -99,9 +97,6 @@ extension AppModel {
 
     var updateCount: Int { notices.filter { $0.level == .update && unread($0) }.count }
 
-    /// Unread notifications, either level: what Mark All Read reads. Reminders wait to be completed.
-    var unreadNotices: Int { notices.filter { unread($0) && $0.kind != .reminder }.count }
-
     /// The bell breathes until the user opens the center after the latest thing that needs them.
     var bellBreathes: Bool {
         let latest = (blockedSessions.map(\.status.since) + notices.filter { $0.level == .important && unread($0) }.map(\.at)).max()
@@ -120,6 +115,32 @@ extension AppModel {
     // MARK: The center
 
     /// ⌘J, the bell, a banner: the center, fresh.
+    /// The open reminder that links an item, the one due first: its mark on the item's row (T-311).
+    func reminder(for route: ModalRoute) -> Notice? {
+        _ = noticeStore.notices.count
+        if reminderMarks == nil {
+            var marks: [String: [Notice]] = [:]
+            for notice in notices where notice.kind == .reminder && notice.readAt == nil {
+                for key in notice.links { marks[key, default: []].append(notice) }
+            }
+            reminderMarks = marks.mapValues { $0.sorted { ($0.dueAt ?? .distantPast) < ($1.dueAt ?? .distantPast) } }
+        }
+        return reminderMarks?[route.selectionKey]?.first
+    }
+
+    /// A reminder's mark: due (it came back), and what its tooltip says.
+    func reminderMark(_ notice: Notice) -> (due: Bool, help: String) {
+        let due = notice.dueAt.map { $0 <= now } ?? true
+        let when = due ? "due" : ReminderTime.describe(notice.dueAt ?? now, now: now)
+        return (due, "Reminder, \(when): \(notice.text). Click to see it in the notifications")
+    }
+
+    /// A reminder's mark clicked: the center, on that reminder.
+    func showReminder(_ notice: Notice) {
+        openCenter()
+        noticeSelection = notice.id.uuidString
+    }
+
     func openCenter() {
         if modal == .notifications { return }
         if modalStack.contains(.notifications) {
@@ -202,20 +223,6 @@ extension AppModel {
             if let index = model.notices.firstIndex(where: { $0.id == id }) { model.notices[index] = before }
         }
         scheduleDue()
-    }
-
-    /// Mark All Read (⇧⌘J): every unread notification; reminders wait to be completed. Blocked sessions stay until they move on.
-    func markAllRead() {
-        let before = notices
-        let now = Date.now
-        var next = notices
-        for index in next.indices where unread(next[index]) && next[index].kind != .reminder {
-            pin(next[index])
-            next[index].readAt = now
-        }
-        guard next != notices else { return }
-        notices = next
-        registerUndo("Mark All Read") { $0.notices = before }
     }
 
     /// Later: out of sight until `date`, then back unread at its level.

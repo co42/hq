@@ -168,7 +168,7 @@ enum SeedData {
         model.noticeStore = NoticeStore(notices: [
             Notice(kind: .session, level: .important, source: s8, text: "Push progress works on a 10 GB image. Watch it run before I merge?",
                    links: ["task:53", "github:\(pr80)"], at: ago(8)),
-            Notice(kind: .reminder, level: .important, text: "Call noor about the GPU quota", at: ago(5)),
+            Notice(kind: .reminder, level: .important, text: "Call noor about the GPU quota", links: ["task:13"], at: ago(5)),
             Notice(kind: .session, level: .update, source: s1, text: "Retry budget ready to check: PR #418 is open, the canary is green. The plan has the numbers per region: eu-west still retries twice on large layers, left for a follow-up since the fix touches the S3 client. Merge when you're happy with the canary.",
                    count: 2, links: ["task:13", "file:2026-11-04 - Retry budget plan.md", "artifact:https://claude.ai/artifact/5eed-canary", "github:\(pr418)"],
                    at: ago(15)),
@@ -180,12 +180,14 @@ enum SeedData {
                    links: ["github:\(pr520)", "task:14"], at: ago(55)),
             Notice(kind: .reminder, level: .update, text: "Write the Q1 infra plan", at: ago(600),
                    dueAt: ReminderTime.date(.nextWeek, now: now)),
+            Notice(kind: .reminder, level: .update, text: "Review the tokio bump before standup", links: ["github:\(gh)registry/pull/430"], at: ago(40),
+                   dueAt: ReminderTime.date(.tomorrow, now: now)),
             Notice(kind: .github, level: .update, source: gh + "registry/pull/430", text: "Look again once theo pushes the fixes",
                    links: ["github:\(gh)registry/pull/430"], at: ago(120), dueAt: ReminderTime.date(.tomorrow, now: now)),
             Notice(kind: .session, level: .update, source: e1, text: "The cron analysis is published", links: ["task:23", "artifact:https://claude.ai/artifact/5eed-cron"],
                    at: ago(270), readAt: ago(200)),
             Notice(kind: .session, level: .update, source: s7, text: "Notes for the weekly infra sync are in the vault", at: ago(95), readAt: ago(80)),
-        ], bellSeenAt: ago(30), githubSince: ago(3_000))
+        ], bellSeenAt: ago(30))
         model.collapsed = [13]
         model.shownDescriptions = [44]
     }

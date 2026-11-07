@@ -272,9 +272,12 @@ struct PRRow: View {
                     GitHubStateIcon.tile(item)
                 }
                 VStack(alignment: .leading, spacing: Metric.lineGap) {
-                    Text(item.title)
-                        .kitType(waits ? .titleStrong : .title)
-                        .lineLimit(1)
+                    HStack(spacing: Space.xs) {
+                        ReminderMark(route: .github(item.url))
+                        Text(item.title)
+                            .kitType(waits ? .titleStrong : .title)
+                            .lineLimit(1)
+                    }
                     PRByline(item: item)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

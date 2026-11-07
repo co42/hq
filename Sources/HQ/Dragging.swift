@@ -12,7 +12,7 @@ enum DragItem {
     static func provider(_ route: ModalRoute, title: String) -> NSItemProvider {
         let provider = NSItemProvider(item: Data(route.selectionKey.utf8) as NSData, typeIdentifier: itemType.rawValue)
         switch route {
-        case .github(let url): if let link = URL(string: url) { provider.registerObject(link as NSURL, visibility: .all) }
+        case .github(let url), .web(let url): if let link = URL(string: url) { provider.registerObject(link as NSURL, visibility: .all) }
         case .artifact(let url): provider.registerObject(url as NSURL, visibility: .all)
         default: provider.registerObject(title as NSString, visibility: .all)
         }
@@ -29,6 +29,7 @@ extension ModalRoute {
         case "file": self = .file(parts[1])
         case "artifact": guard let url = URL(string: parts[1]) else { return nil }; self = .artifact(url)
         case "github": self = .github(parts[1])
+        case "web": self = .web(parts[1])
         case "task": guard let id = Int(parts[1]) else { return nil }; self = .task(id)
         default: return nil
         }

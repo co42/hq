@@ -12,6 +12,8 @@ enum ModalRoute: Hashable {
     case file(String)
     case artifact(URL)
     case github(String)
+    /// Any other web page linked to a task (T-299): it opens in the browser.
+    case web(String)
     case start
     case closedSessions
     case notifications
@@ -168,7 +170,7 @@ final class AppModel {
     /// When the user acknowledged a card (`blink:<id>`) or marked a PR reviewed (`review:<url>`).
     var seen: [String: Date] = [:] { didSet { saveAttentionSoon() } }
     /// The notification center's rows, and what it remembers (`notifications.json`).
-    var noticeStore = NoticeStore() { didSet { saveNoticesSoon(); syncMenu() } }
+    var noticeStore = NoticeStore() { didSet { reminderMarks = nil; saveNoticesSoon(); syncMenu() } }
     var notices: [Notice] {
         get { noticeStore.notices }
         set { noticeStore.notices = newValue }
@@ -271,6 +273,8 @@ final class AppModel {
     var quickAddFocus: TaskList?
     /// Where the outline puts the keyboard after its next update.
     var outlineFocus: OutlineFocus?
+    /// Link… on a task's row: the outline shows the link picker under it (T-298).
+    @ObservationIgnored var showLinkPicker: (Int) -> Void = { _ in }
     /// The section that takes the keyboard next: Tab and ⇧Tab.
     var sectionFocus: PageSection?
     /// A row of Pull Requests or Files and Artifacts that the keyboard selected: the page scrolls to it.
@@ -357,6 +361,8 @@ final class AppModel {
     @ObservationIgnored var taskIndex: [Int: Int] = [:]
     /// Every task's outputs, by task.
     @ObservationIgnored var outputsCache: [Int: [ModalRoute]]?
+    /// Open reminders by the selection key of what they link, the soonest first (T-311).
+    @ObservationIgnored var reminderMarks: [String: [Notice]]?
     /// The status a done task had, for ⌘Return twice.
     @ObservationIgnored var doneBefore: [Int: TaskStatus] = [:]
     /// The session or "claude" behind a socket command: what it changes turns blue.
@@ -451,6 +457,11 @@ final class AppModel {
 
     /// From the page or Next: a fresh modal. From inside it: pushed, so Back returns.
     func open(_ route: ModalRoute, push: Bool = false) {
+        // A web page opens in the browser: HQ shows its own items only.
+        if case .web(let url) = route {
+            if let address = URL(string: url) { NSWorkspace.shared.open(address) }
+            return
+        }
         showWindow()
         saveModalEdits()
         if push, let current = modal, current != route {
@@ -566,7 +577,7 @@ final class AppModel {
     func syncMenu() {
         MenuState.shared.update(model: self)
         let count = importantCount
-        MenuBarBell.shared.update(count: count)
+        MenuBarIcon.shared.update(count: count, blinks: bellBreathes)
         let badge = count > 0 ? "\(count)" : nil
         if NSApp?.dockTile.badgeLabel != badge { NSApp?.dockTile.badgeLabel = badge }
     }
@@ -583,8 +594,6 @@ final class MenuState: ObservableObject {
     @Published private(set) var sessionRunning = false
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
     @Published private(set) var canGoBack = false
-    /// Something unread in the center: Mark All Read.
-    @Published private(set) var hasUnread = false
     @Published private(set) var inCenter = false
     @Published private(set) var backlogOpen = false
     @Published private(set) var folded: Set<PageSection> = []
@@ -633,7 +642,6 @@ final class MenuState: ObservableObject {
         set(\.sessionClosable, session.map { $0.isRunning && $0.tty != nil } ?? false)
         set(\.outlineKeyboard, model.modal == nil ? model.outlineKeyboard : .none)
         set(\.canGoBack, !model.modalStack.isEmpty)
-        set(\.hasUnread, model.unreadNotices > 0)
         set(\.inCenter, model.modal == .notifications)
         set(\.backlogOpen, model.backlogOpen)
         set(\.folded, model.folded)

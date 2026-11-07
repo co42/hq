@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.checkSetup() }
             }
-            MenuBarBell.shared.show { [weak self] in
+            MenuBarIcon.shared.show { [weak self] in
                 self?.mainWindow?.makeKeyAndOrderFront(nil)
                 NSApp.activate()
                 self?.model.openCenter()

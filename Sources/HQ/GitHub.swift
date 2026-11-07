@@ -160,11 +160,10 @@ final class GitHubService {
     }
 
     /// Mentions and comments on threads the user takes part in, outside their own PRs (the poll's query has those),
-    /// since the first poll. Never a bot's or the user's own.
+    /// within the lookback. Never a bot's or the user's own.
     private func fetchThreads(token: String) async {
-        guard let model, let since = model.noticeStore.githubSince,
-              var components = URLComponents(string: "https://api.github.com/notifications") else { return }
-        let floor = model.githubFloor(since: since)
+        guard let model, var components = URLComponents(string: "https://api.github.com/notifications") else { return }
+        let floor = model.githubFloor()
         components.queryItems = [.init(name: "participating", value: "true"), .init(name: "since", value: floor.formatted(.iso8601))]
         guard let url = components.url, let data = await get(url, token: token) else { return }
         let mine = Set((model.github?.items ?? []).filter(\.mine).map(\.url))

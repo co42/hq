@@ -24,6 +24,7 @@ enum SelfTest {
             try? await Task.sleep(for: .seconds(0.5))
             let missing = KitIcon.allCases.filter { $0.nsImage == nil }.map(\.name)
             check("every KitIcon symbol exists", missing.isEmpty, missing.joined(separator: ", "))
+            menuBarChecks()
             oldStore()
             SeedData.fill(model, now: .now)
             noticeChecks(model)
@@ -33,6 +34,7 @@ enum SelfTest {
             await cliChecks(model)
             labelChecks(model)
             spoolChecks(model)
+            keysChecks()
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
@@ -56,7 +58,7 @@ enum SelfTest {
     private static func noticeChecks(_ model: AppModel) {
         let s1 = "ef032aac-66d1-4b82-b6e1-03b8ee32dc93"
         check("Needs You counts sessions that wait and unread important rows", model.importantCount == 4 + 2, "\(model.importantCount)")
-        check("Updates counts unread updates; Later and Earlier wait", model.updateCount == 4 && model.notices(in: .later).count == 2
+        check("Updates counts unread updates; Later and Earlier wait", model.updateCount == 4 && model.notices(in: .later).count == 3
               && model.notices(in: .earlier).count == 2, "\(model.updateCount)")
         check("the bell breathes for what came after the center last opened", model.bellBreathes)
         model.notify("Retry budget merged", level: .update, source: s1, links: model.defaultLinks(forSession: s1))
@@ -106,9 +108,7 @@ enum SelfTest {
               && model.notices(in: .later).contains { $0.id == reminder.id })
         model.editReminder(reminder.id, text: "Call noor now", due: nil, level: .important)
         check("with no time, it's due now", model.notices(in: .needsYou).contains { $0.id == reminder.id })
-        model.markAllRead()
-        check("Mark All Read reads every notification; due reminders and waiting sessions stay",
-              model.updateCount == 0 && model.importantCount == 4 + 2, "\(model.importantCount)")
+        for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
         for row in model.notices where row.kind == .reminder && row.dueAt == nil { model.setDone(row.id, true) }
         // GitHub: reviews and comments on the user's PRs, never a bot's, never twice.
         guard var snapshot = model.github, let index = snapshot.items.firstIndex(where: { $0.mine && $0.kind == .pullRequest && $0.state == .open }) else {
@@ -118,8 +118,19 @@ enum SelfTest {
         snapshot.items[index].activity = [GitHubItem.Activity(kind: .approved, author: "noor", at: .now, text: "Nice"),
                                           GitHubItem.Activity(kind: .commented, author: "codecov", bot: true, at: .now)]
         let url = snapshot.items[index].url
-        // As after the first v9 poll: what GitHub did before it never notifies.
-        model.noticeStore.githubSince = .now.addingTimeInterval(-60)
+        // The fixture's own events notify once, first, so what follows counts only the new ones.
+        model.noteGitHubEvents(before: before, after: before)
+        for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
+        var older = before
+        older.items[index].activity = [GitHubItem.Activity(kind: .commented, author: "lea", at: .now.addingTimeInterval(-3 * 86_400), text: "Old but in"),
+                                       GitHubItem.Activity(kind: .commented, author: "lea", at: .now.addingTimeInterval(-40 * 86_400), text: "Too old")]
+        let earlier = model.notices.count
+        model.noteGitHubEvents(before: before, after: older)
+        model.noteGitHubEvents(before: before, after: older)
+        let caught = model.notices.filter { $0.source == url && $0.readAt == nil }
+        check("the lookback alone decides: a 3-day-old comment notifies once, a 40-day-old one never", model.notices.count == earlier + 1
+              && caught.count == 1 && caught.first?.text == "lea commented: “Old but in”", "\(caught.map(\.text))")
+        for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
         let rows = model.notices.count
         model.noteGitHubEvents(before: before, after: snapshot)
         let added = model.notices.first { $0.source == url && $0.readAt == nil }
@@ -127,7 +138,62 @@ enum SelfTest {
               && added?.text == "noor approved your PR: “Nice”", "\(String(describing: added))")
         model.noteGitHubEvents(before: before, after: snapshot)
         check("the same event never notifies twice", model.notices.filter { $0.source == url && $0.readAt == nil }.first?.count == 1)
-        model.markAllRead()
+        for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
+    }
+
+    /// The menu bar shows HQ's ring and dot: a template at rest, orange while something needs the user.
+    private static func menuBarChecks() {
+        func ink(_ image: NSImage, _ x: Int, _ y: Int) -> CGFloat {
+            guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: [.ctm: AffineTransform(scale: 2)]) else { return 0 }
+            return NSBitmapImageRep(cgImage: cg).colorAt(x: x * cg.width / 18, y: y * cg.height / 18)?.alphaComponent ?? 0
+        }
+        let quiet = MenuBarIcon.mark(color: nil)
+        let needs = MenuBarIcon.mark(color: Ink.needsYouNS)
+        // In an 18 pt square: the ring's right side at (15, 9), the dot at (5, 5), nothing at the center.
+        check("the menu bar mark is HQ's ring and dot, not a bell", ink(quiet, 15, 9) > 0.5 && ink(quiet, 5, 5) > 0.5 && ink(quiet, 9, 9) < 0.1,
+              "ring \(ink(quiet, 15, 9)), dot \(ink(quiet, 5, 5)), center \(ink(quiet, 9, 9))")
+        check("a template at rest, orange while something needs the user", quiet.isTemplate && !needs.isTemplate)
+    }
+
+    /// Settings › Keys and the menus agree both ways: it lists every menu shortcut, and each ⌘ key it lists under Everywhere is a menu's.
+    private static func keysChecks() {
+        // The system adds these to the Edit menu itself.
+        let system: Set<Selector?> = [NSSelectorFromString("orderFrontCharacterPalette:"), NSSelectorFromString("startDictation:")]
+        func shortcut(_ item: NSMenuItem) -> String? {
+            guard !item.keyEquivalent.isEmpty, !system.contains(item.action) else { return nil }
+            let key = item.keyEquivalent
+            var flags = item.keyEquivalentModifierMask
+            if key.count == 1, key.uppercased() == key, key.lowercased() != key { flags.insert(.shift) }
+            let names: [String: String] = ["\r": "Return", "\u{7f}": "⌫", "\u{8}": "⌫", "-": "−",
+                                           String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!): "↑",
+                                           String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!): "↓"]
+            let mods = [(NSEvent.ModifierFlags.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+                .filter { flags.contains($0.0) }.map(\.1).joined()
+            return mods + (names[key] ?? key.uppercased())
+        }
+        var menus: [String: String] = [:]
+        // Hidden items too: a second key for one command (Quick Open's ⌘P) is a hidden item.
+        var hidden: Set<String> = []
+        func walk(_ menu: NSMenu) {
+            menu.update()
+            for item in menu.items {
+                if let key = shortcut(item) { if item.isHidden || item.isAlternate { hidden.insert(key) } else { menus[key] = item.title } }
+                if let sub = item.submenu { walk(sub) }
+            }
+        }
+        if let main = NSApp.mainMenu { walk(main) }
+        func tokens(_ list: [(String, String)]) -> Set<String> {
+            Set(list.flatMap { $0.1.split(whereSeparator: { $0 == " " || $0 == "," }).map(String.init) })
+        }
+        // The Mac's own: every app has them, Settings › Keys doesn't repeat them.
+        let standard: Set<String> = ["⌘Q", "⌘H", "⌥⌘H", "⌘W", "⌥⌘W", "⌘M", "⌘C", "⌘X", "⌘V", "⌥⇧⌘V", "⌘A", "⌘Z", "⇧⌘Z", "⌘,", "⌃⌘F", "⌘?"]
+        let listed = tokens(KeysSettings.all)
+        let unlisted = menus.filter { !standard.contains($0.key) && !listed.contains($0.key) }.map { "\($0.value) \($0.key)" }.sorted()
+        check("Settings › Keys lists every menu shortcut (\(menus.count) in the menus)", !menus.isEmpty && unlisted.isEmpty, unlisted.joined(separator: ", "))
+        // App.swift's key monitor: second keys for Quick Open and Zoom In.
+        let monitored: Set<String> = ["⌘P", "⌘="]
+        let missing = tokens(KeysSettings.keys).filter { $0.contains("⌘") && menus[$0] == nil && !hidden.contains($0) && !monitored.contains($0) }.sorted()
+        check("each ⌘ key Settings › Keys lists is in a menu", missing.isEmpty, missing.joined(separator: ", "))
     }
 
     /// A session that asked something while HQ was off: `hq hook` kept the event; HQ replays it at launch, with its time.
@@ -364,14 +430,23 @@ enum SelfTest {
     /// Title words, completions, colors, the Story status and a description's first line.
     private static func labelChecks(_ model: AppModel) {
         guard let task = model.addTask(to: .backlog, title: "Labels") else { return check("a task for labels", false) }
+        let long = model.files.first { $0.title.count > AppModel.shortTitleLength }
+        let pr = model.github?.items.first
+        check("a link at rest reads T-34, #418 or a file's first letters", model.shortTitle(of: .task(task.id)) == task.key
+              && pr.map { model.shortTitle(of: .github($0.url)) == "#\($0.number)" } ?? true
+              && long.map { model.shortTitle(of: .file($0.id)).hasSuffix("…") && model.shortTitle(of: .file($0.id)).count <= AppModel.shortTitleLength + 1 } ?? true,
+              "\(model.shortTitle(of: .task(task.id))) \(pr.map { model.shortTitle(of: .github($0.url)) } ?? "-") \(long.map { model.shortTitle(of: .file($0.id)) } ?? "-")")
         let untyped = agent("task add", ["title": "No type yet", "backlog": "true"])
         check("a task has no type until one is set", task.type == nil && untyped["type"] == nil && untyped["id"] != nil, "\(untyped)")
         if let key = untyped["id"] as? String, let id = TaskItem.key(key) {
             agent("task edit", ["task": key, "type": "bug", "title": "Typed now #infra"])
             check("task edit --type sets it; --title applies its #words", model.task(id)?.type == .bug && model.task(id)?.tags.contains("infra") == true
                   && model.task(id)?.title == "Typed now", "\(String(describing: model.task(id)))")
-            agent("task move", ["task": key, "status": "doing"])
+            let sub = agent("task add", ["title": "Its first part", "parent": key])
+            let moved = agent("task move", ["task": key, "status": "doing"])
             check("doing brings a Backlog task to Tasks", model.list(of: id) == .overview && model.task(id)?.status == .doing)
+            check("task move doing names the subtasks still todo", (moved["next"] as? String)?.contains("\(sub["id"] as? String ?? "?") Its first part") == true,
+                  "\(moved["next"] ?? "none")")
             if let artifact = model.artifacts.first {
                 agent("task link", ["task": key, "item": artifact.id.absoluteString])
                 check("task link with an artifact's URL links the artifact", model.outputs(ofTask: id).contains(.artifact(artifact.id))
@@ -526,6 +601,20 @@ enum SelfTest {
             let routes: [ModalRoute] = [.file(file.id), .artifact(artifact.id), pr, .task(other.id)]
             check("Link… offers files and artifacts not linked yet", LinkPicker.matches(model, task: target.id, query: "Link").contains(.file(file.id))
                   && LinkPicker.matches(model, task: target.id, query: "Linked page") == [.artifact(artifact.id)])
+            // T-298: a task by its key or words, a pasted address first; T-299: any web page links and shows.
+            let page = "https://www.example.com/docs/page/"
+            check("Link… finds a task by its key, and puts a pasted address first", LinkPicker.matches(model, task: target.id, query: other.key).first == .task(other.id)
+                  && LinkPicker.matches(model, task: target.id, query: "Oth").contains(.task(other.id))
+                  && LinkPicker.matches(model, task: target.id, query: page).first == .web(page)
+                  && LinkPicker.matches(model, task: target.id, query: "https://github.com/acme/registry/pull/77").first == pr
+                  && !LinkPicker.matches(model, task: target.id, query: target.key).contains(.task(target.id)))
+            let viaCLI = agent("task link", ["task": target.key, "item": page])
+            check("a web page links to a task and shows under it, named by its address", viaCLI["error"] == nil
+                  && model.outputs(ofTask: target.id).contains(.web(page)) && model.title(of: .web(page)) == "example.com/docs/page"
+                  && model.shortTitle(of: .web(page)) == "example.com" && ModalRoute(itemKey: ModalRoute.web(page).selectionKey) == .web(page),
+                  "\(model.outputs(ofTask: target.id))")
+            model.unlink(.web(page), from: target.id)
+            check("and unlinks", !model.isLinked(.web(page), to: target.id))
             for route in routes { model.link(route, to: target.id) }
             check("a file, an artifact, a PR and a task link to a task by hand", routes.allSatisfy { model.isLinked($0, to: target.id) }
                   && Set(routes).isSubset(of: Set(model.outputs(ofTask: target.id))), "\(model.outputs(ofTask: target.id))")
@@ -651,6 +740,12 @@ enum SelfTest {
 
     private static func cliChecks(_ model: AppModel) async {
         func settle(_ seconds: Double = 0.3) async { try? await Task.sleep(for: .seconds(seconds)) }
+        if let add = AgentCommands.all.first(where: { $0.name == "task add" }) {
+            let dashed = try? AgentCLI.parse(["--not-mine: a title", "--type", "bug"], for: add)
+            let ended = try? AgentCLI.parse(["--type", "bug", "--", "--backlog"], for: add)
+            check("a title may start with --, and a bare -- ends the options", dashed?["title"] == "--not-mine: a title" && dashed?["type"] == "bug"
+                  && ended?["title"] == "--backlog" && ended?["backlog"] == nil, "\(String(describing: dashed)) \(String(describing: ended))")
+        }
         let session = "5e550000-0000-4000-8000-000000000001"
         let added = agent("task add", ["title": "Dedup layers on push #perf", "type": "bug", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
         let key = added["id"] as? String ?? ""
@@ -669,6 +764,23 @@ enum SelfTest {
                       && (refused["message"] as? String ?? "").contains("Pair on this") && model.task(mine)?.project == nil, "\(refused)")
                 let moveRefused = (agent("task move", ["task": "T-\(mine)", "status": "doing", "_session": other])["error"] as? JSONObject)?["code"] as? String
                 check("and so is a move", moveRefused == "not_mine" && model.task(mine)?.status == .todo)
+                // Every command that changes a task asks the same (T-323).
+                func code(_ result: JSONObject) -> String? { (result["error"] as? JSONObject)?["code"] as? String }
+                let subtasks = model.taskTree.children(of: mine).count
+                let refusals = [
+                    code(agent("task link", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "_session": other])),
+                    code(agent("link", ["item": "https://github.com/acme/registry/pull/418", "task": "T-\(mine)", "_session": other])),
+                    code(agent("task unlink", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "_session": other])),
+                    code(agent("task add", ["title": "Not mine to add", "parent": "T-\(mine)", "_session": other])),
+                ]
+                check("task link, link, unlink and add --parent refuse a task the session isn't on", refusals.allSatisfy { $0 == "not_mine" }
+                      && model.task(mine)?.links.isEmpty == true && model.taskTree.children(of: mine).count == subtasks, "\(refusals)")
+                let linked = agent("task link", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "not-mine": "true", "_session": other])
+                let added = agent("task add", ["title": "Named by the user", "parent": "T-\(mine)", "not-mine": "true", "_session": other])
+                check("and take --not-mine", code(linked) == nil && model.task(mine)?.links.count == 1 && added["parent"] as? String == "T-\(mine)",
+                      "\(linked) \(added)")
+                if let child = TaskItem.key(added["id"] as? String ?? "") { model.deleteTasks([child]) }
+                agent("task unlink", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "not-mine": "true", "_session": other])
                 agent("task edit", ["task": "T-\(mine)", "project": "Registry", "type": "chore", "not-mine": "true", "_session": other])
                 check("--not-mine lets it through, without linking the session", model.task(mine)?.project == "Registry"
                       && model.task(mine)?.sessions.contains(other) == false)
@@ -705,6 +817,19 @@ enum SelfTest {
               && ((pinged["links"] as? [JSONObject])?.first?["id"] as? String) == key, "\(pinged)")
         let reminded = agent("remind", ["text": "Check the canary", "at": "in 2h"])
         check("hq remind puts a reminder in Later", reminded["section"] as? String == "later" && reminded["due"] != nil, "\(reminded)")
+        // T-311: a reminder that links a task marks the task's row until it's done; the one due first wins.
+        if let id = TaskItem.key(key) {
+            let later = model.remind("Look at T-12 later", at: .now.addingTimeInterval(7200), level: .update, links: [ModalRoute.task(id).selectionKey])
+            let due = model.remind("Look at T-12 now", at: .now.addingTimeInterval(-60), level: .important, links: [ModalRoute.task(id).selectionKey])
+            let shown = model.reminder(for: .task(id))
+            check("a task linked by a reminder shows it, the one due first, orange", shown?.id == due.id && model.reminderMark(due).due
+                  && !model.reminderMark(later).due, "\(shown?.text ?? "none")")
+            model.setDone(due.id, true)
+            check("done, the next one shows", model.reminder(for: .task(id))?.id == later.id)
+            model.removeNotice(due.id)
+            model.removeNotice(later.id)
+            check("none left, no mark", model.reminder(for: .task(id)) == nil)
+        }
         let unreadable = agent("remind", ["text": "Check", "at": "someday"])
         check("hq remind refuses a time it can't read", (unreadable["error"] as? JSONObject)?["code"] as? String == "usage")
         let mine = agent("remind", ["text": "Look at the canary again", "at": "in 3h", "_session": session])

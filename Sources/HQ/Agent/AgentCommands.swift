@@ -138,7 +138,7 @@ enum AgentCommands {
                               .init(name: "backlog", kind: .boolean, help: "at the top of the Backlog: only when the user says Backlog"),
                               .init(name: "now", kind: .boolean, help: "at the end of Tasks: the default"),
                               .init(name: "status", help: "todo (default), doing (also puts it on Tasks) or done"),
-                              .init(name: "body", help: "the description in markdown; - reads stdin")],
+                              .init(name: "body", help: "the description in markdown; - reads stdin"), notMine],
                      example: "hq task add \"Dedup layers on push\" --type feature --project Registry --body -") { args, model in
             let titled = TitleTags.split((try? args.required("title")) ?? "").tags.compactMap { word -> TaskStatus? in
                 if case .status(let status) = model.titleWord(word) { status } else { nil }
@@ -152,6 +152,7 @@ enum AgentCommands {
             let placed: (TaskTree.Placement, changes: [Int: TaskTree.Placement])?
             if let ref = args.string("parent") {
                 guard let parent = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
+                try own(parent, args, model)
                 placed = tree.placeNew(in: .task(parent.id))
             } else if try args.bool("backlog") == true, status != .doing {
                 placed = tree.placeNew(in: .list(.backlog), at: 0)
@@ -190,7 +191,15 @@ enum AgentCommands {
                 // The session works on it.
                 if status == .doing { link(task.id, args, model) }
             }
-            return model.task(task.id)?.agentJSON(model) ?? [:]
+            var result = model.task(task.id)?.agentJSON(model) ?? [:]
+            // The parent in doing doesn't move its subtasks: say which still read todo.
+            let todo = model.taskTree.subtree(of: task.id).dropFirst().compactMap { model.task($0) }.filter { $0.status == .todo }
+            if raw == "doing", let first = todo.first {
+                result["next"] = "Still todo under \(task.key): " + todo.prefix(8).map { "\($0.key) \($0.title)" }.joined(separator: "; ")
+                    + (todo.count > 8 ? "; and \(todo.count - 8) more" : "")
+                    + ". Move each to doing as you start it: hq task move \(first.key) doing"
+            }
+            return result
         },
         AgentCommand(name: "task edit", summary: "Change a task's title, description, type, project, tags or parent. Everything else stays.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
@@ -278,19 +287,19 @@ enum AgentCommands {
             model.revert(edit)
             return ["reverted": keys, "text": "Undid \(what):\n" + lines.joined(separator: "\n")]
         },
-        AgentCommand(name: "task link", summary: "Link a task to a PR or issue URL, another task, a session, a file or an artifact. It shows under the task's row.",
+        AgentCommand(name: "task link", summary: "Link a task to a PR or issue URL, any web page, another task, a session, a file or an artifact. It shows under the task's row.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path")],
+                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path"), notMine],
                      example: "hq task link T-12 https://github.com/acme/registry/pull/418") { args, model in
-            let task = try findTask(args, model)
+            let task = try ownTask(args, model)
             try linkItem(try args.required("item"), to: task.id, model)
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
         AgentCommand(name: "task unlink", summary: "Unlink what task link linked: a PR or issue URL, a task, a session, a file or an artifact.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path")],
+                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path"), notMine],
                      example: "hq task unlink T-12 T-34") { args, model in
-            let task = try findTask(args, model)
+            let task = try ownTask(args, model)
             let ref = try args.required("item")
             let route = try item(ref, model)
             guard model.isLinked(route, to: task.id) else { throw AgentError.notFound("\(task.key) doesn't link \(ref). `hq task show \(task.key)` lists its links") }
@@ -299,9 +308,9 @@ enum AgentCommands {
         },
         AgentCommand(name: "link", summary: "Link a URL or a file to a task (the same as task link, the other way round).",
                      params: [.init(name: "item", required: true, positional: true, help: "a URL or a file path"),
-                              .init(name: "task", required: true, positional: true, help: "T-12")],
+                              .init(name: "task", required: true, positional: true, help: "T-12"), notMine],
                      example: "hq link \"2026-11-04 - Push plan.md\" T-12") { args, model in
-            let task = try findTask(args, model)
+            let task = try ownTask(args, model)
             try linkItem(try args.required("item"), to: task.id, model)
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
@@ -534,13 +543,18 @@ enum AgentCommands {
     /// A wrong key then fails, naming the task it hit. From a terminal, or a session HQ doesn't know, anything goes.
     private static func ownTask(_ args: Args, _ model: AppModel) throws -> TaskItem {
         let task = try findTask(args, model)
-        guard let session = args.string(sessionArg), model.session(session) != nil, try args.bool("not-mine") != true else { return task }
+        try own(task, args, model)
+        return task
+    }
+
+    /// The check every command that changes a task goes through, a parent for a new subtask included.
+    private static func own(_ task: TaskItem, _ args: Args, _ model: AppModel) throws {
+        guard let session = args.string(sessionArg), model.session(session) != nil, try args.bool("not-mine") != true else { return }
         let mine = ([task.id] + model.taskTree.ancestors(of: task.id)).contains { model.task($0)?.sessions.contains(session) == true }
         guard mine else {
             throw AgentError.notMine("\(task.key) is “\(task.title)”, a task this session isn't on. Check the key (`hq ls tasks`); "
                 + "if it's the one the user means, run again with --not-mine")
         }
-        return task
     }
 
     /// A notification by its id or the id's first characters, when this session sent or set it, or the user named it
@@ -605,7 +619,7 @@ enum AgentCommands {
         }) {
             return .artifact(artifact.id)
         }
-        if let url = URL(string: ref), url.scheme == "https" || url.scheme == "http" { return .github(ref) }
+        if let url = URL(string: ref), url.scheme == "https" || url.scheme == "http" { return GitHubLinks.isItem(ref) ? .github(ref) : .web(ref) }
         if let session = model.session(ref) ?? model.session(prefix: ref) { return .session(session.id) }
         if let file = model.file(ref: ref) { return .file(file.id) }
         throw AgentError.notFound("nothing called \(ref). Use a URL, a session id, a file under hq/files, or an artifact URL")
@@ -679,6 +693,7 @@ extension AppModel {
             }
         case .task(let id): ["kind": "task", "id": "T-\(id)", "status": task(id)?.status.rawValue ?? "", "title": title(of: route)]
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
+        case .web(let url): ["kind": "web", "title": title(of: route), "url": url]
         case .start, .closedSessions, .notifications: ["kind": "other", "title": title(of: route)]
         }
     }

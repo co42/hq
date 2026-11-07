@@ -189,6 +189,7 @@ struct SessionGrid: NSViewRepresentable {
         /// A card's face focuses its session's terminal, or offers to resume it; the card's menu is a right-click.
         func faceClicked(at path: IndexPath) {
             guard ids.indices.contains(path.item) else { return }
+            AppLog.write("face click on card \(path.item): \(byID[ids[path.item]].map { "\($0.name), \($0.status.state)" } ?? "gone")", to: "clicks.log")
             model.openFace(ids[path.item])
         }
 
@@ -373,6 +374,7 @@ struct SessionGrid: NSViewRepresentable {
                 return
             }
             facePress = face ? (path, event.locationInWindow) : nil
+            if face { AppLog.write("face press on card \(path.item)", to: "clicks.log") }
             super.mouseDown(with: event)
             // The collection view may track the press itself, up to its release.
             if let up = NSApp.currentEvent, up.type == .leftMouseUp, up.timestamp >= event.timestamp { faceReleased(up) }
@@ -387,7 +389,9 @@ struct SessionGrid: NSViewRepresentable {
         private func faceReleased(_ event: NSEvent) {
             guard let press = facePress else { return }
             facePress = nil
-            guard hypot(event.locationInWindow.x - press.at.x, event.locationInWindow.y - press.at.y) < 4 else { return }
+            guard hypot(event.locationInWindow.x - press.at.x, event.locationInWindow.y - press.at.y) < 4 else {
+                return AppLog.write("face press on card \(press.path.item) moved: a drag, not a click", to: "clicks.log")
+            }
             onFaceClick?(press.path)
         }
 

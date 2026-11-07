@@ -429,6 +429,9 @@ final class TaskCell: NSTableCellView {
     let note = HandButton()
     /// Everything under it, as a ring that fills as it gets done.
     let progress = ProgressRingView()
+    /// A reminder that links the task, before its title (T-311).
+    let reminderMark = HandButton()
+    private var reminderNotice: Notice?
     /// It has a description: the toggle shows at rest.
     private var hasNote = false
     /// Its row is selected: the key shows, as under the pointer.
@@ -438,7 +441,9 @@ final class TaskCell: NSTableCellView {
     private(set) var descriptionHost: NSHostingView<AnyView>?
     /// The task's PRs, files, artifacts and linked tasks, on one line under the title.
     private(set) var linksHost: NSHostingView<AnyView>?
-    private var shownLinks: (task: Int, routes: [ModalRoute])?
+    private var shownLinks: (task: Int, routes: [ModalRoute], expanded: Bool)?
+    /// Whole titles in the links line (under the pointer or selected), for the UI test.
+    var linksExpanded: Bool? { shownLinks?.expanded }
     private let chipFrames = ChipFrames()
     private var hovered = false
     private var id: Int?
@@ -472,6 +477,11 @@ final class TaskCell: NSTableCellView {
         note.contentTintColor = Ink.secondaryTextNS
         note.target = self
         note.action = #selector(toggleDescription)
+        reminderMark.isBordered = false
+        reminderMark.image = KitIcon.reminder.nsImage(.mark, weight: .semibold)
+        reminderMark.target = self
+        reminderMark.action = #selector(showReminder)
+        reminderMark.isHidden = true
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.alignment = .right
@@ -491,7 +501,7 @@ final class TaskCell: NSTableCellView {
             button.isHidden = true
             actions.append(button)
         }
-        for view in [glyph, title, project, labels, note, progress, key] as [NSView] + actions { addSubview(view) }
+        for view in [glyph, reminderMark, title, project, labels, note, progress, key] as [NSView] + actions { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -521,23 +531,15 @@ final class TaskCell: NSTableCellView {
         project.onPick = { [weak model] choice in model?.setProject(id, choice) }
         labels.labels = task.tags.map { LabelStripView.Label(text: $0, color: model.labelColor(.tag, $0), icon: LabelStripView.tagIcon) }
         hasNote = !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let outputs = model.outputs(ofTask: id)
-        if outputs.isEmpty {
-            linksHost?.removeFromSuperview()
-            linksHost = nil
-            shownLinks = nil
-        } else if shownLinks?.task != id || shownLinks?.routes != outputs || linksHost == nil {
-            // The chips follow the model themselves; a new view only when the links change.
-            shownLinks = (id, outputs)
-            chipFrames.frames = [:]
-            let view = AnyView(LinksLine(task: id, routes: outputs, frames: chipFrames).handCursors().environment(model))
-            if let linksHost { linksHost.rootView = view } else {
-                let host = NSHostingView(rootView: view)
-                host.sizingOptions = []
-                addSubview(host)
-                linksHost = host
-            }
+        reminderNotice = model.reminder(for: .task(id))
+        if let notice = reminderNotice {
+            let mark = model.reminderMark(notice)
+            reminderMark.contentTintColor = mark.due && notice.level == .important ? Ink.needsYouNS : Ink.secondaryTextNS
+            reminderMark.toolTip = mark.help
+            reminderMark.setAccessibilityLabel(mark.help)
         }
+        if reminderMark.isHidden != (reminderNotice == nil) { reminderMark.isHidden = reminderNotice == nil; needsLayout = true }
+        showLinks(expanded: hovered || selected)
         // Every level under it, done over all.
         let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
         progress.show(below.map(\.status))
@@ -620,6 +622,9 @@ final class TaskCell: NSTableCellView {
         let centered = top + (line - slot) / 2
         glyph.frame = NSRect(x: 0, y: centered, width: slot, height: slot)
         let titleX = Self.titleX
+        // A reminder's mark takes the title's start; the title, not the lines under it, moves over.
+        if !reminderMark.isHidden { reminderMark.frame = NSRect(x: titleX, y: centered, width: slot, height: slot) }
+        let textX = titleX + (reminderMark.isHidden ? 0 : slot + Space.xs)
         var right = bounds.width - Space.xs
         func place(_ view: NSView, width: CGFloat, height: CGFloat = Metric.chipHeight, visible: Bool = true) {
             view.isHidden = !visible
@@ -635,14 +640,15 @@ final class TaskCell: NSTableCellView {
         if hovered { right -= Space.xs }
         // The key, and the empty slots that act, show under the pointer or on a selected row: at rest a row tells its story.
         let active = hovered || selected
+        showLinks(expanded: active)
         place(key, width: keyWidth, height: ceil(key.intrinsicContentSize.height), visible: active)
         // What doesn't fit hides, the title truncating first: the progress ring, then labels, then the description mark.
         let minimumTitle = Metric.titleMinimum
         let progressWidth = progress.total == 0 ? 0 : Metric.glyphSlot
         let trailing = progressWidth > 0 ? progressWidth + Space.sm : 0
-        let showProgress = progressWidth > 0 && right - trailing - titleX >= minimumTitle
+        let showProgress = progressWidth > 0 && right - trailing - textX >= minimumTitle
         place(progress, width: progressWidth, height: Metric.glyphSlot, visible: showProgress)
-        let available = max(right - titleX, 40)
+        let available = max(right - textX, 40)
         let projectWidth = project.project == nil && !active ? 0 : project.naturalWidth
         let tagsWidth = labels.naturalWidth
         let labelsWidth = projectWidth + tagsWidth + (projectWidth > 0 && tagsWidth > 0 ? Space.xs : 0)
@@ -652,7 +658,7 @@ final class TaskCell: NSTableCellView {
         let roomForLabels = labelsWidth > 0 ? min(labelsWidth + Space.sm, max(available - minimumTitle, 0)) : 0
         let titleWidth = editing ? min(max(natural, available - roomForLabels), available) : min(natural, available - roomForLabels)
         let titleHeight = ceil(title.intrinsicContentSize.height)
-        title.frame = NSRect(x: titleX, y: top + (line - titleHeight) / 2, width: max(titleWidth, 40), height: titleHeight)
+        title.frame = NSRect(x: textX, y: top + (line - titleHeight) / 2, width: max(titleWidth, 40), height: titleHeight)
         var x = title.frame.maxX + Space.sm
         let chipY = top + (line - Metric.chipHeight) / 2
         project.isHidden = projectWidth == 0 || right - x < projectWidth
@@ -673,11 +679,35 @@ final class TaskCell: NSTableCellView {
         }
         var below = top + line
         if let linksHost {
+            // A little closer to the title than a line of its own.
+            below -= Space.xs
             linksHost.frame = NSRect(x: titleX, y: below, width: bounds.width - titleX - Space.xs, height: Metric.linksLine)
             below += Metric.linksLine
         }
         if let descriptionHost {
             descriptionHost.frame = NSRect(x: titleX, y: below, width: bounds.width - titleX, height: max(bounds.height - below, 0))
+        }
+    }
+
+    /// The links line: short chips at rest (T-34, #418, a file's first letters), whole titles under the pointer or on a
+    /// selected row (T-292). A new view only when the links or that change.
+    private func showLinks(expanded: Bool) {
+        guard let model, let id else { return }
+        let outputs = model.outputs(ofTask: id)
+        if outputs.isEmpty {
+            linksHost?.removeFromSuperview()
+            linksHost = nil
+            shownLinks = nil
+        } else if shownLinks?.task != id || shownLinks?.routes != outputs || shownLinks?.expanded != expanded || linksHost == nil {
+            shownLinks = (id, outputs, expanded)
+            chipFrames.frames = [:]
+            let view = AnyView(LinksLine(task: id, routes: outputs, expanded: expanded, frames: chipFrames).handCursors().environment(model))
+            if let linksHost { linksHost.rootView = view } else {
+                let host = NSHostingView(rootView: view)
+                host.sizingOptions = []
+                addSubview(host)
+                linksHost = host
+            }
         }
     }
 
@@ -692,6 +722,7 @@ final class TaskCell: NSTableCellView {
     }
 
     @objc private func toggleDescription() { if let id { model?.toggleDescription(id) } }
+    @objc private func showReminder() { if let reminderNotice { model?.showReminder(reminderNotice) } }
     @objc private func addSubtask() {
         guard let id, let added = model?.addSubtask(to: id) else { return }
         coordinator?.beginEditing(added.id)
@@ -1113,6 +1144,8 @@ struct FlowChips: View {
 struct OutputChip: View {
     let route: ModalRoute
     var compact = false
+    /// Only what names it: T-34, #418, a file's first letters.
+    var short = false
     /// Only drawn: what holds it acts on clicks (the notification center).
     var plain = false
     /// Under a task's row on the page: that task.
@@ -1123,7 +1156,7 @@ struct OutputChip: View {
         HStack(spacing: compact ? Space.xs : Metric.chipGap) {
                 icon
                 if !compact, let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceChip) }
-                Text(model.title(of: route))
+                Text(short ? model.shortTitle(of: route) : model.title(of: route))
                     .lineLimit(1)
                     .foregroundStyle(compact ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             }
@@ -1145,6 +1178,7 @@ struct OutputChip: View {
         // The kinds' colors, as on their rows' tiles.
         case .file: KitIcon.fileTile.image.foregroundStyle(Ink.fileTile).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.fontWeight(.semibold).foregroundStyle(Ink.artifactTile).accessibilityLabel("Artifact")
+        case .web: KitIcon.link.image.fontWeight(.semibold).foregroundStyle(.secondary).accessibilityLabel("Web page")
         case .task(let id): if let task = model.task(id) { TaskGlyph(status: task.status).scaleEffect(compact ? 0.86 : 1) }
         default: EmptyView()
         }
@@ -1189,8 +1223,10 @@ struct LinkMenu: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Button("Open") { model.open(route, push: model.modal != nil) }
+        if case .web = route { Button("Open in Browser") { model.open(route) } } else { Button("Open") { model.open(route, push: model.modal != nil) } }
         switch route {
+        case .web(let url):
+            Button("Copy Link") { Pasteboard.copy(url) }
         case .file(let id):
             Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
         case .artifact(let url):
@@ -1223,13 +1259,15 @@ struct LinkMenu: View {
 struct LinksLine: View {
     let task: Int
     let routes: [ModalRoute]
+    /// Whole titles, under the pointer or on a selected row; short at rest.
+    var expanded = true
     /// Where each chip sits, for the outline's right-click.
     let frames: ChipFrames
 
     var body: some View {
         OneLineLayout(spacing: Space.sm) {
             ForEach(routes, id: \.self) { route in
-                OutputChip(route: route, compact: true, task: task)
+                OutputChip(route: route, compact: true, short: !expanded, task: task)
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChipFrames.space)) } action: { frames.frames[route] = $0 }
             }
         }
@@ -1327,9 +1365,35 @@ extension AppModel {
         case .file(let id): file(id)?.title ?? id
         case .artifact(let url): artifacts.first { $0.id == url }?.title ?? url.lastPathComponent
         case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? url
+        case .web(let url): Self.webName(url)
         case .start: "Start a session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
         }
+    }
+
+    /// What names a link in a few characters, for the links line at rest: T-34, #418, a file's or an artifact's first letters.
+    func shortTitle(of route: ModalRoute) -> String {
+        switch route {
+        case .task(let id): return task(id)?.key ?? "T-\(id)"
+        case .github(let url):
+            if let item = githubItem(url) { return "#\(item.number)" }
+            return URL(string: url).map { "#\($0.lastPathComponent)" } ?? url
+        case .web(let url): return URL(string: url)?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url
+        case .file, .artifact:
+            let title = title(of: route)
+            guard title.count > Self.shortTitleLength else { return title }
+            return title.prefix(Self.shortTitleLength).trimmingCharacters(in: .whitespaces) + "…"
+        default: return title(of: route)
+        }
+    }
+
+    static let shortTitleLength = 12
+
+    /// A web page by its address, without the scheme or a trailing slash: "slack.com/archives/C05/p17".
+    static func webName(_ url: String) -> String {
+        guard let address = URL(string: url), let host = address.host() else { return url }
+        let path = address.path().hasSuffix("/") ? String(address.path().dropLast()) : address.path()
+        return (host.hasPrefix("www.") ? String(host.dropFirst(4)) : host) + path
     }
 }

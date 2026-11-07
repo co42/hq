@@ -191,11 +191,10 @@ struct GitHubSettings: View {
 }
 
 struct KeysSettings: View {
-    private let keys: [(String, String)] = [
+    static let keys: [(String, String)] = [
         ("Next or previous section", "Tab  ⇧Tab"),
         ("Select in a section, open", "↑  ↓, Return or Space"),
         ("Notifications", "⌘J"),
-        ("Mark all notifications read", "⇧⌘J"),
         ("New Reminder…", "⌃⌘R"),
         ("New Task", "⌘N"),
         ("New Backlog Task", "⌥⌘N"),
@@ -208,12 +207,13 @@ struct KeysSettings: View {
         ("Back, in the modal", "⌘["),
         ("Focus the session's terminal", "⌘O"),
         ("Open the item outside HQ", "⇧⌘O"),
+        ("Copy the item’s link", "⇧⌘C"),
         ("Edit the file", "⌘E"),
         ("Reload the page", "⌘R"),
         ("Find, next, previous", "⌘F  ⌘G  ⇧⌘G"),
         ("Search", "⌥⌘F"),
     ]
-    private let rowKeys: [(String, String)] = [
+    static let rowKeys: [(String, String)] = [
         ("Next or previous task", "↓  ↑"),
         ("Edit the title", "Return, or double-click"),
         ("Show or hide the description", "⇧Return"),
@@ -229,7 +229,7 @@ struct KeysSettings: View {
         ("Start Session…", "⌥⌘Return, or click the empty face"),
         ("Delete", "⌫  ⌘⌫"),
     ]
-    private let titleKeys: [(String, String)] = [
+    static let titleKeys: [(String, String)] = [
         ("New task below", "Return"),
         ("Edit the description", "Tab  ⇧Return"),
         ("Edit the previous title", "⇧Tab"),
@@ -237,11 +237,11 @@ struct KeysSettings: View {
         ("Next status", "⌘Return"),
         ("Delete", "⌘⌫"),
     ]
-    private let descriptionKeys: [(String, String)] = [
+    static let descriptionKeys: [(String, String)] = [
         ("Save, back to the row", "Escape  ⌘Return"),
         ("Edit the next title, this title", "Tab  ⇧Tab"),
     ]
-    private let noticeKeys: [(String, String)] = [
+    static let noticeKeys: [(String, String)] = [
         ("Next or previous", "↓  ↑"),
         ("Open what it links, edit a reminder", "Return, or double-click"),
         ("Read or unread, done or not", "E"),
@@ -249,19 +249,21 @@ struct KeysSettings: View {
         ("Copy its text", "⌘C"),
         ("Delete", "⌫"),
     ]
+    /// Every list, for the self-test that holds them to the menus.
+    static var all: [(String, String)] { keys + rowKeys + titleKeys + descriptionKeys + noticeKeys }
 
     var body: some View {
-        Section("Everywhere") { rows(keys) }
-        Section("On a selected task") { rows(rowKeys) }
+        Section("Everywhere") { rows(Self.keys) }
+        Section("On a selected task") { rows(Self.rowKeys) }
         Section {
-            rows(titleKeys)
+            rows(Self.titleKeys)
         } header: {
             Text("In a task’s title")
         } footer: {
             Text("A task left with no title and no description is deleted; Undo brings it back.").foregroundStyle(.secondary)
         }
-        Section("In a task’s description") { rows(descriptionKeys) }
-        Section("In the notifications") { rows(noticeKeys) }
+        Section("In a task’s description") { rows(Self.descriptionKeys) }
+        Section("In the notifications") { rows(Self.noticeKeys) }
     }
 
     private func rows(_ list: [(String, String)]) -> some View {

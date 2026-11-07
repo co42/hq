@@ -1,5 +1,43 @@
 # Release notes
 
+## v10 · 2026-11-07
+
+**Notifications**
+- No more Mark All Read: each notification is read, done or put Later on its own.
+- No unread dot on rows: faces and tiles line up on the left, as in the other lists; a bold name still says unread.
+- A reminder's menu says **Remind Me** ▸ In 1 Hour, This Evening, Tomorrow, Next Week, Pick a Time….
+- A reminder that links a task, a pull request, a file or an artifact shows on its row: a small alarm before the title, orange once it's due and important. A click opens it in the center.
+- GitHub's catch-up goes as far back as its lookback says (Settings › GitHub, 10 days), from before v9 too.
+
+**Menu bar**
+- HQ's own mark, its ring and dot, instead of a bell: orange with the count while something needs you, blinking until you open the center.
+
+**Toolbar**
+- One row: the section bar sits in the toolbar, between + and the search. On a window under 960 pt wide it steps aside.
+
+**Tasks**
+- The links under a task are short until you point at it or select it (T-34, #418, a file's first letters), and closer to its title.
+- **Link…** in a task's menu and in Task › Link…: one search for tasks (by key or words), files, artifacts and pull requests, or paste any link.
+- Any web page can be linked to a task: it shows under the task with a link icon and opens in the browser.
+
+**The hq command, and hq plugin 0.7.3**
+- `hq task move T-12 doing` lists the subtasks still todo, to move each as it starts.
+- `task link`, `task unlink`, `link` and `task add --parent` refuse a task the session isn't on, unless `--not-mine`, as `edit`, `move` and `delete` do.
+- `hq task link` takes any web address. A title can start with `--`, after a bare `--`.
+
+**For contributors**
+- What v1–v9 taught is now in the docs:
+  - CLAUDE.md is rewritten;
+  - ITERATION.md says how an iteration runs, from start to release to close;
+  - DESIGN.md has §18 (every gesture on every element) and §19 (what was removed, and why);
+  - PLAN.md has §12 (AppKit in SwiftUI, Swift 6 recipes).
+- `tools/check.sh` runs every check in one go, and `build.sh --dev` waits while it runs.
+- `tools/docs-lint.sh` holds the docs and skills to `hq help`.
+- The UI test checks that every clickable on screen sits inside its containers.
+- The self-test holds the menus and Settings › Keys together.
+- Fixed: `build.sh` failed with "binary is older than…" after a checkout.
+- Fixed: Settings › Keys missed Copy Link (⇧⌘C).
+
 ## v9.1 · 2026-11-07
 
 **The hq command, and hq plugin 0.7.2**

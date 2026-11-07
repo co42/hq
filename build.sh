@@ -22,15 +22,25 @@ if [[ -z "$identity" ]]; then
 fi
 [[ -n "$identity" ]] || identity=-
 
+# A running tools/check.sh tests the test copy: replacing it mid-run mixes two builds in one result.
+if [[ " $* " == *" --dev "* && -z "${HQ_CHECK_RUN:-}" && -d /tmp/HQ-check.lock ]] && kill -0 "$(cat /tmp/HQ-check.lock/pid 2>/dev/null)" 2>/dev/null; then
+  echo "build refused: tools/check.sh is testing the test copy; wait for it, or stop it"
+  exit 1
+fi
 swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | grep -E "error|warning|Build complete" | grep -v "^\[" || true
 bin="$scratch/$config/$name"
 [[ -x "$bin" ]] || { echo "build failed"; exit 1; }
-# swift build can report success while an edited file failed to compile. Catch that.
+# swift build can report success while an edited file failed to compile: a second build shows its errors. With none,
+# the newer files only had their dates bumped (a checkout, a merge) and SwiftPM had nothing to relink.
 stale=$(find "$here/Sources" -name '*.swift' -newer "$bin" | head -1)
 if [[ -n "$stale" ]]; then
-  echo "build failed: binary is older than $stale"
-  swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | grep -E "error" | head -20
-  exit 1
+  errors=$(swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | sed $'s/\e\\[[0-9;]*m//g' | grep -E "error:" | head -20 || true)
+  if [[ -n "$errors" ]]; then
+    echo "build failed: binary is older than $stale"
+    print -r -- "$errors"
+    exit 1
+  fi
+  touch "$bin"
 fi
 
 # --dev installs a copy for tests (~/Library/Developer/HQ/HQ.app), leaving the user's /Applications/HQ.app and the hq link alone.

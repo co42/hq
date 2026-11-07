@@ -295,12 +295,3 @@ enum Pasteboard {
         NSPasteboard.general.setString(text, forType: .string)
     }
 }
-
-/// The unread dot before a notification: orange when it needs the user, the accent for an update, nothing once read.
-struct NoticeDot: View {
-    let color: Color?
-
-    var body: some View {
-        Circle().fill(color ?? .clear).frame(width: Metric.attentionDot, height: Metric.attentionDot).accessibilityHidden(true)
-    }
-}

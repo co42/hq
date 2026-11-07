@@ -163,6 +163,30 @@ extension UITest {
                   "\(shown ?? "no menu"), \(model.ghosttyLog.suffix(1))")
             let card = collection.item(at: IndexPath(item: 0, section: 0))?.view as? SessionGrid.CardView
             check("the card tracks the pointer for the hand over its face", card?.handOverFace == true)
+            // In every state, needs-you ones first: their glow and badge must not take the click (T-327).
+            if let grid = collection.delegate as? SessionGrid.Coordinator, let id = grid.ids.first, let original = model.session(id) {
+                let states: [SessionState] = [.waiting(.question), .waiting(.permission), .waiting(.plan), .failed, .working, .idle, .done]
+                var missed: [String] = []
+                for state in states {
+                    var item = original
+                    item.status = SessionStatus(state: state, unread: state == .done, since: .now)
+                    model.put(item)
+                    await ui.settle(0.4)
+                    guard let point = facePoint() else { missed.append("\(state): no face"); continue }
+                    // What the window would hand a real click: the grid, not something drawn over the card.
+                    if let hit = ui.window.contentView?.hitTest(point), !hit.isDescendant(of: collection) {
+                        missed.append("\(state): \(type(of: hit)) takes the click")
+                        continue
+                    }
+                    let logged = model.ghosttyLog.count
+                    // In front, a real click through the window, as the user's; in the background, straight to the grid.
+                    if ui.canClickTables { await ui.click(point) } else { await press(point, clicks: 1) }
+                    await ui.settle(0.3)
+                    if model.ghosttyLog.count == logged { missed.append("\(state)") }
+                }
+                model.put(original)
+                check("a click on a card's face focuses its session in every state", missed.isEmpty, "missed: \(missed.joined(separator: ", "))")
+            }
         } else {
             check("the first card's face", false)
         }
@@ -468,6 +492,12 @@ extension UITest {
         check("and the bell stops breathing", !model.bellBreathes)
         check("a session that waits shows in Needs You with Focus", model.blockedSessions.allSatisfy { ui.anchor("blocked:\($0.id)") != nil })
         guard let row = model.notices(in: .updates).first(where: { $0.readAt == nil && !$0.links.isEmpty }) else { return check("an update with links", false) }
+        if let frame = ui.anchorFrame("notice:\(row.id.uuidString)"), let face = ui.anchorFrame("notice-avatar:\(row.id.uuidString)") {
+            check("a row's face or tile starts at its left padding, as on the other lists (no unread dot)",
+                  abs(face.minX - frame.minX - Space.sm) < 1, "\(face.minX - frame.minX) pt in")
+        } else {
+            check("a row's face or tile has its anchor", false)
+        }
         let link = row.links[0]
         let chip = await ui.steadyAnchor("notice-chip:\(row.id.uuidString):\(link)")
         check("a row shows its links as chips", chip != nil, link)
@@ -563,10 +593,6 @@ extension UITest {
         await ui.settle(0.5)
         check("Remind Me… shows the editor", model.composingReminder && ui.anchor("reminder-text") != nil && ui.anchor("reminder-when") != nil)
         model.composingReminder = false
-        model.markAllRead()
-        await ui.settle(0.3)
-        check("Mark All Read leaves nothing unread but due reminders and the sessions that wait", model.updateCount == 0
-              && model.importantCount == model.blockedSessions.count + model.notices.filter { $0.kind == .reminder && $0.level == .important && $0.readAt == nil && $0.dueAt == nil }.count)
         model.closeModal()
         await ui.settle(0.5)
         check("once the center closes, what was read is in Earlier", model.notices(in: .earlier).contains { $0.id == row.id })
@@ -666,6 +692,28 @@ extension UITest {
             check("and shows it again", model.descriptionShownInOutline(noted.id))
         }
         model.allDescriptions = []
+        // Link… on a row: the link picker opens under it, in its own popover (T-298). The row is on screen, as when right-clicked.
+        _ = await row(plain.id)
+        model.showLinkPicker(plain.id)
+        await ui.settle(0.6)
+        let picker = UITest.anchors["link-picker", default: []].compactMap(\.view).last { $0.window != nil && $0.window !== ui.window }
+        check("Link… on a task's row opens the link picker under it", picker != nil && outline.selectedRowIndexes.count == 1,
+              "row \(outline.row(forItem: coordinator.node(.task(plain.id)))), \(UITest.anchors["link-picker", default: []].compactMap(\.view).count) pickers, selected \(outline.selectedRowIndexes.count), modal \(String(describing: model.modal))")
+        picker?.window?.close()
+        await ui.settle(0.3)
+        // A reminder that links the task: its mark before the title, the title after it (T-311).
+        let reminder = model.remind("Look at it again", at: .now.addingTimeInterval(3600), level: .important, links: [ModalRoute.task(plain.id).selectionKey])
+        await ui.settle(0.5)
+        if let listed = await row(plain.id) {
+            let mark = listed.cell.reminderMark
+            check("a reminder that links a task shows before its title", !mark.isHidden && listed.cell.title.frame.minX >= mark.frame.maxX
+                  && (mark.toolTip ?? "").contains("Look at it again"), "\(mark.isHidden) \(mark.frame) \(listed.cell.title.frame)")
+        } else {
+            check("the task's row for its reminder", false)
+        }
+        model.removeNotice(reminder.id)
+        await ui.settle(0.4)
+        if let listed = await row(plain.id) { check("and leaves with the reminder", listed.cell.reminderMark.isHidden) }
         model.deleteTasks([plain.id, noted.id])
         await endUndoGroup(model)
         await ui.settle(0.3)
@@ -1434,11 +1482,31 @@ extension UITest {
         func height(_ id: Int) -> CGFloat { outline.rect(ofRow: outline.row(forItem: coordinator.node(.task(id)))).height }
         func lineHeight(_ id: Int) -> CGFloat { height(id) - (model.tasksWithOutputs.contains(id) ? Metric.linksLine : 0) }
         check("the Files and Artifacts section lists files", model.listedFiles.first.map { ui.anchor("item:file:\($0.id)") != nil } ?? true)
+        // A task with a link: one of the seed's, else the last top-level task gets a PR for these checks.
+        var lent: (task: Int, route: ModalRoute)?
+        if !top.contains(where: { model.tasksWithOutputs.contains($0) }), let last = top.last, let pr = model.github?.items.first {
+            lent = (last, .github(pr.url))
+            model.link(.github(pr.url), to: last)
+            await ui.settle(0.5)
+        }
         let linkedTask = top.first { model.tasksWithOutputs.contains($0) }
+        check("a task with a link on the overview", linkedTask != nil)
         if let linkedTask, !model.descriptionShownInOutline(linkedTask) {
             check("a task's links take a line under its title", height(linkedTask) == coordinator.gap(of: linkedTask) + Metric.outlineRow + Metric.linksLine,
                   "\(height(linkedTask))")
+            // Short at rest, whole titles once the row is selected (T-292).
+            let linkedRow = outline.row(forItem: coordinator.node(.task(linkedTask)))
+            outline.deselectAll(nil)
+            await ui.settle(0.3)
+            let rest = (outline.view(atColumn: 1, row: linkedRow, makeIfNecessary: true) as? TaskCell)?.linksExpanded
+            outline.selectRowIndexes([linkedRow], byExtendingSelection: false)
+            await ui.settle(0.3)
+            let picked = (outline.view(atColumn: 1, row: linkedRow, makeIfNecessary: true) as? TaskCell)?.linksExpanded
+            check("a task's links are short at rest and whole on its selected row", rest == false && picked == true,
+                  "\(String(describing: rest)) → \(String(describing: picked))")
+            outline.deselectAll(nil)
         }
+        if let lent { model.unlink(lent.route, from: lent.task); await ui.settle(0.4) }
         check("the first task sits under its card's padding, a top-level task after another a gap lower; its subtasks don't",
               lineHeight(top[1]) == Metric.outlineRow + Metric.outlineGroupGap && lineHeight(top[0]) == Metric.outlineRow + Metric.listCardPadding && lineHeight(child) == Metric.outlineRow,
               "\(height(top[0])) \(height(top[1])) \(height(child))")
@@ -1662,6 +1730,9 @@ extension UITest {
     static func idle(_ model: AppModel, _ ui: Driver) async {
         model.selectSection(nil)
         await ui.settle(1)
+        let wide = model.windowSize.width >= Metric.sectionBarWindow
+        check("the section bar is in the toolbar when the window has room for it, and gone when it hasn't (\(Int(model.windowSize.width)) pt)",
+              (ui.anchorFrame("section-bar") != nil) == wide && ui.anchorFrame("section-bar").map { $0.midY > ui.window.contentLayoutRect.maxY } ?? true)
         let faces = ui.findAll(FaceView.self).map(\.face) + ui.findAll(FaceStackView.self).flatMap(\.faceLayers)
         let working = faces.filter(\.isWorking)
         check("working faces are on the page", !working.isEmpty, "\(faces.count) faces")

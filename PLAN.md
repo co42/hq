@@ -22,14 +22,14 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 | Names | App `HQ`, bundle id `io.github.co42.hq`, CLI `hq` |
 | Process | One process, the app: store, vault index, hook socket, Ghostty bridge, GitHub poller. Stays alive when its window closes |
 | CLI | The app binary is the CLI (bama `agent-cli`): `~/.local/bin/hq` links into the bundle and talks to the running app over a Unix socket. If the app is closed, `hq` opens it in the background; `hq hook` never does: it keeps the event in `pending-hooks.jsonl` (compact, 4 MB cap), which the app replays at launch with the events' own times |
-| Store | SwiftData in `~/Library/Application Support/HQ/`: sessions, artifacts and seen records. Beside it as JSON: GitHub's last answer, and `notifications.json` (the rows, when the user last opened the center, GitHub event keys and the date nothing before it notifies). Live session state stays in memory |
+| Store | SwiftData in `~/Library/Application Support/HQ/`: sessions, artifacts and seen records. Beside it as JSON: GitHub's last answer, and `notifications.json` (the rows, when the user last opened the center, GitHub event keys). Live session state stays in memory |
 | Vault | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes`; hq's folder is `hq/` with `tasks/` and `files/`. Front matter read and written line by line (`HQKit.FrontMatter`), so other keys keep their text |
 | Claude plugin | `plugin/` in this repo, installed globally through a local marketplace: hooks and skills. `Bash(hq:*)` allowed in `~/.claude/settings.json` |
 | Ghostty | AppleScript in-process (`NSAppleScript`). Automation permission |
 | GitHub | GraphQL with the token from `gh auth token`, one aliased query per poll, read-only |
 | Artifacts | claude.ai links captured from hooks, shown live in a web view with HQ's own claude.ai sign-in |
 | Signing | Apple Development certificate, installed to `/Applications/HQ.app` |
-| Notifications | Events go to a notification center, a sheet, and are read once; the page shows state only. macOS banners, the Dock badge and a menu bar bell for what needs the user (2026-11-06) |
+| Notifications | Events go to a notification center, a sheet, and are read once; the page shows state only. macOS banners, the Dock badge and HQ's mark in the menu bar for what needs the user (2026-11-06) |
 | Look | Native chrome (toolbar, sheets, menus); raised cards on a canvas under a sky that follows the day; Liquid Glass for everything that floats (toolbar, section bar, section controls, hover controls, the modal's header); the Mac's accent and system colors for meaning. All of it in DESIGN.md |
 
 ## 3. Verified facts
@@ -108,7 +108,7 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 ### Notifications and seen
 
-`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 30 days, the longest lookback) and the date nothing GitHub did before notifies (the first v9 poll). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
+`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 30 days, longer than the longest lookback, so nothing notifies twice). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
 
 `SeenRecord(key, seenAt)` keeps what the user acknowledged: `review:<url>` (Mark Reviewed, until the PR's next commit) and `blink:<session id>` (a card stops breathing until its next state). Sessions keep their own unread flag (done after Stop, until the user opens them, or looks at their terminal: while Ghostty is in front, HQ reads its focused tty every 2.5 s and a done session on it is read). Nothing else is new or seen.
 
@@ -173,29 +173,13 @@ hq notification done|delete <id> [--not-mine]              # one this session se
 hq hook                                        # used by the plugin
 ```
 
+Every action the UI has on a task, file or artifact has its `hq` command, and every command that changes a task goes through the same check that the session is on it (`--not-mine` otherwise). `hq help --json` is the commands' schema: `tools/docs-lint.sh` checks the docs and skills against it.
+
 `hq hook` reads stdin, adds Claude's pid, its tty and whether Ghostty is an ancestor, sends the event over the socket with a 1 s timeout and exits 0. With nothing listening (HQ is off) it appends the event, without what HQ never reads (tool output, file contents), to `pending-hooks.jsonl` beside the store (`HookSpool`); the app replays it at launch, and again 3 s later, keeping every state event, the tool calls it reads something from and each session's last tool call, older than 7 days dropped. Commands find their session from `CLAUDE_CODE_SESSION_ID`. Commands from the socket don't register Undo, and nothing they change notifies on its own: a session tells the user with `hq notify`. `hq notify` without `--link` links the session's open tasks and what it made since its last notification; a second one before the user reads the first updates that row.
 
-## 8. Build steps
+## 8. Iterations
 
-The cockpit, built in one go from the T-46 plan. Each step ends built, tested, reviewed and committed on `feat/cockpit`.
-
-Steps 0 to 13 are done; step 14 ships.
-
-0. ✅ Start: branch, baseline (build, `swift test`, self-test, UI test).
-1. The docs: DESIGN.md and PLAN.md for the cockpit.
-2. The model in HQKit, with unit tests: statuses and types, `TaskTree`, migration, the done rule, checkbox toggling, `FaceSpec`, GitHub parsing and link rules. Folders and comment threads go.
-3. The data layer: vault keys and the migration with its backup, the store's new fields and records, `AppModel`'s cockpit state, seed data that mirrors the mockup (`APP_SEED=1`, `APP_SEED=large`).
-4. Faces: `SessionFace` in DesignKit, three levels of detail, the gallery page `faces`.
-5. The cockpit shell: one window, the toolbar, the page and its empty states, menus, Quick Open, the Dock menu.
-6. Session cards: the grid, drag to reorder, a task dropped on a card, Closed Sessions, Resume, Close.
-7. The outline: rows, keys, descriptions, quick add, filters, drag and drop, the done rule.
-8. The modal: the sheet, Back, the task, session, file, artifact, start and closed-sessions kinds, the markdown viewer and editor.
-9. GitHub: the poller, the PR section, PR and issue modals, links.
-10. Attention: what needs the user, the toolbar, the Dock badge; starting a session end to end.
-11. CLI, hooks, skills; plugin 0.5.0.
-12. Clean up what the cockpit replaced.
-13. Full review and polish (DESIGN.md §17), with a fresh-eyes review.
-14. Ship: `./build.sh`, the plugin, the report, merge to `main`.
+The cockpit was built in one go from the T-46 plan (2026-11-04). Since then HQ grows by iterations: a story task "HQ - Iteration vN" whose subtasks are the work, built on a branch `vN` and shipped in batches the user tries in their own HQ. [ITERATION.md](ITERATION.md) says how one runs, from start to release to close; [RELEASE_NOTES.md](RELEASE_NOTES.md) says what each version shipped.
 
 ## 9. To check during the build 🔍
 
@@ -220,7 +204,7 @@ Steps 0 to 13 are done; step 14 ships.
 
 ```
 hq/
-  CLAUDE.md  PLAN.md  DESIGN.md
+  CLAUDE.md  PLAN.md  DESIGN.md  ITERATION.md  RELEASE_NOTES.md  README.md
   Package.swift  build.sh  Info.plist.in
   Icon/              AppIcon.icon (Icon Composer); compiled into Resources/ (not in git)
   Sources/HQ/        app: App.swift, Views/, DesignKit/, Agent/ (CLI + socket), Ghostty.swift, GitHub.swift, Snapshot.swift, SelfTest.swift, UITest.swift
@@ -229,5 +213,25 @@ hq/
   Tests/HQKitTests/  unit tests and GitHub fixtures
   plugin/            .claude-plugin/plugin.json, hooks/, skills/, bin/hq
   .claude-plugin/marketplace.json
-  tools/             snap.sh, selftest.sh, uitest.sh, grid-lint.sh, check-layout.swift, install-plugin.sh
+  tools/             check.sh (every check), snap.sh, selftest.sh, uitest.sh, grid-lint.sh, perf-lint.sh, docs-lint.sh, check-layout.swift, perf.sh, launch.sh, install-plugin.sh
 ```
+
+## 12. AppKit inside SwiftUI, Swift 6 at AppKit's edges
+
+Clicks that land nowhere, rows that vanish and crashes at these seams came back in nearly every iteration up to v8. The fixes that held:
+
+| Where | Do | Because |
+|---|---|---|
+| An AppKit view hosted in the page (the outline, the session grid) | its container sets its frame in `layout`; never edge constraints | constraints stopped following the container: rows past an opened fold took no clicks (T-207) |
+| A table or collection inside SwiftUI's scroll view | its `enclosingScrollView` is nil; no scroll view of its own | it laid itself out to the page's scroll view and put cards past the edge (T-255) |
+| A control that acts on the press | AppKit takes the mouseDown and its release | a SwiftUI ancestor saw the mouseUp and unselected the row (b75d851) |
+| A single click beside a double-click | `ClickTarget` or `SelectOpen`, never `onTapGesture(count: 2)` | SwiftUI holds the single click for the double-click interval |
+| Rows during a drag | change nothing until the drag ends | a row change during a gap drag crashed in AppKit |
+| Undo | one grouping per event, closed by AppKit | a manual `endUndoGrouping` crashed |
+| KVO, notifications, timers, WebKit and `UNUserNotificationCenter` delegates, called on the main thread | a `nonisolated` method or closure, then `MainActor.assumeIsolated { … }` | the module's default isolation is the main actor |
+| A completion called on a background queue (`NSItemProvider` loads) | never `assumeIsolated`; hop with `Task { @MainActor in … }` | `_dispatch_assert_queue_fail` |
+| AppleScript, file reads off the main thread | `nonisolated static` functions on value types marked `Sendable` | |
+| A method passed as a value (`.map(model.f)`) | a closure: `.map { model.f($0) }` | the method reference loses its isolation |
+| An observer to remove | `isolated deinit` | |
+| A cache under `@ObservationIgnored` | reads the observed values it depends on | a stale cache showed a deleted file (T-183) |
+| A note read empty while iCloud writes it | never trusted: read again | a subtask lost its parent (T-236) |

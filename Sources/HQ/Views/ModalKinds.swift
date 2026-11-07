@@ -278,6 +278,7 @@ struct OutputRows: View {
         case .github(let url): if let item = model.githubItem(url) { GitHubStateIcon(item: item) }
         case .file: KitIcon.file.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Artifact")
+        case .web: KitIcon.link.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Web page")
         default: EmptyView()
         }
     }
@@ -287,19 +288,20 @@ struct OutputRows: View {
         case .file(let id): "File · " + (model.file(id)?.modified.formatted(.relative(presentation: .named)) ?? "")
         case .artifact(let url): "Artifact · " + (model.artifacts.first { $0.id == url }?.published.formatted(.relative(presentation: .named)) ?? "")
         case .github(let url): (model.githubItem(url)?.kind == .issue ? "Issue · " : "PR · ") + (model.githubItem(url)?.updatedAt.formatted(.relative(presentation: .named)) ?? "")
+        case .web: "Link · opens in the browser"
         default: ""
         }
     }
 }
 
-/// Link…: a file, an artifact, a PR or an issue to link to the task, searched as the user types.
+/// Link…: a task, a file, an artifact, a PR or an issue to link to the task, searched as the user types, or a pasted address.
 struct LinkButton: View {
     let task: Int
     @State private var shown = false
 
     var body: some View {
         Button("Link…") { shown = true }
-            .help("Link a file, an artifact or a pull request to this task")
+            .help("Link a task, a file, an artifact, a pull request or a web page to this task")
             .popover(isPresented: $shown, arrowEdge: .bottom) { LinkPicker(task: task) { shown = false } }
             .uiTestAnchor("link-button")
     }
@@ -315,9 +317,10 @@ struct LinkPicker: View {
     var body: some View {
         let matches = Self.matches(model, task: task, query: query)
         VStack(alignment: .leading, spacing: Space.sm) {
-            TextField("Search files, artifacts and pull requests", text: $query)
+            TextField("Search, or paste a link", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
+                .uiTestAnchor("link-picker")
                 .onSubmit { if let first = matches.first { pick(first) } }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -328,12 +331,14 @@ struct LinkPicker: View {
                                     switch route {
                                     case .github(let url): if let item = model.githubItem(url) { GitHubStateIcon(item: item) }
                                     case .file: KitIcon.file.image.foregroundStyle(.secondary)
+                                    case .task(let id): if let task = model.task(id) { TaskGlyph(status: task.status) }
+                                    case .web: KitIcon.link.image.foregroundStyle(.secondary)
                                     case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary)
                                     default: EmptyView()
                                     }
                                 }
                                 .frame(width: Metric.glyphSlot)
-                                Text(model.title(of: route)).kitType(.title).lineLimit(1)
+                                Text(Self.name(route, model)).kitType(.title).lineLimit(1)
                                 Spacer(minLength: 0)
                                 Text(Self.kind(route, model)).kitType(.meta).foregroundStyle(.secondary)
                             }
@@ -359,22 +364,39 @@ struct LinkPicker: View {
 
     static let shown = 40
 
-    /// Files, then artifacts, then PRs and issues, newest first, not linked yet, whose title (or PR reference) has the query.
+    /// A pasted address first (T-298); then the task a key names; then tasks, files, artifacts, PRs and issues whose title
+    /// (or key, or PR reference) has the query, newest first. Tasks only once something is typed. Nothing linked already.
     static func matches(_ model: AppModel, task: Int, query: String) -> [ModalRoute] {
         let text = query.trimmingCharacters(in: .whitespaces)
         func hit(_ words: String) -> Bool { text.isEmpty || words.localizedStandardContains(text) }
+        var routes: [ModalRoute] = []
+        if let url = URL(string: text), url.scheme == "https" || url.scheme == "http", url.host() != nil {
+            routes.append(model.artifacts.first { $0.id == url }.map { .artifact($0.id) }
+                          ?? (GitHubLinks.isItem(text) ? .github(text) : .web(text)))
+        }
+        if text.uppercased().hasPrefix("T-") || Int(text) != nil, let id = TaskItem.key(text), model.task(id) != nil { routes.append(.task(id)) }
+        let tasks = text.isEmpty ? [] : model.tasks.filter { $0.status != .done }.sorted { $0.modified > $1.modified }
+            .filter { hit("\($0.key) \($0.title)") }.map { ModalRoute.task($0.id) }
         let files = model.files.sorted { $0.modified > $1.modified }.filter { hit($0.title) }.map { ModalRoute.file($0.id) }
         let artifacts = model.artifacts.sorted { $0.published > $1.published }.filter { hit($0.title) }.map { ModalRoute.artifact($0.id) }
         let github = (model.github?.items ?? []).filter { $0.state == .open || $0.state == .draft }
             .sorted { $0.updatedAt > $1.updatedAt }.filter { hit("\($0.title) \($0.reference)") }.map { ModalRoute.github($0.url) }
-        return (files + artifacts + github).filter { !model.isLinked($0, to: task) }
+        var seen = Set<ModalRoute>()
+        return (routes + tasks + files + artifacts + github).filter { $0 != .task(task) && !model.isLinked($0, to: task) && seen.insert($0).inserted }
+    }
+
+    static func name(_ route: ModalRoute, _ model: AppModel) -> String {
+        if case .task(let id) = route, let task = model.task(id) { return "\(task.key) \(task.title)" }
+        return model.title(of: route)
     }
 
     static func kind(_ route: ModalRoute, _ model: AppModel) -> String {
         switch route {
+        case .task: "Task"
         case .file: "File"
         case .artifact: "Artifact"
-        case .github(let url): model.githubItem(url).map { "\($0.kind == .issue ? "Issue" : "PR") · \($0.reference)" } ?? "PR"
+        case .github(let url): model.githubItem(url).map { "\($0.kind == .issue ? "Issue" : "PR") · \($0.reference)" } ?? "Link"
+        case .web: "Link"
         default: ""
         }
     }

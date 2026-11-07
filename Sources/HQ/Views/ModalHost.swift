@@ -27,6 +27,8 @@ struct ModalHost: View {
                 case .artifact(let url):
                     if let artifact = model.artifacts.first(where: { $0.id == url }) { ArtifactReader(artifact: artifact).id(url) } else { gone }
                 case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
+                // A web page opens in the browser, never here.
+                case .web: gone
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
                 case .notifications: NotificationCenterView()
@@ -122,6 +124,7 @@ private struct ModalHeader: View {
         case .file: "File"
         case .artifact: "Artifact"
         case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
+        case .web: "Link"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
@@ -203,10 +206,7 @@ private struct ModalActions: View {
             Button("Remind Me…", icon: .newReminder) { model.composingReminder = true }
                 .help("Add a reminder: it waits in Later, then comes back at its time (⌃⌘R)")
                 .uiTestAnchor("remind-me")
-            Button("Mark All Read", icon: .markRead) { model.markAllRead() }
-                .disabled(model.unreadNotices == 0)
-                .help("Mark every notification read; sessions that wait on you stay (⇧⌘J)")
-        case .start, .closedSessions, nil:
+        case .start, .closedSessions, .web, nil:
             EmptyView()
         }
     }

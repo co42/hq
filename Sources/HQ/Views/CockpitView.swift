@@ -3,7 +3,7 @@ import HQKit
 import SwiftUI
 
 /// The one page (DESIGN.md §4): the day's title, then pull requests, sessions, files and artifacts, tasks and the
-/// Backlog, top to bottom, on a canvas with the sky at its top; the section bar floats over it in glass.
+/// Backlog, top to bottom, on a canvas with the sky at its top; the section bar sits in the toolbar.
 struct CockpitView: View {
     @Environment(AppModel.self) private var model
     /// The scroll view's visible width: a legacy scroller takes some of the window's.
@@ -67,19 +67,20 @@ struct CockpitView: View {
                 scroller.scrollTo(target)
             }
             .safeAreaBar(edge: .top, spacing: 0) {
-                VStack(spacing: Space.sm) {
-                    SectionBar(tops: tops) { section in
-                        tops.hold(section)
-                        withAnimation(Motion.glide) { scroller.scrollTo(SectionTop.id(section), anchor: .top) }
-                    }
-                    if let problem = model.problem {
-                        InlineBanner(message: problem.message, detail: problem.detail, actionTitle: problem.fixTitle) { model.fix(problem) }
-                            .frame(width: column.width)
-                            .padding(.leading, column.inset)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                if let problem = model.problem {
+                    InlineBanner(message: problem.message, detail: problem.detail, actionTitle: problem.fixTitle) { model.fix(problem) }
+                        .frame(width: column.width)
+                        .padding(.leading, column.inset)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, Space.sm)
                 }
-                .padding(.vertical, Space.sm)
+            }
+            // One row (T-326): the section bar sits in the toolbar, while the window has room for it.
+            .toolbar {
+                CockpitToolbar(tops: tops, sections: model.windowSize.width >= Metric.sectionBarWindow) { section in
+                    tops.hold(section)
+                    withAnimation(Motion.glide) { scroller.scrollTo(SectionTop.id(section), anchor: .top) }
+                }
             }
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
@@ -92,7 +93,6 @@ struct CockpitView: View {
         }
         .navigationTitle("HQ")
         .toolbar(removing: .title)
-        .toolbar { CockpitToolbar() }
         .searchable(text: $model.search, placement: .toolbar, prompt: "Search")
         .sheet(isPresented: Binding(get: { model.modal != nil }, set: { if !$0 { model.closeModal() } })) {
             ModalHost()
@@ -168,8 +168,7 @@ private struct PageTitle: View {
     }
 }
 
-/// The floating section bar (DESIGN.md §3): every section, the one in view highlighted.
-/// A click scrolls to it. Glass: it floats over the page as the toolbar does.
+/// The section bar, in the toolbar (DESIGN.md §3): every section, the one in view highlighted. A click scrolls to it.
 private struct SectionBar: View {
     let tops: SectionTops
     let go: (PageSection) -> Void
@@ -214,15 +213,27 @@ private struct SectionBar: View {
             .glassEffect(.regular, in: Capsule())
             .animation(Motion.glide, value: current)
         }
-        .frame(maxWidth: .infinity)
+        .fixedSize()
     }
 }
 
-/// The toolbar (DESIGN.md §3): the bell and New; the search on the trailing side.
+/// The toolbar (DESIGN.md §3), one row: the bell and New, the section bar in the middle while it fits, the search on the
+/// trailing side.
 struct CockpitToolbar: ToolbarContent {
+    let tops: SectionTops
+    let sections: Bool
+    let go: (PageSection) -> Void
     @Environment(AppModel.self) private var model
 
     var body: some ToolbarContent {
+        if sections {
+            ToolbarItem(id: "sections", placement: .principal) {
+                SectionBar(tops: tops, go: go)
+                    .uiTestAnchor("section-bar")
+            }
+            // Its own glass, with the section in view highlighted inside it.
+            .sharedBackgroundVisibility(.hidden)
+        }
         ToolbarItem(id: "bell", placement: .navigation) {
             NotificationBell(needs: model.importantCount, updates: model.updateCount, breathing: model.bellBreathes) { model.openCenter() }
                 .help("\(model.noticeSummary). Open the notifications (⌘J)")

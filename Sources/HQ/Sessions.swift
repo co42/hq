@@ -436,6 +436,7 @@ extension AppModel {
             let result = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
                 do throws(Ghostty.Failure) { return .success(try Ghostty.focus(tty: tty)) } catch { return .failure(error) }
             }.value
+            AppLog.write("focus \(item.name) (\(item.status.state)) on \(tty): \(result)", to: "clicks.log")
             ghostty {
                 let found = try result.get()
                 self.setInGhostty(id, found)

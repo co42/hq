@@ -15,7 +15,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app |
 | **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, drag and drop moves it. Each task is a note in the vault, linked to its sessions, PRs, files and artifacts |
 
-Attention is earned: only what needs you is orange (a session that asks, a task in review, a PR waiting for your review), only what changed since you last looked is blue. The toolbar counts both, and **Review Next** (⌘J) walks you through them. ⌘K opens Quick Open.
+Attention is earned: only what needs you is orange (a session that asks, a ping, a due reminder), and the page shows state, never "new". What happened goes to the **notification center** (⌘J, the toolbar's bell, or the menu bar), read once: Needs You, Updates, Later. Sessions tell you there when work is ready (`hq notify`), GitHub reviews and comments on your PRs land there, and reminders, yours or a session's, come back there at their time. ⌘K opens Quick Open.
 
 The look is native macOS 27: raised cards on a calm canvas, a soft sky at the top that follows the day, and Liquid Glass for everything that floats (the toolbar, the section bar, the modal's header). [DESIGN.md](DESIGN.md) has every rule.
 
@@ -30,25 +30,24 @@ The look is native macOS 27: raised cards on a calm canvas, a soft sky at the to
                        ▼                                  │
              ┌───────────────── HQ.app ───────────────────┴─┐
              │ sessions: hook events (memory) + store       │
-             │ store: sessions, artifacts, seen, changes    │◄── GraphQL ── api.github.com
+             │ store: sessions, artifacts, notifications    │◄── GraphQL ── api.github.com
              │ vault index: tasks, files (memory)           │◄── FSEvents ── <vault>/hq/
              └──────────────────────────────────────────────┘
 ```
 
-- **One process**, the app: a SwiftData store for what has no file (sessions, artifacts, what you've seen), an index of the vault, the hook socket, the Ghostty bridge and the GitHub poller. It stays alive when its window closes.
+- **One process**, the app: a store for what has no file (sessions, artifacts, notifications), an index of the vault, the hook socket, the Ghostty bridge and the GitHub poller. It stays alive when its window closes.
 - **The `hq` command** is the app's own binary, linked at `~/.local/bin/hq`. It talks to the running app over a Unix socket.
-- **A Claude Code plugin** (`plugin/`): its hooks report every session event through `hq hook`, which always exits 0, fast, and never opens the app. Its skills (`hq`, `hq-tasks`, `hq-files`) teach Claude to keep tasks current (`doing` when it starts, a description kept up to date, `review` when you must check something) and to write plans and reports as notes linked to their task.
+- **A Claude Code plugin** (`plugin/`): its hooks report every session event through `hq hook`, which always exits 0, fast, and never opens the app. Its skills (`hq`, `hq-tasks`, `hq-files`) teach Claude to keep tasks current (`doing` when it starts, a description kept up to date, a notification when you must check something) and to write plans and reports as notes linked to their task.
 - **Tasks and files are notes** under `<vault>/hq/tasks/` and `<vault>/hq/files/`. HQ writes only the front matter keys it owns, line by line, so everything else in a note keeps its exact text:
 
 ```yaml
 ---
 title: Retry budget for blob uploads
-status: review          # todo | doing | review | done
+status: doing           # todo | doing | done
 project: Registry
 tags: [perf]
 parent: T-9             # subtasks are their own notes
 list: overview          # overview | backlog
-review: PR #418 is ready to merge
 links: [https://github.com/acme/registry/pull/418]
 sessions: [2f1c9e0a-…]
 ---
@@ -86,8 +85,9 @@ Mostly for Claude, through the plugin's skills, but it works from any terminal:
 hq ctx                                    # what this session works on, and the overview
 hq ls tasks | sessions | prs | files | artifacts | projects
 hq task add "Dedup layers on push" --project Registry
-hq task move T-12 doing                   # todo | doing | review | done | backlog
-hq task move T-12 review --reason "PR #418 is ready to merge"
+hq task move T-12 doing                   # todo | doing | done | backlog
+hq notify "PR #418 is ready to merge: the canary is green" --link T-12
+hq remind "Look at the canary again" --at "tomorrow 9:00"
 hq task show T-12
 hq task link T-12 <PR URL | T-34 | file | artifact URL | session id>
 hq file new "Retry budget plan" --task T-12 --body -

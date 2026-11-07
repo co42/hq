@@ -239,9 +239,12 @@ private struct ItemRow: View {
                     .accessibilityLabel(route.isFile ? "File" : "Artifact")
             }
             HStack(spacing: Space.sm) {
-                Text(model.title(of: route))
-                    .kitType(.title)
-                    .lineLimit(1)
+                HStack(spacing: Space.xs) {
+                    ReminderMark(route: route)
+                    Text(model.title(of: route))
+                        .kitType(.title)
+                        .lineLimit(1)
+                }
                 HStack(spacing: Space.xs) {
                     ProjectPicker(project: item.project, iconOnly: true) { model.setProject(of: route, $0) }
                     ForEach(item.tags.prefix(2), id: \.self) { tag in

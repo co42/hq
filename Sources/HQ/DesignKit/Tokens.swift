@@ -181,7 +181,6 @@ nonisolated enum Metric {
     static var glyphSlot: CGFloat { 16 * Zoom.factor }
     static var glyphStroke: CGFloat { 1.5 * Zoom.factor }
     static var unreadDot: CGFloat { 8 * Zoom.factor }
-    static var attentionDot: CGFloat { 6 * Zoom.factor }
     static var lineGap: CGFloat { 2 * Zoom.factor }
     static var chipHeight: CGFloat { 18 * Zoom.factor }
     /// The page: at most this wide, centered, with its side margins.
@@ -219,6 +218,8 @@ nonisolated enum Metric {
     static var kindTile: CGFloat { 20 * Zoom.factor }
     /// The floating section bar under the toolbar.
     static var sectionBar: CGFloat { 32 * Zoom.factor }
+    /// A window at least this wide has room for the section bar in the toolbar, between New and the search.
+    static var sectionBarWindow: CGFloat { 960 * Zoom.factor }
     static var sectionBarItem: CGFloat { 28 * Zoom.factor }
     /// The color dot in a project's or a tag's chip.
     static var labelDot: CGFloat { 6 * Zoom.factor }
@@ -251,7 +252,7 @@ nonisolated enum Metric {
     /// Space inside a list's card above its first task.
     static var listCardPadding: CGFloat { 8 * Zoom.factor }
     /// The line of links under a task's title.
-    static var linksLine: CGFloat { 22 * Zoom.factor }
+    static var linksLine: CGFloat { 20 * Zoom.factor }
     /// A hidden description's first line shows when this much room is left.
     static var previewMinimum: CGFloat { 80 * Zoom.factor }
     /// Hover actions in a row: a 22 pt hit area each.

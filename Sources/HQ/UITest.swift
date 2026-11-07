@@ -63,7 +63,10 @@ enum UITest {
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
                 ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
             ]
-            for (name, run) in groups where only?.contains(name) ?? true { await run(model, ui) }
+            for (name, run) in groups where only?.contains(name) ?? true {
+                await run(model, ui)
+                hitSweep(ui, after: name)
+            }
             if Store.background { check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
 
             let skips = skipped == 0 ? "" : ", \(skipped) skipped"
@@ -83,6 +86,38 @@ enum UITest {
     /// A click on an AppKit table: macOS hands it over only while HQ is the active app.
     static func tableCheck(_ ui: Driver, _ name: String, _ ok: Bool, _ detail: String = "") {
         if ui.canClickTables { check(name, ok, detail) } else { skip(name) }
+    }
+
+    /// Every clickable on screen sits inside each of its containers: one laid out past its container takes no clicks (T-207, T-255).
+    static func hitSweep(_ ui: Driver, after group: String) {
+        let windows = [ui.window, ui.window.attachedSheet].compactMap { $0 }
+        var views: [(String, NSView)] = anchors.flatMap { name, probes in probes.compactMap(\.view).map { (name, $0) } }
+        func collect(_ view: NSView) {
+            if view is NSTableRowView || view is NSTableCellView || view is NSControl || view is SessionGrid.CardView {
+                views.append((String(describing: type(of: view)), view))
+            }
+            view.subviews.forEach(collect)
+        }
+        windows.compactMap(\.contentView).forEach(collect)
+        var outside: [String] = []
+        var checked = 0
+        for (name, view) in views where windows.contains(where: { $0 === view.window }) {
+            guard !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 1, view.bounds.height > 1 else { continue }
+            checked += 1
+            let center = NSPoint(x: view.bounds.midX, y: view.bounds.midY)
+            var parent = view.superview
+            while let container = parent, !(container is NSClipView || container is NSScrollView) {
+                // SwiftUI's and AppKit's private hosts (`_NSGraphicsView`) may be smaller than what they host.
+                let own = !String(describing: type(of: container)).hasPrefix("_")
+                if own, !container.bounds.insetBy(dx: -1, dy: -1).contains(view.convert(center, to: container)) {
+                    outside.append("\(name) outside its \(type(of: container))")
+                    break
+                }
+                parent = container.superview
+            }
+        }
+        check("after \(group), every clickable on screen sits inside its containers (\(checked))", outside.isEmpty,
+              Set(outside).sorted().prefix(6).joined(separator: "; "))
     }
 
     static func skip(_ name: String) {

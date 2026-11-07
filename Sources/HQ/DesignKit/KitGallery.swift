@@ -59,8 +59,14 @@ struct KitGallery: View {
                     Chip(text: "Registry", icon: .project)
                     Chip(text: "#perf")
                     KeyLabel(key: "T-13")
-                    NoticeDot(color: Ink.needsYou)
-                    NoticeDot(color: Ink.accent)
+                }
+            }
+            section("Menu bar") {
+                HStack(spacing: Space.lg) {
+                    Image(nsImage: MenuBarIcon.mark(color: nil)).foregroundStyle(.primary)
+                    Image(nsImage: MenuBarIcon.mark(color: Ink.needsYouNS))
+                    Image(nsImage: MenuBarIcon.mark(color: nil)).resizable().frame(width: Metric.faceCard, height: Metric.faceCard)
+                    Image(nsImage: MenuBarIcon.mark(color: Ink.needsYouNS)).resizable().frame(width: Metric.faceCard, height: Metric.faceCard)
                 }
             }
             section("Face stacks") {

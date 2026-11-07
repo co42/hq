@@ -23,6 +23,7 @@ struct TaskOutline: NSViewRepresentable {
 
     func updateNSView(_ container: OutlineContainer, context: Context) {
         context.coordinator.model = model
+        model.showLinkPicker = { [weak coordinator = context.coordinator] id in coordinator?.showLinkPicker(id) }
         context.coordinator.onHeight = { [binding = $height] value in
             if binding.wrappedValue != value { binding.wrappedValue = value }
         }
@@ -30,7 +31,7 @@ struct TaskOutline: NSViewRepresentable {
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
              model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
-             model.sectionFocus, model.selectedSection)
+             model.sectionFocus, model.selectedSection, model.notices.count) // notices: reminders' marks on rows (T-311)
         context.coordinator.width = width
         context.coordinator.refresh()
     }
@@ -474,6 +475,29 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     isolated deinit {
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+    }
+
+    /// Link… on a row: the link picker in a popover under the task's title, the row selected.
+    func showLinkPicker(_ id: Int) {
+        guard let outline else { return }
+        let row = outline.row(forItem: node(.task(id)))
+        guard row >= 0 else { return }
+        outline.selectRowIndexes([row], byExtendingSelection: false)
+        // The page scrolls, not the outline: the row comes into view clear of the toolbar, or the popover has nothing to show under.
+        outline.scrollToVisible(outline.rect(ofRow: row).insetBy(dx: 0, dy: -Metric.outlineRow * 3))
+        // Shown once the page has laid the row out where it scrolled.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let outline = self.outline else { return }
+            let popover = NSPopover()
+            popover.behavior = .transient
+            popover.contentViewController = NSHostingController(rootView: LinkPicker(task: id) { [weak popover] in popover?.close() }
+                .environment(self.model).handCursors())
+            if let anchor = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.title, anchor.window != nil {
+                popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+            } else {
+                popover.show(relativeTo: outline.rect(ofRow: row), of: outline, preferredEdge: .maxY)
+            }
+        }
     }
 
     func node(_ kind: OutlineNode.Kind) -> OutlineNode {
@@ -1529,6 +1553,7 @@ struct TaskMenu: View {
         } else if let id = ids.first, let task = model.task(id) {
             Button("Open") { model.open(.task(id)) }
             Button("Start Session…") { model.beginStart(task: id) }
+            Button("Link…") { model.showLinkPicker(id) }
             Menu("Link to Session") {
                 ForEach(model.gridSessions) { session in
                     Button(session.name) { model.link(task: id, session: session.id) }

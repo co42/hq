@@ -14,7 +14,7 @@ When the user hands you a task ("do T-12 and its subtasks"), before the first ed
 1. **Read it and its subtasks**: `hq task show T-n` prints the tasks it's part of ("Part of:"), its description, its subtasks with their status, and what's linked to it (files, artifacts, PRs, tasks); `hq ls tasks --overview --json` gives each subtask's `parent`, `type` and `project`. The subtasks are your queue. The user edits the task and adds subtasks while you work: `hq task show` again between pieces and before you finish, take the new subtasks in, and follow what they changed.
 2. **Take it**: `hq task move T-12 doing --not-mine`. It links this session to the task, and so to its subtasks. HQ refuses a session's changes to a task it isn't on, nor under one it's on: `--not-mine` says this is the task the user named (below).
 3. **Fix every one's fields**, the task's and each subtask's: a **type** that fits (set a missing one, correct a wrong one) and the **project** the work belongs to (below). `hq task edit T-n --type … --project …`.
-4. **Move each subtask to `doing` before you touch it**: before reading its code, planning it or editing for it, not only once you edit. The parent in doing doesn't move its subtasks: a subtask you work on while it shows todo looks untouched. Then keep every status true as you go (next section).
+4. **Move each subtask to `doing` before you touch it**: before reading its code, planning it or editing for it, not only once you edit. `hq task move` on the parent lists the ones still todo. The parent in doing doesn't move its subtasks: a subtask you work on while it shows todo looks untouched. Then keep every status true as you go (next section).
 
 ## The rule: `doing` the moment work starts
 
@@ -68,14 +68,14 @@ hq notify "PR #418 is ready to merge" --link T-12   # the user must check someth
 hq task edit T-12 --body -                          # replace the whole description; the rest stays
 hq task edit T-12 [--title …] [--type t] [--project p] [--add-tag t] [--remove-tag t]
 hq task edit T-12 --parent T-34                     # move it under T-34, as its last subtask; --parent none: top level
-hq task link T-12 <PR or issue URL | T-34 | file | artifact URL | session id>
+hq task link T-12 <PR or issue URL | web page URL | T-34 | file | artifact URL | session id>
 hq task unlink T-12 <the same item>                 # a link made by mistake
 hq task delete T-12 --yes                           # only when the user asks; its subtasks go too (without --yes: what it would delete)
 hq task history T-12                                # what sessions changed in it through hq, the last 30 days
 hq task undo T-12 --yes                             # put back every task its latest change touched (without --yes: what it would)
 ```
 
-`--not-mine` on `task edit`, `move` and `delete`: for a task this session isn't on (see Rules).
+`--not-mine` on every command that changes a task (`task edit`, `move`, `delete`, `link`, `unlink`, and `add --parent` for its parent): for a task this session isn't on (see Rules). A title that starts with `--` goes after a bare `--`: `hq task add --type bug -- "--flag is ignored"`.
 
 `--body -` reads stdin. A task you create, or move to doing, is linked to this session: its face shows on the task's row. Edits alone (title, description, type, project, tags) don't link it.
 
@@ -101,7 +101,7 @@ When the user asks to take a task to a new conversation, it's a new Claude sessi
 ## Rules
 
 - Change tasks only through `hq`. Don't edit task files with Write or Edit: HQ owns their front matter.
-- **A task this session isn't on**, nor under one it's on: `task edit`, `move` and `delete` fail with exit code 5, naming the task the key hit. Check the key. Run it again with `--not-mine` only when it's the task the user named; never on a key you assumed (the key `task add` gave is in its output: read it there).
+- **A task this session isn't on**, nor under one it's on: every command that changes it fails with exit code 5, naming the task the key hit. Check the key. Run it again with `--not-mine` only when it's the task the user named; never on a key you assumed (the key `task add` gave is in its output: read it there).
 - **A change went wrong** (the wrong task, the wrong parent): `hq task history T-n`, then `hq task undo T-n --yes`. It puts back every task that command changed; tasks it created or deleted stay so.
 - Exit code 4 means HQ isn't running: tell the user once and go on with the work.
 - Keep titles plain and short: the user reads them on one row.

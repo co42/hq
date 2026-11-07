@@ -129,9 +129,6 @@ struct HQCommands: Commands {
                 .keyboardShortcut("[")
                 .disabled(!menu.canGoBack)
             Divider()
-            Button("Mark All Read") { model.markAllRead() }
-                .keyboardShortcut("j", modifiers: [.command, .shift])
-                .disabled(!menu.hasUnread)
             Button("Mark Reviewed") { if case .github(let url) = model.menuRoute { model.markReviewed(url) } }
                 .disabled(!menu.reviewable)
         }
@@ -175,6 +172,8 @@ struct HQCommands: Commands {
             Button("Start Session…") { if let task { model.beginStart(task: task) } }
                 .keyboardShortcut(.return, modifiers: [.command, .option])
                 .disabled(task == nil)
+            Button("Link…") { if let task { model.showLinkPicker(task) } }
+                .disabled(task == nil || menu.inModal)
             Divider()
             Button(menu.tasksToBacklog ? (several ? "Move \(menu.tasks.count) to Backlog" : "Move to Backlog")
                    : (several ? "Move \(menu.tasks.count) to Tasks" : "Move to Tasks")) {

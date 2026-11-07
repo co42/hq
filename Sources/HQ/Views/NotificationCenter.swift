@@ -175,8 +175,6 @@ private struct BlockedRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
-            NoticeDot(color: session.status.state == .failed ? Ink.failed : Ink.needsYou)
-                .frame(height: Metric.boxRow - Space.sm)
             SessionFace(session, size: Metric.faceRow + Space.xs)
             VStack(alignment: .leading, spacing: Metric.lineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
@@ -207,7 +205,7 @@ private struct BlockedRow: View {
 }
 
 /// One notification, as macOS draws one: who and when, then its text (in full when selected), then what it links.
-/// Unread: a dot and a bold name. Its actions show on hover and while selected; the rest is in its menu.
+/// Unread: its name in bold. Its actions show on hover and while selected; the rest is in its menu.
 private struct NoticeRow: View {
     let notice: Notice
     let section: NoticeSection
@@ -224,8 +222,6 @@ private struct NoticeRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
-            NoticeDot(color: done || section == .later ? nil : notice.level == .important ? Ink.needsYou : Ink.accent)
-                .frame(height: Metric.boxRow - Space.sm)
             avatar
             VStack(alignment: .leading, spacing: Metric.lineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
@@ -280,6 +276,7 @@ private struct NoticeRow: View {
             }
         }
         .frame(width: Metric.faceRow + Space.xs)
+        .uiTestAnchor("notice-avatar:\(notice.id.uuidString)")
     }
 
     /// The session or the PR, bold while unread: a click opens it.
@@ -387,7 +384,8 @@ private struct NoticeRow: View {
         if section == .later {
             Button("Bring Back Now") { model.bringBack(notice.id) }
         } else {
-            Menu("Later") {
+            // A reminder comes back as Mail's do: Remind Me › In 1 Hour.
+            Menu(reminder ? "Remind Me" : "Later") {
                 ForEach(ReminderTime.Preset.available(now: model.now), id: \.self) { preset in
                     let date = ReminderTime.date(preset, now: model.now)
                     Button("\(preset.title), \(ReminderTime.brief(date, now: model.now))") { model.snooze(notice.id, until: date) }
@@ -559,6 +557,28 @@ extension AppModel {
         case .notifications: importantCount > 0 ? .needsYou : .calm
         case .session(let id): session(id)?.status.needsYou == true ? .needsYou : .calm
         default: .calm
+        }
+    }
+}
+
+/// A reminder that links this row's item (T-311): an alarm before its title, orange once due when important, quiet while
+/// it waits; a click shows it in the notifications. The task rows draw the same in AppKit (`TaskCell`).
+struct ReminderMark: View {
+    let route: ModalRoute
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let notice = model.reminder(for: route) {
+            let mark = model.reminderMark(notice)
+            Button { model.showReminder(notice) } label: {
+                KitIcon.reminder.image.imageScale(.small).fontWeight(.semibold)
+                    .foregroundStyle(mark.due && notice.level == .important ? AnyShapeStyle(Ink.needsYou) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.plain)
+            .clickable()
+            .help(mark.help)
+            .accessibilityLabel(mark.help)
+            .uiTestAnchor("reminder-mark:\(route.selectionKey)")
         }
     }
 }

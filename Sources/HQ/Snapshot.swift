@@ -11,6 +11,11 @@ import SwiftUI
 enum Snapshot {
     /// The two half-screen sizes HQ is designed for (DESIGN.md §3).
     static let sizes: [CGSize] = [CGSize(width: 1504, height: 1662), CGSize(width: 756, height: 950)] // grid: ok real half-screen sizes
+        .filter { size in widths.map { $0.contains(Int(size.width)) } ?? true } + (widths ?? []).filter { $0 != 1504 && $0 != 756 }.map { CGSize(width: $0, height: 950) } // grid: ok the 756 snapshot's height
+    /// APP_SNAPSHOT_WIDTHS=1200,756: other widths, such as the user's own half screen.
+    private static var widths: [Int]? {
+        ProcessInfo.processInfo.environment["APP_SNAPSHOT_WIDTHS"].map { $0.split(separator: ",").compactMap { Int($0) } }
+    }
 
     struct Page {
         enum Capture { case window, sheet, quickOpen }

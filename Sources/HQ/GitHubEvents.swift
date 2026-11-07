@@ -2,14 +2,10 @@ import Foundation
 import HQKit
 
 /// What GitHub tells the user (DESIGN.md §11): on their PRs, reviews, comments and failed checks; on others', a review
-/// asked of them. Never a bot's or their own; one row per PR; nothing from before the first poll.
+/// asked of them. Never a bot's or their own; one row per PR; nothing older than the lookback.
 extension AppModel {
     func noteGitHubEvents(before: GitHubSnapshot?, after: GitHubSnapshot, now: Date = .now) {
-        guard let since = noticeStore.githubSince else {
-            noticeStore.githubSince = now
-            return
-        }
-        let floor = githubFloor(since: since, now: now)
+        let floor = githubFloor(now: now)
         let old = Dictionary((before?.items ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         var known = noticeStore.githubEvents
         for item in after.items where item.kind == .pullRequest && (item.state == .open || item.state == .draft) {
@@ -37,9 +33,9 @@ extension AppModel {
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
     }
 
-    /// Events before this never notify: the first poll, or the lookback. Keys last as long, so nothing notifies twice.
-    func githubFloor(since: Date, now: Date = .now) -> Date {
-        max(since, now.addingTimeInterval(-Double(githubLookback) * 86_400))
+    /// Events older than the lookback (Settings › GitHub) never notify. Their keys last 30 days, longer than any lookback, so nothing notifies twice.
+    func githubFloor(now: Date = .now) -> Date {
+        now.addingTimeInterval(-Double(githubLookback) * 86_400)
     }
 
     /// "noor approved your PR", "theo asked for changes: “Split the GC job”", "lea commented: “LGTM”".

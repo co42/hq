@@ -129,9 +129,16 @@ enum AgentCLI {
         var values: [String: String] = [:]
         var positional = command.params.filter(\.positional)
         var index = 0
+        // After a bare --, every word is a value: a title may start with --.
+        var optionsDone = false
         while index < words.count {
             let word = words[index]
-            if word.hasPrefix("--") {
+            if word == "--", !optionsDone {
+                optionsDone = true
+                index += 1
+                continue
+            }
+            if !optionsDone, word.hasPrefix("--"), word.count > 2, word.dropFirst(2).allSatisfy({ $0.isLetter || $0 == "-" }) {
                 let name = String(word.dropFirst(2))
                 if name == "yes", command.destructive { values["yes"] = "true"; index += 1; continue }
                 guard let param = command.params.first(where: { $0.name == name }) else {
@@ -226,8 +233,14 @@ enum AgentCLI {
 
     // MARK: Output
 
-    /// Short plain lines for people. Agents use --json.
+    /// Short plain lines for people. Agents use --json. A result's `next` says what to do now, on its own line.
     static func human(_ result: Any) -> String {
+        let text = plain(result)
+        guard let next = (result as? JSONObject)?["next"] as? String else { return text }
+        return text + "\n" + next
+    }
+
+    private static func plain(_ result: Any) -> String {
         if let object = result as? JSONObject, let line = notice(object) { return line }
         // A command with a text form (`ctx`) prints that.
         if let text = (result as? JSONObject)?["text"] as? String { return text }
