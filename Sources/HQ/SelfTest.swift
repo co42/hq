@@ -153,6 +153,9 @@ enum SelfTest {
         check("the menu bar mark is HQ's ring and dot, not a bell", ink(quiet, 15, 9) > 0.5 && ink(quiet, 5, 5) > 0.5 && ink(quiet, 9, 9) < 0.1,
               "ring \(ink(quiet, 15, 9)), dot \(ink(quiet, 5, 5)), center \(ink(quiet, 9, 9))")
         check("a template at rest, orange while something needs the user", quiet.isTemplate && !needs.isTemplate)
+        let count = MenuBarIcon.countTitle(3)
+        check("its count is drawn orange, never in the menu bar's dark text", count.string == "3"
+              && (count.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == Ink.needsYouNS)
     }
 
     /// Settings › Keys and the menus agree both ways: it lists every menu shortcut, and each ⌘ key it lists under Everywhere is a menu's.

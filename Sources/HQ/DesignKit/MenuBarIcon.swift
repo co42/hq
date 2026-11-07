@@ -25,9 +25,7 @@ final class MenuBarIcon: NSObject {
         guard let button = item?.button, shown?.count != count || shown?.blinks != blinks else { return }
         shown = (count, blinks)
         button.image = Self.mark(color: count > 0 ? Ink.needsYouNS : nil)
-        button.title = count > 0 ? "\(count)" : ""
-        button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-        button.contentTintColor = count > 0 ? Ink.needsYouNS : nil
+        button.attributedTitle = Self.countTitle(count)
         button.toolTip = count > 0 ? "\(count) need\(count == 1 ? "s" : "") you: open HQ's notifications" : "HQ: nothing needs you"
         button.setAccessibilityLabel(count > 0 ? "HQ, \(count) need you" : "HQ")
         if count > 0 && blinks { blink(button) } else { button.layer?.removeAnimation(forKey: "blink") }
@@ -44,6 +42,14 @@ final class MenuBarIcon: NSObject {
         animation.repeatCount = .infinity
         animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(animation, forKey: "blink")
+    }
+
+    /// The count beside the mark, in its orange: the menu bar's own text color reads black on a dark bar (T-309).
+    static func countTitle(_ count: Int) -> NSAttributedString {
+        NSAttributedString(string: count > 0 ? "\(count)" : "", attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
+            .foregroundColor: Ink.needsYouNS,
+        ])
     }
 
     var blinking: Bool { item?.button?.layer?.animation(forKey: "blink") != nil }
