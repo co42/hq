@@ -74,11 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.checkSetup() }
             }
-            MenuBarIcon.shared.show { [weak self] in
-                self?.mainWindow?.makeKeyAndOrderFront(nil)
-                NSApp.activate()
-                self?.model.openCenter()
-            }
+            MenuBarIcon.shared.show(menu: NSHostingMenu(rootView: MenuBarMenu().environment(model)))
             // HQ opens at login, once set; Settings › General turns it off for good.
             if !UserDefaults.standard.bool(forKey: "login.registered") {
                 UserDefaults.standard.set(true, forKey: "login.registered")
@@ -127,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        mainWindow?.makeKeyAndOrderFront(nil)
+        model.bringForward()
         return true
     }
 
@@ -147,20 +143,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func dockNewTask() {
-        mainWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        model.bringForward()
         model.focusQuickAdd(.overview)
     }
 
     @objc private func dockNewReminder() {
-        mainWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        model.bringForward()
         model.beginReminder()
     }
 
     @objc private func dockNotifications() {
-        mainWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        model.bringForward()
         model.openCenter()
     }
 

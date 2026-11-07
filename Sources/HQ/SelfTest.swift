@@ -1,5 +1,6 @@
 import AppKit
 import HQKit
+import SwiftUI
 
 /// Self-test: runs the app's real functions on sample data and a scratch vault, prints PASS or
 /// FAIL per check, and quits with 0 or 1.
@@ -27,6 +28,17 @@ enum SelfTest {
             menuBarChecks()
             oldStore()
             SeedData.fill(model, now: .now)
+            let barMenu = NSHostingMenu(rootView: MenuBarMenu().environment(model))
+            barMenu.update()
+            let titles = barMenu.items.filter { !$0.isSeparatorItem }.map(\.title)
+            let focus = barMenu.items.first { $0.title == "Focus" }?.submenu
+            focus?.update()
+            let first = focus?.items.first?.title ?? ""
+            check("the menu bar icon's menu: Open HQ first, then Notifications, New Task, New Reminder…, Focus ▸, Quit HQ (T-325)",
+                  titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task")
+                  && titles.contains("New Reminder…") && titles.last == "Quit HQ", "\(titles)")
+            check("its Focus lists the sessions that wait on the user first", model.blockedSessions.first.map { first.hasPrefix($0.name) } ?? false
+                  && (focus?.items.count ?? 0) == model.menuBarSessions.count, "\(first), \(focus?.items.count ?? 0) of \(model.menuBarSessions.count)")
             noticeChecks(model)
             faceChecks(model)
             await sessionChecks(model)
@@ -57,7 +69,20 @@ enum SelfTest {
 
     private static func noticeChecks(_ model: AppModel) {
         let s1 = "ef032aac-66d1-4b82-b6e1-03b8ee32dc93"
-        check("Needs You counts sessions that wait and unread important rows", model.importantCount == 4 + 2, "\(model.importantCount)")
+        check("Needs You counts sessions that wait, review requests that wait and unread important rows",
+              model.waitingReviews.count == 2 && model.importantCount == 4 + 2 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
+        // T-319: a review request stands until reviewed; Later puts it away, Bring Back Now returns it, Mark Reviewed ends it.
+        if let review = model.waitingReviews.first {
+            model.putReviewLater(review.url, until: .now.addingTimeInterval(3600))
+            check("Later puts a review request away: out of Needs You, in Later with its time",
+                  !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 7)
+            model.putReviewLater(review.url, until: nil)
+            check("Bring Back Now returns it to Needs You", model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.isEmpty)
+            model.markReviewed(review.url)
+            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7)
+            model.undoManager?.undo()
+            check("and Undo brings it back", model.waitingReviews.contains { $0.url == review.url })
+        }
         check("Updates counts unread updates; Later and Earlier wait", model.updateCount == 4 && model.notices(in: .later).count == 3
               && model.notices(in: .earlier).count == 2, "\(model.updateCount)")
         check("the bell breathes for what came after the center last opened", model.bellBreathes)

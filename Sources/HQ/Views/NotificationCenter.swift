@@ -16,6 +16,8 @@ struct NotificationCenterView: View {
 
     var body: some View {
         let blocked = model.blockedSessions
+        let reviews = model.waitingReviews
+        let laterReviews = model.laterReviews
         let needs = model.notices(in: .needsYou)
         let updates = model.notices(in: .updates)
         let later = model.notices(in: .later)
@@ -25,17 +27,18 @@ struct NotificationCenterView: View {
                 if model.composingReminder {
                     ModalBox(rows: true) { ReminderEditor(notice: nil) { finishEditing() } }
                 }
-                if blocked.isEmpty && needs.isEmpty && updates.isEmpty {
+                if blocked.isEmpty && reviews.isEmpty && needs.isEmpty && updates.isEmpty {
                     AllClear(title: "All caught up").surface()
                 }
-                if !blocked.isEmpty || !needs.isEmpty {
-                    ModalGroup(title: "Needs You · \(blocked.count + needs.count)") {
+                if !blocked.isEmpty || !reviews.isEmpty || !needs.isEmpty {
+                    ModalGroup(title: "Needs You · \(blocked.count + reviews.count + needs.count)") {
                         ModalBox(rows: true) {
                             ForEach(blocked) { session in
                                 BlockedRow(session: session, selected: model.noticeSelection == key(session), active: focused)
                                     .id(key(session))
                                     .simultaneousGesture(TapGesture().onEnded { select(key(session)) })
                             }
+                            ForEach(reviews, id: \.url) { item in reviewRow(item, until: nil) }
                             ForEach(needs) { notice in row(notice) }
                         }
                     }
@@ -43,8 +46,13 @@ struct NotificationCenterView: View {
                 if !updates.isEmpty {
                     ModalGroup(title: "Updates · \(updates.count)") { ModalBox(rows: true) { ForEach(updates) { notice in row(notice) } } }
                 }
-                if !later.isEmpty {
-                    ModalGroup(title: "Later · \(later.count)") { ModalBox(rows: true) { ForEach(later) { notice in row(notice) } } }
+                if !later.isEmpty || !laterReviews.isEmpty {
+                    ModalGroup(title: "Later · \(later.count + laterReviews.count)") {
+                        ModalBox(rows: true) {
+                            ForEach(laterReviews, id: \.item.url) { entry in reviewRow(entry.item, until: entry.until) }
+                            ForEach(later) { notice in row(notice) }
+                        }
+                    }
                 }
                 if !earlier.isEmpty {
                     ModalGroup(title: "Earlier") {
@@ -77,6 +85,11 @@ struct NotificationCenterView: View {
                 return .handled
             }
             .onKeyPress(characters: .init(charactersIn: "eElL")) { press in
+                if let review = selectedReview {
+                    guard press.characters.lowercased() == "l" else { return .ignored }
+                    laterFor = reviewKey(review)
+                    return .handled
+                }
                 guard let notice = selectedNotice else { return .ignored }
                 if press.characters.lowercased() == "e" { model.setDone(notice.id, !model.isDone(notice)) } else { laterFor = notice.id.uuidString }
                 return .handled
@@ -103,6 +116,14 @@ struct NotificationCenterView: View {
         .id(notice.id.uuidString)
     }
 
+    private func reviewRow(_ item: GitHubItem, until: Date?) -> some View {
+        let key = reviewKey(item)
+        return ReviewRow(item: item, until: until, selected: model.noticeSelection == key, active: focused,
+                         showLater: Binding(get: { laterFor == key }, set: { laterFor = $0 ? key : nil }))
+            .id(key)
+            .simultaneousGesture(TapGesture().onEnded { select(key) })
+    }
+
     private func shownEarlier(_ rows: [Notice]) -> [Notice] {
         allEarlier ? rows : Array(rows.prefix(Self.earlierShown))
     }
@@ -110,6 +131,12 @@ struct NotificationCenterView: View {
     // MARK: Selection and keys
 
     private func key(_ session: SessionItem) -> String { "session:\(session.id)" }
+    private func reviewKey(_ item: GitHubItem) -> String { "review:\(item.url)" }
+    /// The review request selected, by its key.
+    private var selectedReview: GitHubItem? {
+        guard let key = model.noticeSelection, key.hasPrefix("review:") else { return nil }
+        return model.githubItem(String(key.dropFirst(7)))
+    }
 
     private func select(_ key: String) {
         model.noticeSelection = key
@@ -131,7 +158,9 @@ struct NotificationCenterView: View {
     /// Rows the arrows walk, as they show.
     private var order: [String] {
         let earlier = model.notices(in: .earlier)
-        return model.blockedSessions.map(key) + [NoticeSection.needsYou, .updates, .later].flatMap { model.notices(in: $0).map(\.id.uuidString) }
+        return model.blockedSessions.map(key) + model.waitingReviews.map(reviewKey)
+            + [NoticeSection.needsYou, .updates].flatMap { model.notices(in: $0).map(\.id.uuidString) }
+            + model.laterReviews.map { reviewKey($0.item) } + model.notices(in: .later).map(\.id.uuidString)
             + shownEarlier(earlier).map(\.id.uuidString)
     }
 
@@ -142,6 +171,7 @@ struct NotificationCenterView: View {
 
     private var selectedText: String? {
         if let notice = selectedNotice { return notice.text }
+        if let review = selectedReview { return "\(review.author) asked for your review: \(review.title)" }
         guard let id = model.noticeSelection, id.hasPrefix("session:"), let session = model.session(String(id.dropFirst(8))) else { return nil }
         return "\(session.name): \(session.reason ?? session.status.title)"
     }
@@ -157,6 +187,7 @@ struct NotificationCenterView: View {
     private func openSelected() {
         guard let selected = model.noticeSelection else { return }
         if selected.hasPrefix("session:") { return model.open(String(selected.dropFirst(8))) }
+        if let review = selectedReview { return model.open(.github(review.url), push: true) }
         guard let notice = selectedNotice else { return }
         if notice.kind == .reminder && notice.links.isEmpty { edit(notice) } else { model.openNotice(notice) }
     }
@@ -580,5 +611,80 @@ struct ReminderMark: View {
             .accessibilityLabel(mark.help)
             .uiTestAnchor("reminder-mark:\(route.selectionKey)")
         }
+    }
+}
+
+/// A PR that waits for the user's review (T-319): it stands in Needs You until they review it or mark it reviewed; Later
+/// puts it away until a time, then it comes back.
+private struct ReviewRow: View {
+    let item: GitHubItem
+    /// Put away until then: it shows in Later.
+    var until: Date?
+    let selected: Bool
+    let active: Bool
+    @Binding var showLater: Bool
+    @Environment(AppModel.self) private var model
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Space.sm) {
+            GitHubStateIcon.tile(item).frame(width: Metric.faceRow + Space.xs)
+            VStack(alignment: .leading, spacing: Metric.lineGap) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                    Text(item.reference).kitType(.titleBold).lineLimit(1)
+                    Spacer(minLength: Space.sm)
+                    Group {
+                        if let until { Label(ReminderTime.describe(until, now: model.now), icon: .later) }
+                        else { Text(AppModel.ago(item.reviewAskedAt, now: model.now)) }
+                    }
+                    .kitType(.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                }
+                NoticeBody(text: "\(item.author) asked for your review: \(item.title)", full: selected)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Later", icon: .later) { showLater = true }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .clickable()
+                .help(until == nil ? "Put it away until later (L)" : "Change when it comes back (L)")
+                .popover(isPresented: $showLater, arrowEdge: .bottom) {
+                    WhenPicker(now: model.now, current: until) { date in
+                        showLater = false
+                        model.putReviewLater(item.url, until: date)
+                    }
+                }
+                .uiTestAnchor("review-later:\(item.url)")
+            Button("Review") { model.open(.github(item.url), push: true) }
+                .buttonStyle(.glassProminent)
+                .tint(Ink.needsYou)
+                .clickable()
+                .help("Open the pull request to review it (Return)")
+        }
+        .noticeRowStyle(selected: selected, hovering: hovering, active: active)
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { model.open(.github(item.url), push: true) }
+        .contextMenu {
+            Button("Review") { model.open(.github(item.url), push: true) }
+            Button("Open on GitHub") { if let link = URL(string: item.url) { NSWorkspace.shared.open(link) } }
+            Button("Mark Reviewed") { model.markReviewed(item.url) }
+            Divider()
+            if until != nil {
+                Button("Bring Back Now") { model.putReviewLater(item.url, until: nil) }
+            } else {
+                Menu("Later") {
+                    ForEach(ReminderTime.Preset.available(now: model.now), id: \.self) { preset in
+                        let date = ReminderTime.date(preset, now: model.now)
+                        Button("\(preset.title), \(ReminderTime.brief(date, now: model.now))") { model.putReviewLater(item.url, until: date) }
+                    }
+                    Divider()
+                    Button("Pick a Time…") { showLater = true }
+                }
+            }
+            Button("Copy Link") { Pasteboard.copy(item.url) }
+        }
+        .help("\(item.author) asked for your review: \(item.title)")
+        .uiTestAnchor("review:\(item.url)")
     }
 }

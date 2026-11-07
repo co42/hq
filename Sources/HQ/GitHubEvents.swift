@@ -1,8 +1,8 @@
 import Foundation
 import HQKit
 
-/// What GitHub tells the user (DESIGN.md §11): on their PRs, reviews, comments and failed checks; on others', a review
-/// asked of them. Never a bot's or their own; one row per PR; nothing older than the lookback.
+/// What GitHub tells the user (DESIGN.md §11): on their PRs, reviews, comments and failed checks. A review asked of
+/// them stands in Needs You instead (`waitingReviews`). Never a bot's or their own; one row per PR; nothing older than the lookback.
 extension AppModel {
     func noteGitHubEvents(before: GitHubSnapshot?, after: GitHubSnapshot, now: Date = .now) {
         let floor = githubFloor(now: now)
@@ -20,8 +20,6 @@ extension AppModel {
                     events.append(("\(item.url)|checks|\(Int((item.lastCommitAt ?? now).timeIntervalSince1970))",
                                    "Checks failed" + (failed.isEmpty ? "" : ": " + failed.prefix(3).joined(separator: ", ")), now))
                 }
-            } else if item.reviewRequested, let asked = item.reviewRequestedAt, asked > floor {
-                events.append(("\(item.url)|asked|\(Int(asked.timeIntervalSince1970))", "\(item.author) asked for your review", asked))
             }
             let fresh = events.filter { known[$0.key] == nil }.sorted { $0.at < $1.at }
             guard let latest = fresh.last else { continue }

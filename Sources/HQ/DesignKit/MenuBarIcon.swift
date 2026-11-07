@@ -1,20 +1,18 @@
 import AppKit
 
 /// HQ's mark in the menu bar (DESIGN.md §3): the app icon's ring and dot, seen from any app. While something needs the
-/// user it turns orange with the count beside it, and blinks until they open the center. A click opens the center.
+/// user it turns orange with the count beside it, and blinks until they open the center. A click opens its menu.
 @MainActor
 final class MenuBarIcon: NSObject {
     static let shared = MenuBarIcon()
     private var item: NSStatusItem?
-    private var action: (() -> Void)?
     private var shown: (count: Int, blinks: Bool)?
 
-    func show(_ action: @escaping () -> Void) {
-        self.action = action
+    /// A click opens `menu` (T-325).
+    func show(menu: NSMenu) {
         guard item == nil else { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.target = self
-        item.button?.action = #selector(click)
+        item.menu = menu
         item.button?.imagePosition = .imageLeading
         item.button?.wantsLayer = true
         self.item = item
@@ -53,8 +51,6 @@ final class MenuBarIcon: NSObject {
     }
 
     var blinking: Bool { item?.button?.layer?.animation(forKey: "blink") != nil }
-
-    @objc private func click() { action?() }
 
     /// The app icon's ring and dot (Icon/AppIcon.icon, a 1024 canvas whose shapes span 240 to 784), 16 pt in an 18 pt
     /// square: a template image that follows the menu bar, or drawn in `color`.

@@ -44,6 +44,8 @@ nonisolated struct NoticeStore: Codable, Sendable {
     var bellSeenAt: Date = .distantPast
     /// GitHub events already turned into rows, by key, for a few days.
     var githubEvents: [String: Date] = [:]
+    /// Review requests put Later, by PR URL, until when (T-319). Optional: older files have none.
+    var reviewsLater: [String: Date]?
 }
 
 extension ModalRoute {
@@ -92,14 +94,37 @@ extension AppModel {
         notice.readAt == nil && (notice.dueAt.map { $0 <= now } ?? true)
     }
 
-    /// Needs You: blocked sessions and unread important rows. The Dock badge.
-    var importantCount: Int { blockedSessions.count + notices.filter { $0.level == .important && unread($0) }.count }
+    /// Needs You: blocked sessions, review requests that wait, and unread important rows. The Dock badge.
+    var importantCount: Int { blockedSessions.count + waitingReviews.count + notices.filter { $0.level == .important && unread($0) }.count }
+
+    /// PRs that wait for the user's review, not put Later: they stand in Needs You until reviewed (T-319).
+    var waitingReviews: [GitHubItem] {
+        let later = noticeStore.reviewsLater ?? [:]
+        return allReviewRequests.filter { waitsForReview($0) && (later[$0.url] ?? .distantPast) <= now }
+    }
+
+    /// Review requests put Later, with when they come back.
+    var laterReviews: [(item: GitHubItem, until: Date)] {
+        let later = noticeStore.reviewsLater ?? [:]
+        return allReviewRequests.filter(waitsForReview).compactMap { item in later[item.url].flatMap { $0 > now ? (item, $0) : nil } }
+            .sorted { $0.until < $1.until }
+    }
+
+    /// Later on a review request: out of Needs You until `date`; nil brings it back now.
+    func putReviewLater(_ url: String, until date: Date?) {
+        let before = noticeStore.reviewsLater
+        var later = (before ?? [:]).filter { entry in allReviewRequests.contains { $0.url == entry.key } }
+        later[url] = date
+        noticeStore.reviewsLater = later
+        registerUndo(date == nil ? "Bring Back" : "Later") { $0.noticeStore.reviewsLater = before }
+    }
 
     var updateCount: Int { notices.filter { $0.level == .update && unread($0) }.count }
 
     /// The bell breathes until the user opens the center after the latest thing that needs them.
     var bellBreathes: Bool {
-        let latest = (blockedSessions.map(\.status.since) + notices.filter { $0.level == .important && unread($0) }.map(\.at)).max()
+        let latest = (blockedSessions.map(\.status.since) + waitingReviews.map(\.reviewAskedAt)
+            + notices.filter { $0.level == .important && unread($0) }.map(\.at)).max()
         return latest.map { $0 > noticeStore.bellSeenAt } ?? false
     }
 

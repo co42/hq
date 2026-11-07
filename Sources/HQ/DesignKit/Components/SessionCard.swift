@@ -84,11 +84,7 @@ struct SessionCard: View {
         return selected ? Ink.cardSelection : nil
     }
 
-    /// "Working", "Asks a question", "Done": what it asks is in the tooltip and its terminal.
-    private var stateText: String {
-        guard session.isRunning else { return "Ended" }
-        return session.status.state == .waiting(.question) ? "Asks a question" : session.status.title
-    }
+    private var stateText: String { session.stateWords }
 
     private var tone: (text: AnyShapeStyle, fill: AnyShapeStyle) {
         if needsYou { return failed ? (AnyShapeStyle(Ink.failedText), AnyShapeStyle(Ink.failedFill)) : (AnyShapeStyle(Ink.needsYouText), AnyShapeStyle(Ink.needsYouFill)) }
@@ -110,5 +106,13 @@ struct SessionCard: View {
         .padding(.trailing, Space.sm + 2)
         .frame(height: Metric.statePill)
         .background(tone.fill, in: Capsule())
+    }
+}
+
+extension SessionItem {
+    /// "Working", "Asks a question", "Done", as its card says: what it asks is in the tooltip and its terminal.
+    var stateWords: String {
+        guard isRunning else { return "Ended" }
+        return status.state == .waiting(.question) ? "Asks a question" : status.title
     }
 }

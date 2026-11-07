@@ -3,6 +3,7 @@
 ## v10 · 2026-11-07
 
 **Notifications**
+- Pull requests waiting for your review stand in **Needs You** until you review them. Review opens one; Later puts it away until a time, as on any notification. They count in the bell, the menu bar and the Dock.
 - No more Mark All Read: each notification is read, done or put Later on its own.
 - No unread dot on rows: faces and tiles line up on the left, as in the other lists; a bold name still says unread.
 - A reminder's menu says **Remind Me** ▸ In 1 Hour, This Evening, Tomorrow, Next Week, Pick a Time….
@@ -11,6 +12,8 @@
 
 **Menu bar**
 - HQ's own mark, its ring and dot, instead of a bell: orange with the count while something needs you, blinking until you open the center.
+- A click opens its menu: Open HQ, Notifications, New Task, New Reminder…, **Focus** ▸ a running session (those waiting on you first), Quit HQ.
+- Open HQ, and the Dock menu's items, bring HQ's window to the front from any app, also after ⌘W hid it.
 
 **Toolbar**
 - One row: the section bar sits in the toolbar, between + and the search. On a window under 960 pt wide it steps aside.

@@ -491,6 +491,9 @@ extension UITest {
         check("a click on the bell opens the center", model.modal == .notifications, "\(String(describing: model.modal))")
         check("and the bell stops breathing", !model.bellBreathes)
         check("a session that waits shows in Needs You with Focus", model.blockedSessions.allSatisfy { ui.anchor("blocked:\($0.id)") != nil })
+        check("a PR that waits for the user's review stands in Needs You, with Later (T-319)", !model.waitingReviews.isEmpty
+              && model.waitingReviews.allSatisfy { ui.anchor("review:\($0.url)") != nil && ui.anchor("review-later:\($0.url)") != nil },
+              "\(model.waitingReviews.count) waiting")
         guard let row = model.notices(in: .updates).first(where: { $0.readAt == nil && !$0.links.isEmpty }) else { return check("an update with links", false) }
         if let frame = ui.anchorFrame("notice:\(row.id.uuidString)"), let face = ui.anchorFrame("notice-avatar:\(row.id.uuidString)") {
             check("a row's face or tile starts at its left padding, as on the other lists (no unread dot)",
