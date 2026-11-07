@@ -730,6 +730,10 @@ enum SelfTest {
         check("a note made for a task is in the task's project", model.files.first { $0.title == "Push path plan" }?.project == model.project(ofTask: id),
               "\(String(describing: model.files.first { $0.title == "Push path plan" }?.project)) vs \(String(describing: model.project(ofTask: id)))")
         check("file show takes a name without .md", agent("file show", ["file": "\(Vault.dayString(.now)) - Push path plan"])["body"] as? String == "# Push path plan\n")
+        agent("file new", ["title": "Push path, second pass", "body": "# Push path, second pass\n", "_session": session, "task": key])
+        let commas = agent("notify", ["text": "Second pass ready", "link": "\(key),\(Vault.dayString(.now)) - Push path, second pass"])
+        check("hq notify --link takes a file name with a comma in it", (commas["links"] as? [JSONObject])?.count == 2, "\(commas)")
+        if let second = model.files.first(where: { $0.title == "Push path, second pass" }) { model.deleteFile(second.id) }
         if let made = model.files.first(where: { $0.title == "Push path plan" }), let path = made.path {
             model.setProject(of: .file(made.id), "Registry")
             check("a file's row sets its project", model.file(made.id)?.project == "Registry")

@@ -406,7 +406,7 @@ enum AgentCommands {
             return model.importArtifact(url, title: title, published: date, task: task).agentJSON
         },
         AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center: work ready to check, a write-up done. --important for a ping they asked for, or when you can't go on without them.",
-                     params: [.init(name: "text", required: true, positional: true, help: "one line, what they should know"),
+                     params: [.init(name: "text", required: true, positional: true, help: "what they should know, in a sentence or two: what is ready and what to check"),
                               .init(name: "important", kind: .boolean, help: "Needs You, with a banner: they asked to be pinged, or you are blocked on them"),
                               .init(name: "link", help: "what to open, comma-separated: T-12, a URL, a file, an artifact (default: this session's open tasks and what it made since its last notification)")],
                      example: "hq notify \"Retry budget ready to check: the canary is green\" --link T-12") { args, model in
@@ -459,7 +459,7 @@ enum AgentCommands {
             json["started"] = "a new Ghostty tab in \(directory)"
             return json
         },
-        AgentCommand(name: "hook", summary: "Report a Claude Code hook event (used by the hq plugin). Always exits 0.",
+        AgentCommand(name: "hook", summary: "Report a Claude Code hook event (used by the hq plugin). Always exits 0; while HQ is off, the event waits for its next launch.",
                      params: [.init(name: "event", help: "the hook's JSON, read from stdin by the CLI"),
                               .init(name: "pid", kind: .integer, help: "Claude's process, added by the CLI"),
                               .init(name: "tty", help: "Claude's terminal, added by the CLI"),
@@ -544,9 +544,30 @@ enum AgentCommands {
 
     /// What `task link` and `task unlink` name: a task, an artifact, any other URL, a session, a file.
     /// `T-12,https://…,Push plan`: each one's selection key.
+    /// Comma-separated; a piece that names nothing joins the next one, so a file name with a comma still works.
     private static func noticeLinks(_ list: String, _ model: AppModel) throws -> [String] {
-        try list.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            .map { try item($0, model).selectionKey }
+        var pieces = list.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        var keys: [String] = []
+        while let first = pieces.first {
+            var ref = first
+            var taken = 1
+            var route = try? item(ref.trimmingCharacters(in: .whitespaces), model)
+            while route == nil, taken < pieces.count {
+                ref += "," + pieces[taken]
+                taken += 1
+                route = try? item(ref.trimmingCharacters(in: .whitespaces), model)
+            }
+            let piece = first.trimmingCharacters(in: .whitespaces)
+            if let route {
+                keys.append(route.selectionKey)
+                pieces.removeFirst(taken)
+            } else if piece.isEmpty {
+                pieces.removeFirst()
+            } else {
+                _ = try item(piece, model)
+            }
+        }
+        return keys
     }
 
     private static func item(_ ref: String, _ model: AppModel) throws -> ModalRoute {
