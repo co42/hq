@@ -67,6 +67,7 @@ extension ModalRoute {
         case .artifact(let url): "artifact:\(url.absoluteString)"
         case .github(let url): "github:\(url)"
         case .web(let url): "web:\(url)"
+        case .newReminder: "newReminder"
         case .start: "start"
         case .closedSessions: "closed"
         case .notifications: "notifications"

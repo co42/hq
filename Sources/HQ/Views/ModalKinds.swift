@@ -713,7 +713,8 @@ struct GitHubModal: View {
             .padding(.horizontal, Space.lg)
             .padding(.vertical, Space.sm)
             Divider()
-            if let url = URL(string: item.url) {
+            // At the review or comment a notification told of, else the PR (T-328).
+            if let url = URL(string: model.githubPage.flatMap { $0.pr == item.url ? $0.page : nil } ?? item.url) {
                 GitHubWebView(url: url, standIn: Self.standIn(item), state: $load, reloads: model.artifactReloads)
                     .overlay { overlay(url) }
                     .reportsLoading(load, page: item.url)

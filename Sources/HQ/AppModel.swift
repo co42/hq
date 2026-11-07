@@ -14,6 +14,8 @@ enum ModalRoute: Hashable {
     case github(String)
     /// Any other web page linked to a task (T-299): it opens in the browser.
     case web(String)
+    /// New Reminder…: a small sheet of its own.
+    case newReminder
     case start
     case closedSessions
     case notifications
@@ -180,7 +182,6 @@ final class AppModel {
     /// The row the center has selected: a notification's id, or `session:<id>` for one that waits.
     var noticeSelection: String?
     /// The center's reminder form is open.
-    var composingReminder = false
 
     // MARK: The page
 
@@ -198,6 +199,10 @@ final class AppModel {
     /// Sections folded to their header, remembered; the Backlog has its own.
     var folded: Set<PageSection> = Set(((UserDefaults.standard.array(forKey: "page.folded") as? [String]) ?? []).compactMap(PageSection.init(rawValue:))) {
         didSet { remember(folded.map(\.rawValue).sorted(), as: "page.folded"); syncMenu() }
+    }
+    /// The notification center's Earlier, folded by default as the Backlog is; remembered.
+    var earlierOpen = UserDefaults.standard.bool(forKey: "notifications.earlierOpen") {
+        didSet { remember(earlierOpen, as: "notifications.earlierOpen") }
     }
     var allDescriptions: Set<TaskList> = AppModel.storedLists("outline.descriptions") {
         didSet { remember(allDescriptions.map(\.rawValue).sorted(), as: "outline.descriptions"); hiddenDescriptions = []; syncMenu() }
@@ -273,6 +278,8 @@ final class AppModel {
     var quickAddFocus: TaskList?
     /// Where the outline puts the keyboard after its next update.
     var outlineFocus: OutlineFocus?
+    /// A PR opened from a notification at its review or comment: the PR's URL and the page to load (T-328).
+    var githubPage: (pr: String, page: String)?
     /// Link… on a task's row: the outline shows the link picker under it (T-298).
     @ObservationIgnored var showLinkPicker: (Int) -> Void = { _ in }
     /// The section that takes the keyboard next: Tab and ⇧Tab.
@@ -462,6 +469,7 @@ final class AppModel {
             if let address = URL(string: url) { NSWorkspace.shared.open(address) }
             return
         }
+        if case .github(let url) = route, githubPage?.pr == url {} else { githubPage = nil }
         showWindow()
         saveModalEdits()
         if push, let current = modal, current != route {
@@ -532,7 +540,6 @@ final class AppModel {
         saveModalEdits()
         modal = nil
         modalStack = []
-        composingReminder = false
     }
 
     /// Leaving a modal keeps what was typed.

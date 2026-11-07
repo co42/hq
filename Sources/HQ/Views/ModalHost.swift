@@ -14,7 +14,7 @@ struct ModalHost: View {
     var body: some View {
         let route = route
         let small = route == .start || route == .closedSessions
-        let size = small ? Metric.modalMin
+        let size = route == .newReminder ? Metric.reminderSheet : small ? Metric.modalMin
             : CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
                      height: max(Metric.modalMin.height, (model.windowSize.height * Metric.modalShare).rounded()))
         VStack(spacing: 0) {
@@ -29,6 +29,7 @@ struct ModalHost: View {
                 case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
                 // A web page opens in the browser, never here.
                 case .web: gone
+                case .newReminder: NewReminderForm()
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
                 case .notifications: NotificationCenterView()
@@ -125,6 +126,7 @@ private struct ModalHeader: View {
         case .artifact: "Artifact"
         case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
         case .web: "Link"
+        case .newReminder: "New Reminder"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
@@ -202,11 +204,7 @@ private struct ModalActions: View {
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
             }
-        case .notifications:
-            Button("Remind Me…", icon: .newReminder) { model.composingReminder = true }
-                .help("Add a reminder: it waits in Later, then comes back at its time (⌃⌘R)")
-                .uiTestAnchor("remind-me")
-        case .start, .closedSessions, .web, nil:
+        case .notifications, .start, .closedSessions, .web, .newReminder, nil:
             EmptyView()
         }
     }

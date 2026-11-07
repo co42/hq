@@ -172,14 +172,14 @@ final class GitHubService {
             let key = "\(thread.url)|\(thread.reason)|\(Int(thread.updatedAt.timeIntervalSince1970))"
             guard known[key] == nil else { continue }
             known[key] = .now
-            var said: (author: String, bot: Bool, text: String?)?
+            var said: (author: String, bot: Bool, text: String?, url: String?)?
             if let link = thread.latestComment.flatMap(URL.init(string:)), let body = await get(link, token: token) { said = GitHubThreads.comment(body) }
             if let said, said.bot || said.author == model.github?.viewer { continue }
             let who = said?.author ?? "Someone"
             let quote = said?.text.map { ": “\($0.count > 120 ? String($0.prefix(119)) + "…" : $0)”" } ?? ""
             let text = thread.reason == "comment" ? "\(who) commented\(quote)" : "\(who) mentioned you\(quote)"
             model.notify(text, level: .update, kind: .github, source: thread.url,
-                         links: [ModalRoute.github(thread.url).selectionKey] + model.tasks(linking: thread.url).map { ModalRoute.task($0.id).selectionKey })
+                         links: [ModalRoute.github(thread.url).selectionKey] + model.tasks(linking: thread.url).map { ModalRoute.task($0.id).selectionKey }, at: thread.updatedAt, anchor: said?.url)
         }
         if known != model.noticeStore.githubEvents { model.noticeStore.githubEvents = known }
     }

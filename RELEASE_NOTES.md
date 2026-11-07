@@ -4,6 +4,10 @@
 
 **Notifications**
 - Pull requests waiting for your review stand in **Needs You** until you review them. Review opens one; Later puts it away until a time, as on any notification. They count in the bell, the menu bar and the Dock.
+- **New Reminder…** (+, ⌃⌘R, the menu bar or the Dock) opens a small sheet of its own: what, when, important, the keyboard in the text. The center no longer has Remind Me….
+- A review's or a comment's notification opens its pull request at that review or comment.
+- GitHub notifications show when it happened, not when HQ heard of it.
+- Earlier is folded by default; a click on its title shows it, as a page section.
 - No more Mark All Read: each notification is read, done or put Later on its own.
 - No unread dot on rows: faces and tiles line up on the left, as in the other lists; a bold name still says unread.
 - A reminder's menu says **Remind Me** ▸ In 1 Hour, This Evening, Tomorrow, Next Week, Pick a Time….
@@ -12,14 +16,15 @@
 
 **Menu bar**
 - HQ's own mark, its ring and dot, instead of a bell: orange with the count while something needs you, blinking until you open the center.
-- A click opens its menu: Open HQ, Notifications, New Task, New Reminder…, **Focus** ▸ a running session (those waiting on you first), Quit HQ.
+- A click opens its menu: Open HQ, Notifications, New Task, New Reminder…, **Focus** ▸ a running session with its face (those waiting on you first), Quit HQ.
 - Open HQ, and the Dock menu's items, bring HQ's window to the front from any app, also after ⌘W hid it.
 
 **Toolbar**
-- One row: the section bar sits in the toolbar, between + and the search. On a window under 960 pt wide it steps aside.
+- One row: the bell and + on the left, the section bar in the middle, the search on the right. On a window under 960 pt wide the section bar steps aside.
 
 **Tasks**
 - The links under a task are short until you point at it or select it (T-34, #418, a file's first letters), and closer to its title.
+- A task's progress ring shows once something under it has started; all still to do, there's none.
 - **Link…** in a task's menu and in Task › Link…: one search for tasks (by key or words), files, artifacts and pull requests, or paste any link.
 - Any web page can be linked to a task: it shows under the task with a link icon and opens in the browser.
 

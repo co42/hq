@@ -9,16 +9,16 @@ extension AppModel {
         let old = Dictionary((before?.items ?? []).map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         var known = noticeStore.githubEvents
         for item in after.items where item.kind == .pullRequest && (item.state == .open || item.state == .draft) {
-            var events: [(key: String, text: String, at: Date)] = []
+            var events: [(key: String, text: String, at: Date, url: String?)] = []
             if item.mine {
                 for activity in item.activity where !activity.bot && activity.author != after.viewer && activity.at > floor {
                     events.append(("\(item.url)|\(activity.kind.rawValue)|\(activity.author)|\(Int(activity.at.timeIntervalSince1970))",
-                                   Self.describe(activity), activity.at))
+                                   Self.describe(activity), activity.at, activity.url))
                 }
                 if item.checks == .failed, let previous = old[item.url], previous.checks != .failed {
                     let failed = item.checkRuns.filter { $0.checks == .failed }.map(\.name)
                     events.append(("\(item.url)|checks|\(Int((item.lastCommitAt ?? now).timeIntervalSince1970))",
-                                   "Checks failed" + (failed.isEmpty ? "" : ": " + failed.prefix(3).joined(separator: ", ")), now))
+                                   "Checks failed" + (failed.isEmpty ? "" : ": " + failed.prefix(3).joined(separator: ", ")), now, nil))
                 }
             }
             let fresh = events.filter { known[$0.key] == nil }.sorted { $0.at < $1.at }
@@ -26,7 +26,7 @@ extension AppModel {
             for event in fresh { known[event.key] = now }
             let tasks = tasks(linking: item.url).map { ModalRoute.task($0.id).selectionKey }
             notify(latest.text, level: .update, kind: .github, source: item.url, links: [ModalRoute.github(item.url).selectionKey] + tasks,
-                   count: fresh.count)
+                   count: fresh.count, at: latest.at, anchor: latest.url)
         }
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
     }

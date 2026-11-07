@@ -694,7 +694,7 @@ extension AppModel {
         case .task(let id): ["kind": "task", "id": "T-\(id)", "status": task(id)?.status.rawValue ?? "", "title": title(of: route)]
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
         case .web(let url): ["kind": "web", "title": title(of: route), "url": url]
-        case .start, .closedSessions, .notifications: ["kind": "other", "title": title(of: route)]
+        case .start, .closedSessions, .notifications, .newReminder: ["kind": "other", "title": title(of: route)]
         }
     }
 

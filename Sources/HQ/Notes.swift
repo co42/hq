@@ -476,7 +476,7 @@ extension AppModel {
         case .web(let url): if let address = URL(string: url) { link(task: id, url: address) }
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications: break
+        case .start, .closedSessions, .notifications, .newReminder: break
         }
     }
 
@@ -487,7 +487,7 @@ extension AppModel {
         case .github(let url), .web(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications: break
+        case .start, .closedSessions, .notifications, .newReminder: break
         }
     }
 
@@ -499,7 +499,7 @@ extension AppModel {
         case .github(let url), .web(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true || task(other)?.related.contains(id) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications: false
+        case .start, .closedSessions, .notifications, .newReminder: false
         }
     }
 

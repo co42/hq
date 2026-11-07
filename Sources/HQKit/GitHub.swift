@@ -16,13 +16,16 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
         public var at: Date
         /// Its first line, if it says something.
         public var text: String?
+        /// Its page: the PR's, at the review or comment (T-328).
+        public var url: String?
 
-        public init(kind: Kind, author: String, bot: Bool = false, at: Date, text: String? = nil) {
+        public init(kind: Kind, author: String, bot: Bool = false, at: Date, text: String? = nil, url: String? = nil) {
             self.kind = kind
             self.author = author
             self.bot = bot
             self.at = at
             self.text = text
+            self.url = url
         }
     }
 
@@ -147,8 +150,8 @@ public enum GitHubQuery {
         fragment pr on PullRequest {
           url number title isDraft state merged updatedAt body
           author { login } repository { nameWithOwner } headRefName reviewDecision
-          latestReviews(first: 20) { nodes { author { __typename login } state submittedAt bodyText } }
-          comments(last: 5) { nodes { author { __typename login } createdAt bodyText } }
+          latestReviews(first: 20) { nodes { author { __typename login } state submittedAt bodyText url } }
+          comments(last: 5) { nodes { author { __typename login } createdAt bodyText url } }
           timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent {
             createdAt requestedReviewer { __typename ... on User { login } } } } }
           commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 30) { nodes {
@@ -272,7 +275,7 @@ public enum GitHubQuery {
         let login = author?["login"] as? String ?? "ghost"
         let line = (node["bodyText"] as? String)?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }
         return GitHubItem.Activity(kind: kind, author: login, bot: author?["__typename"] as? String == "Bot" || login.hasSuffix("[bot]"),
-                                   at: at, text: line?.isEmpty == false ? line : nil)
+                                   at: at, text: line?.isEmpty == false ? line : nil, url: node["url"] as? String)
     }
 
     static func checks(_ state: String?) -> GitHubItem.Checks {
@@ -383,11 +386,11 @@ public enum GitHubThreads {
     }
 
     /// A comment's author, whether a bot wrote it, and its first line.
-    public static func comment(_ data: Data) -> (author: String, bot: Bool, text: String?)? {
+    public static func comment(_ data: Data) -> (author: String, bot: Bool, text: String?, url: String?)? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let user = json["user"] as? [String: Any], let login = user["login"] as? String else { return nil }
         let line = (json["body"] as? String)?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }
-        return (login, user["type"] as? String == "Bot" || login.hasSuffix("[bot]"), line?.isEmpty == false ? line : nil)
+        return (login, user["type"] as? String == "Bot" || login.hasSuffix("[bot]"), line?.isEmpty == false ? line : nil, json["html_url"] as? String)
     }
 
     /// `https://api.github.com/repos/acme/registry/pulls/418` → `https://github.com/acme/registry/pull/418`.

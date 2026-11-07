@@ -26,13 +26,23 @@ struct MenuBarMenu: View {
         let sessions = model.menuBarSessions
         Menu("Focus") {
             ForEach(sessions) { session in
-                Button("\(session.name) · \(session.stateWords)") { model.open(session.id) }
+                Button { model.open(session.id) } label: {
+                    Label { Text(Self.title(session)) } icon: { Image(nsImage: FaceArt.image(session.face, size: Metric.faceMenu)) }
+                }
             }
         }
         .disabled(sessions.isEmpty)
         Divider()
         Button("Quit HQ") { NSApp.terminate(nil) }
     }
+
+    /// "registry: retry budget · Idle", the name cut at 30 characters so the menu stays narrow.
+    static func title(_ session: SessionItem) -> String {
+        let name = session.name.count > nameLimit ? session.name.prefix(nameLimit - 1).trimmingCharacters(in: .whitespaces) + "…" : session.name
+        return "\(name) · \(session.stateWords)"
+    }
+
+    static let nameLimit = 30
 }
 
 extension AppModel {

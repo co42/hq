@@ -172,6 +172,8 @@ final class ProgressRingView: NSView {
     /// Everything under the task, every level, by status.
     private(set) var counts: [TaskStatus: Int] = [:]
     var total: Int { counts.values.reduce(0, +) }
+    /// Something under it started or finished: an all-todo ring is only a grey track, and shows nothing.
+    var started: Bool { (counts[.done] ?? 0) + (counts[.doing] ?? 0) > 0 }
     /// Clockwise from twelve, most finished first; todo is the track left over.
     private static let segments: [(status: TaskStatus, word: String)] = [(.done, "done"), (.doing, "doing"), (.todo, "to do")]
 
@@ -644,7 +646,7 @@ final class TaskCell: NSTableCellView {
         place(key, width: keyWidth, height: ceil(key.intrinsicContentSize.height), visible: active)
         // What doesn't fit hides, the title truncating first: the progress ring, then labels, then the description mark.
         let minimumTitle = Metric.titleMinimum
-        let progressWidth = progress.total == 0 ? 0 : Metric.glyphSlot
+        let progressWidth = progress.started ? Metric.glyphSlot : 0
         let trailing = progressWidth > 0 ? progressWidth + Space.sm : 0
         let showProgress = progressWidth > 0 && right - trailing - textX >= minimumTitle
         place(progress, width: progressWidth, height: Metric.glyphSlot, visible: showProgress)
@@ -1369,6 +1371,7 @@ extension AppModel {
         case .start: "Start a session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
+        case .newReminder: "New Reminder"
         }
     }
 

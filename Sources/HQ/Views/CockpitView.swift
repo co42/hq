@@ -240,7 +240,8 @@ struct CockpitToolbar: ToolbarContent {
                 .toolbarClickable()
                 .uiTestAnchor("bell")
         }
-        ToolbarItem(id: "new", placement: .primaryAction) {
+        // Right of the bell at every width, the section bar there or not.
+        ToolbarItem(id: "new", placement: .navigation) {
             Menu {
                 Button("New Task") { model.focusQuickAdd(.overview) }
                 Button("New File…") { model.beginNewFile() }

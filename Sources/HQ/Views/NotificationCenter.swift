@@ -24,9 +24,6 @@ struct NotificationCenterView: View {
         let earlier = model.notices(in: .earlier)
         ScrollViewReader { proxy in
             ModalPage {
-                if model.composingReminder {
-                    ModalBox(rows: true) { ReminderEditor(notice: nil) { finishEditing() } }
-                }
                 if blocked.isEmpty && reviews.isEmpty && needs.isEmpty && updates.isEmpty {
                     AllClear(title: "All caught up").surface()
                 }
@@ -55,7 +52,7 @@ struct NotificationCenterView: View {
                     }
                 }
                 if !earlier.isEmpty {
-                    ModalGroup(title: "Earlier") {
+                    ModalGroup(title: "Earlier · \(earlier.count)", open: Binding(get: { model.earlierOpen }, set: { model.earlierOpen = $0 })) {
                         ModalBox(rows: true) {
                             ForEach(shownEarlier(earlier)) { notice in row(notice) }
                             if earlier.count > Self.earlierShown {
@@ -74,8 +71,7 @@ struct NotificationCenterView: View {
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
-            .onAppear { focused = !model.composingReminder }
-            .onChange(of: model.composingReminder) { if model.composingReminder { editing = nil } }
+            .onAppear { focused = true }
             .onKeyPress(.downArrow) { move(1, proxy); return .handled }
             .onKeyPress(.upArrow) { move(-1, proxy); return .handled }
             .onKeyPress(.return) { openSelected(); return .handled }
@@ -144,24 +140,25 @@ struct NotificationCenterView: View {
     }
 
     private func edit(_ notice: Notice) {
-        model.composingReminder = false
         model.noticeSelection = notice.id.uuidString
         editing = notice.id
     }
 
     private func finishEditing() {
         editing = nil
-        model.composingReminder = false
         focused = true
     }
 
     /// Rows the arrows walk, as they show.
     private var order: [String] {
-        let earlier = model.notices(in: .earlier)
-        return model.blockedSessions.map(key) + model.waitingReviews.map(reviewKey)
-            + [NoticeSection.needsYou, .updates].flatMap { model.notices(in: $0).map(\.id.uuidString) }
-            + model.laterReviews.map { reviewKey($0.item) } + model.notices(in: .later).map(\.id.uuidString)
-            + shownEarlier(earlier).map(\.id.uuidString)
+        func ids(_ section: NoticeSection) -> [String] { model.notices(in: section).map(\.id.uuidString) }
+        var rows: [String] = model.blockedSessions.map(key)
+        rows += model.waitingReviews.map(reviewKey)
+        rows += ids(.needsYou) + ids(.updates)
+        rows += model.laterReviews.map { reviewKey($0.item) }
+        rows += ids(.later)
+        if model.earlierOpen { rows += shownEarlier(model.notices(in: .earlier)).map(\.id.uuidString) }
+        return rows
     }
 
     private var selectedNotice: Notice? {
@@ -320,7 +317,7 @@ private struct NoticeRow: View {
         }
         let label = Text(name).kitType(done ? .title : .titleBold).lineLimit(1)
         if let source {
-            Button { model.markRead(notice.id); model.open(source, push: true) } label: { label }
+            Button { model.markRead(notice.id); model.open(source, from: notice) } label: { label }
                 .buttonStyle(.plain)
                 .clickable()
                 .help("Open \(name)")
@@ -459,7 +456,7 @@ private struct NoticeChip: View {
     var body: some View {
         Button {
             if let notice, notice.kind != .reminder { model.markRead(notice.id) }
-            model.open(route, push: true)
+            model.open(route, from: notice)
         } label: {
             OutputChip(route: route, plain: true)
         }
@@ -472,8 +469,81 @@ private struct NoticeChip: View {
 
 /// A reminder being written or changed, in a row's place: its words, when (the When picker), Important.
 /// Return saves, Escape cancels.
+/// New Reminder…, a small sheet of its own, laid out as Start a Session: what, when, important; the keyboard in the text.
+struct NewReminderForm: View {
+    @Environment(AppModel.self) private var model
+    @State private var text = ""
+    @State private var due = ReminderTime.date(.tomorrow)
+    @State private var important = true
+    @State private var picking = false
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
+                GridRow {
+                    label("Remind me to")
+                    TextField("Call noor about the GPU quota", text: $text)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($typing)
+                        .onSubmit(add)
+                        .uiTestAnchor("new-reminder-text")
+                }
+                GridRow {
+                    label("When")
+                    Button { picking = true } label: { Label(ReminderTime.describe(due, now: model.now), icon: .later) }
+                        .clickable()
+                        .fixedSize()
+                        .help("When it comes back")
+                        .popover(isPresented: $picking, arrowEdge: .bottom) {
+                            WhenPicker(now: model.now, current: due) { date in
+                                due = date
+                                picking = false
+                                typing = true
+                            }
+                        }
+                        .uiTestAnchor("new-reminder-when")
+                }
+                GridRow {
+                    label("Important")
+                    Toggle(isOn: $important) { Text("It needs you when it comes back, with a banner") }
+                        .clickable()
+                        .uiTestAnchor("new-reminder-important")
+                }
+            }
+            Spacer(minLength: 0)
+            HStack {
+                Spacer()
+                Button("Cancel") { model.back() }
+                    .keyboardShortcut(.cancelAction)
+                    .clickable()
+                Button("Add Reminder", action: add)
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .clickable()
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .uiTestAnchor("new-reminder-add")
+            }
+        }
+        .padding(Space.xl)
+        // The sheet may come up as HQ comes forward from another app: the keyboard goes in once it has the window.
+        .onAppear { DispatchQueue.main.async { typing = true } }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text).kitType(.callout).foregroundStyle(.secondary).fixedSize()
+    }
+
+    private func add() {
+        let what = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !what.isEmpty else { return }
+        model.remind(what, at: due, level: important ? .important : .update)
+        model.back()
+    }
+}
+
 struct ReminderEditor: View {
-    let notice: Notice?
+    let notice: Notice
     let finish: () -> Void
     @Environment(AppModel.self) private var model
     @State private var text: String
@@ -483,12 +553,12 @@ struct ReminderEditor: View {
     @State private var picking = false
     @FocusState private var typing: Bool
 
-    init(notice: Notice?, finish: @escaping () -> Void) {
+    init(notice: Notice, finish: @escaping () -> Void) {
         self.notice = notice
         self.finish = finish
-        _text = State(initialValue: notice?.text ?? "")
-        _due = State(initialValue: notice == nil ? ReminderTime.date(.tomorrow) : notice?.dueAt)
-        _important = State(initialValue: notice.map { $0.level == .important } ?? true)
+        _text = State(initialValue: notice.text)
+        _due = State(initialValue: notice.dueAt)
+        _important = State(initialValue: notice.level == .important)
     }
 
     var body: some View {
@@ -526,7 +596,7 @@ struct ReminderEditor: View {
             Button("Cancel", action: finish)
                 .keyboardShortcut(.cancelAction)
                 .clickable()
-            Button(notice == nil ? "Add" : "Save", action: save)
+            Button("Save", action: save)
                 .buttonStyle(.glassProminent)
                 .clickable()
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -543,11 +613,7 @@ struct ReminderEditor: View {
         let what = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !what.isEmpty else { return }
         let level: Notice.Level = important ? .important : .update
-        if let notice {
-            model.editReminder(notice.id, text: what, due: due, level: level)
-        } else {
-            model.remind(what, at: due ?? .now, level: level)
-        }
+        model.editReminder(notice.id, text: what, due: due, level: level)
         finish()
     }
 }
@@ -566,13 +632,19 @@ private extension View {
 extension AppModel {
     /// Return or a double-click on a row: what it links first, over the center. A notification is read; a reminder
     /// waits to be completed.
+    /// What a notification links, over the center: its PR at the review or comment it tells of, when it has one (T-328).
+    func open(_ route: ModalRoute, from notice: Notice?) {
+        if case .github(let url) = route, let page = notice?.anchor, page.hasPrefix(url) { githubPage = (url, page) }
+        open(route, push: true)
+    }
+
     func openNotice(_ notice: Notice) {
         if notice.kind != .reminder { markRead(notice.id) }
         let first = notice.links.compactMap(ModalRoute.init(noticeKey:)).first
         switch (notice.kind, first) {
-        case (_, let route?): open(route, push: true)
+        case (_, let route?): open(route, from: notice)
         case (.session, nil): if let id = notice.source, session(id) != nil { open(.session(id), push: true) }
-        case (.github, nil): if let url = notice.source { open(.github(url), push: true) }
+        case (.github, nil): if let url = notice.source { open(.github(url), from: notice) }
         case (.reminder, nil): break
         }
     }

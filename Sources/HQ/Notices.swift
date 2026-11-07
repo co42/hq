@@ -21,6 +21,8 @@ nonisolated struct Notice: Codable, Hashable, Identifiable, Sendable {
     var readAt: Date?
     /// In Later until then.
     var dueAt: Date?
+    /// A GitHub review's or comment's page: opening the row opens its PR there, scrolled to it (T-328).
+    var anchor: String?
 }
 
 /// Where a row shows in the center.
@@ -179,30 +181,31 @@ extension AppModel {
         open(.notifications)
     }
 
-    /// New Reminder… (⌃⌘R): the center, with the reminder form open.
+    /// New Reminder… (⌃⌘R, +, the menu bar and Dock menus): its own small sheet, over what's open.
     func beginReminder() {
-        openCenter()
-        composingReminder = true
+        guard modal != .newReminder else { return }
+        open(.newReminder, push: modal != nil)
     }
 
     // MARK: Adding
 
     /// A session (`hq notify`) or HQ tells the user something. A session's unread row at that level takes it in.
+    /// `at`: when it happened, a GitHub review's or comment's own time; a session's notification happens now.
     @discardableResult
     func notify(_ text: String, level: Notice.Level, kind: Notice.Kind = .session, source: String?, links: [String] = [],
-                count: Int = 1) -> Notice {
-        let now = Date.now
+                count: Int = 1, at happened: Date = .now, anchor: String? = nil) -> Notice {
         if kind != .reminder, source != nil, let index = notices.firstIndex(where: { $0.kind == kind && $0.source == source && $0.level == level && unread($0) && $0.dueAt == nil }) {
             var row = notices[index]
             row.text = text
             row.count += count
             row.links = links + row.links.filter { !links.contains($0) }
-            row.at = now
+            row.at = max(row.at, happened)
+            if happened >= row.at, let anchor { row.anchor = anchor }
             notices[index] = row
             if level == .important { banner(row) }
             return row
         }
-        let row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: now)
+        let row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: happened, anchor: anchor)
         notices.append(row)
         if level == .important { banner(row) }
         return row

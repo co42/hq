@@ -174,17 +174,41 @@ struct GitHubStateIcon: View {
 /// A labeled group in the modal: a quiet label, then its content.
 struct ModalGroup<Content: View>: View {
     let title: String
+    /// A group that folds as a page section does: a click on its title hides or shows it.
+    var open: Binding<Bool>?
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Text(title)
-                .kitType(.groupLabel)
-                .foregroundStyle(.secondary)
-                .accessibilityAddTraits(.isHeader)
-            content
+            if let open {
+                Button { withAnimation(Motion.lift) { open.wrappedValue.toggle() } } label: {
+                    HStack(spacing: Space.xs) {
+                        label
+                        KitIcon.disclosure.image
+                            .imageScale(.small)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(open.wrappedValue ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .help(open.wrappedValue ? "Hide \(title)" : "Show \(title)")
+                .accessibilityValue(open.wrappedValue ? "Shown" : "Folded")
+            } else {
+                label
+            }
+            if open?.wrappedValue != false { content }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var label: some View {
+        Text(title)
+            .kitType(.groupLabel)
+            .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 

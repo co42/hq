@@ -592,16 +592,37 @@ extension UITest {
             skip("a choice in the When picker sets the time")
         }
 
-        await ui.click(ui.anchor("remind-me"), inSheet: true)
-        await ui.settle(0.5)
-        check("Remind Me… shows the editor", model.composingReminder && ui.anchor("reminder-text") != nil && ui.anchor("reminder-when") != nil)
-        model.composingReminder = false
+        // New Reminder… is its own sheet, the keyboard in its text; over the center, Back returns there.
+        check("the center has no Remind Me…: a new reminder has its own sheet", ui.anchor("remind-me") == nil)
+        model.beginReminder()
+        await ui.until(2) { model.modal == .newReminder }
+        await ui.settle(0.6)
+        let sheet = ui.window.attachedSheet
+        check("New Reminder… opens its sheet with the keyboard in the text", model.modal == .newReminder
+              && ui.anchor("new-reminder-text") != nil && sheet?.firstResponder is NSText,
+              "\(String(describing: model.modal)), \(sheet?.firstResponder.map { String(describing: type(of: $0)) } ?? "none")")
+        if let editor = sheet?.firstResponder as? NSTextView {
+            editor.insertText("Look at the canary again", replacementRange: editor.selectedRange())
+            await ui.settle(0.2)
+        }
+        let before = model.notices.count
+        await ui.click(await ui.steadyAnchor("new-reminder-add"), inSheet: true)
+        await ui.until(2) { model.modal == .notifications }
+        check("Add Reminder puts it in Later and goes back to the center", model.notices.count == before + 1
+              && model.notices(in: .later).contains { $0.text == "Look at the canary again" } && model.modal == .notifications,
+              "\(model.notices.count - before) added, \(String(describing: model.modal))")
         model.closeModal()
         await ui.settle(0.5)
         check("once the center closes, what was read is in Earlier", model.notices(in: .earlier).contains { $0.id == row.id })
+        // Earlier folds as a page section does, folded until the user opens it (the setting is the user's: set here, never saved).
+        model.earlierOpen = false
         model.openCenter()
         await ui.settle(0.6)
-        check("and Earlier shows, open, with the reminder just done", ui.anchor("notice:\(due.id.uuidString)") != nil)
+        check("Earlier shows folded: its rows stay out of sight", ui.anchor("notice:\(due.id.uuidString)") == nil)
+        model.earlierOpen = true
+        await ui.settle(0.5)
+        check("opened, it shows the reminder just done", ui.anchor("notice:\(due.id.uuidString)") != nil)
+        model.earlierOpen = false
         model.closeModal()
         if let task { model.deleteTasks([task.id]) }
         await ui.settle(0.3)
@@ -1700,6 +1721,28 @@ extension UITest {
         model.closeModal()
         model.shownDescriptions = []
         await ui.settle(0.6)
+        // A ring with nothing started is only a grey track: hidden until something under it starts (2026-11-07).
+        if let fresh = model.addTask(to: .overview, title: "Nothing started yet"), let first = model.addSubtask(to: fresh.id, title: "First part"),
+           model.addSubtask(to: fresh.id, title: "Second part") != nil {
+            await ui.settle(0.4)
+            // Laid out on screen: a cell made off screen keeps its defaults.
+            func ring() -> ProgressRingView? {
+                let row = outline.row(forItem: coordinator.node(.task(fresh.id)))
+                guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return nil }
+                cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+                ui.window.layoutIfNeeded()
+                cell.layoutSubtreeIfNeeded()
+                return cell.progress
+            }
+            let hidden = ring()?.isHidden
+            model.setStatus(first.id, .doing)
+            await ui.settle(0.4)
+            check("a task's ring hides while all under it is todo, and shows once one starts", hidden == true && ring()?.isHidden == false,
+                  "\(String(describing: hidden)) → \(String(describing: ring()?.isHidden))")
+            model.deleteTasks([fresh.id])
+            await ui.settle(0.3)
+        }
+
     }
 
     static func modal(_ model: AppModel, _ ui: Driver) async {

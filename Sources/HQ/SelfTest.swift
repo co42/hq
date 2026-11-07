@@ -37,7 +37,8 @@ enum SelfTest {
             check("the menu bar icon's menu: Open HQ first, then Notifications, New Task, New Reminder…, Focus ▸, Quit HQ (T-325)",
                   titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task")
                   && titles.contains("New Reminder…") && titles.last == "Quit HQ", "\(titles)")
-            check("its Focus lists the sessions that wait on the user first", model.blockedSessions.first.map { first.hasPrefix($0.name) } ?? false
+            check("its Focus lists the sessions that wait on the user first, names cut at 30", model.blockedSessions.first.map { first == MenuBarMenu.title($0) } ?? false
+                  && (focus?.items ?? []).allSatisfy { ($0.title.components(separatedBy: " · ").first ?? "").count <= MenuBarMenu.nameLimit }
                   && (focus?.items.count ?? 0) == model.menuBarSessions.count, "\(first), \(focus?.items.count ?? 0) of \(model.menuBarSessions.count)")
             noticeChecks(model)
             faceChecks(model)
@@ -153,8 +154,9 @@ enum SelfTest {
         model.noteGitHubEvents(before: before, after: older)
         model.noteGitHubEvents(before: before, after: older)
         let caught = model.notices.filter { $0.source == url && $0.readAt == nil }
-        check("the lookback alone decides: a 3-day-old comment notifies once, a 40-day-old one never", model.notices.count == earlier + 1
-              && caught.count == 1 && caught.first?.text == "lea commented: “Old but in”", "\(caught.map(\.text))")
+        check("the lookback alone decides: a 3-day-old comment notifies once, dated when it was written; a 40-day-old one never", model.notices.count == earlier + 1
+              && caught.count == 1 && caught.first?.text == "lea commented: “Old but in”"
+              && abs((caught.first?.at ?? .now).timeIntervalSinceNow + 3 * 86_400) < 60, "\(caught.map { "\($0.text) \($0.at)" })")
         for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
         let rows = model.notices.count
         model.noteGitHubEvents(before: before, after: snapshot)

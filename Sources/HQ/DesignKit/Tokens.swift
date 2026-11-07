@@ -227,6 +227,8 @@ nonisolated enum Metric {
     static var faceCard: CGFloat { 44 * Zoom.factor }
     static var faceRow: CGFloat { 22 * Zoom.factor }
     static var faceChip: CGFloat { 16 * Zoom.factor }
+    /// A face in a menu: the menu bar icon's Focus items. Menus don't zoom.
+    static let faceMenu: CGFloat = 16
     static var faceModal: CGFloat { 72 * Zoom.factor }
     static var badgeRing: CGFloat { 2 * Zoom.factor }
     /// Pull requests: two cards side by side from this content width; fixed columns in each row.
@@ -278,6 +280,8 @@ nonisolated enum Metric {
     /// The modal: this share of the window's content, at least `modalMin`.
     static let modalShare: CGFloat = 0.88
     static let modalMin = CGSize(width: 720, height: 520)
+    /// New Reminder…: three rows and its buttons.
+    static let reminderSheet = CGSize(width: 560, height: 224)
     static var modalHeader: CGFloat { 52 * Zoom.factor }
     /// A push button's height in the modal's header.
     static var modalButton: CGFloat { 24 * Zoom.factor }
