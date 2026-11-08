@@ -87,7 +87,7 @@ enum SeedData {
         let rows: [Row] = [
             Row(id: 13, title: "Retry budget for blob uploads", status: .doing, project: "Registry", tags: ["perf"], order: 1,
                 body: "Blob uploads retry with **no budget**: a slow S3 multipart complete turns into minutes of retries.\n\n## Done when\n- [x] At most 3 attempts per part, full jitter\n- [x] A `503` on complete retries once, then reaches the client\n- [ ] The canary stays green for 30 minutes\n\n```toml\n[upload]\nretry_budget = 3\n```\n\n> Keep the budget per upload: a push of 40 layers must not retry 40 × 3 times.",
-                sessions: [s1], links: [gh + "registry/pull/418"]),
+                sessions: [s1], links: [gh + "registry/pull/418", SlackService.fixtureLink]),
             Row(id: 47, title: "Budget per upload in upload::retry", status: .done, parent: 13, order: 1),
             Row(id: 48, title: "A 503 on multipart complete retries once", status: .done, parent: 13, order: 2),
             Row(id: 49, title: "Canary on registry-staging, 30 minutes green", status: .doing, parent: 13, order: 3),
@@ -160,6 +160,7 @@ enum SeedData {
             ArtifactItem(id: URL(string: "https://claude.ai/artifact/5eed-cron")!, title: "CDN pull cron by hour of day", session: e1, published: ago(280), tasks: [23]),
         ]
         model.github = GitHubService.fixture(now: now)
+        model.slackMessages = SlackService.fixtures
         model.setup = SetupStatus(pluginInstalled: true, ghosttyAllowed: true, vaultPath: SetupStatus.defaultVault,
                                   ghPath: "/opt/homebrew/bin/gh", githubAccount: "alex")
         model.seen = [:]

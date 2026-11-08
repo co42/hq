@@ -53,6 +53,7 @@ extension ModalRoute {
         }
         if key.hasPrefix("github:") { self = .github(String(key.dropFirst(7))) }
         else if key.hasPrefix("web:") { self = .web(String(key.dropFirst(4))) }
+        else if key.hasPrefix("slack:") { self = .slack(String(key.dropFirst(6))) }
         else if key.hasPrefix("file:") { self = .file(String(key.dropFirst(5))) }
         else if key.hasPrefix("artifact:"), let url = URL(string: String(key.dropFirst(9))) { self = .artifact(url) }
         else { return nil }
@@ -67,6 +68,8 @@ extension ModalRoute {
         case .artifact(let url): "artifact:\(url.absoluteString)"
         case .github(let url): "github:\(url)"
         case .web(let url): "web:\(url)"
+        case .slack(let url): "slack:\(url)"
+        case .newTask(let list): "newTask:\(list.rawValue)"
         case .newReminder: "newReminder"
         case .start: "start"
         case .closedSessions: "closed"

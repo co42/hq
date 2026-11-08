@@ -42,9 +42,9 @@ struct HQCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("New Task") { model.focusQuickAdd(.overview) }
+            Button("New Task…") { model.beginTask(.overview) }
                 .keyboardShortcut("n")
-            Button("New Backlog Task") { model.focusQuickAdd(.backlog) }
+            Button("New Backlog Task…") { model.beginTask(.backlog) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
             Button("New File…") { model.beginNewFile() }
                 .keyboardShortcut("n", modifiers: [.command, .control])

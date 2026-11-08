@@ -218,6 +218,7 @@ extension AppModel {
         notices.append(row)
         registerUndo("Add Reminder") { $0.notices.removeAll { $0.id == row.id } }
         scheduleDue()
+        for case .slack(let url) in links.compactMap(ModalRoute.init(noticeKey:)) { resolveSlack(url) }
         return row
     }
 

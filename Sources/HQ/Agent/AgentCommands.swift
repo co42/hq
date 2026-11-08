@@ -619,7 +619,9 @@ enum AgentCommands {
         }) {
             return .artifact(artifact.id)
         }
-        if let url = URL(string: ref), url.scheme == "https" || url.scheme == "http" { return GitHubLinks.isItem(ref) ? .github(ref) : .web(ref) }
+        if let url = URL(string: ref), url.scheme == "https" || url.scheme == "http" {
+            return GitHubLinks.isItem(ref) ? .github(ref) : SlackLink.isLink(ref) ? .slack(ref) : .web(ref)
+        }
         if let session = model.session(ref) ?? model.session(prefix: ref) { return .session(session.id) }
         if let file = model.file(ref: ref) { return .file(file.id) }
         throw AgentError.notFound("nothing called \(ref). Use a URL, a session id, a file under hq/files, or an artifact URL")
@@ -694,7 +696,8 @@ extension AppModel {
         case .task(let id): ["kind": "task", "id": "T-\(id)", "status": task(id)?.status.rawValue ?? "", "title": title(of: route)]
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
         case .web(let url): ["kind": "web", "title": title(of: route), "url": url]
-        case .start, .closedSessions, .notifications, .newReminder: ["kind": "other", "title": title(of: route)]
+        case .slack(let url): ["kind": "slack", "title": title(of: route), "url": url]
+        case .start, .closedSessions, .notifications, .newTask, .newReminder: ["kind": "other", "title": title(of: route)]
         }
     }
 

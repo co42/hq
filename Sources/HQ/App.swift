@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let newTask = NSMenuItem(title: "New Task", action: #selector(dockNewTask), keyEquivalent: "")
+        let newTask = NSMenuItem(title: "New Task…", action: #selector(dockNewTask), keyEquivalent: "")
         newTask.target = self
         menu.addItem(newTask)
         let reminder = NSMenuItem(title: "New Reminder…", action: #selector(dockNewReminder), keyEquivalent: "")
@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func dockNewTask() {
         model.bringForward()
-        model.focusQuickAdd(.overview)
+        model.beginTask(.overview)
     }
 
     @objc private func dockNewReminder() {

@@ -116,6 +116,10 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 `gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. Every 60 s while HQ is visible, 5 minutes otherwise, at once when it becomes active; back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
 
+### Slack
+
+A user token pasted in Settings › Slack, kept in the Keychain (`io.github.co42.hq.slack`); read-only (T-312). A Slack permalink (a message, a reply in a thread, a channel: `SlackLink` in HQKit) on a task's `links` or a reminder's links is its own kind of link (`ModalRoute.slack`) and opens in the Slack app. HQ reads what it points to once, when it's linked or at launch: `conversations.info` (the channel's name; none in a direct message), `conversations.history` or `.replies` (the message), `users.info` (its author); kept in `slack.json` beside the store. It follows no conversation and polls nothing. New Task… and New Reminder… take the Slack link on the clipboard, each time until × drops that copy: HQ asks the pasteboard whether it holds a link (`detectedPatterns`, no prompt) and reads it only then. Test runs use fixtures and never reach Slack. The plan for the rest (a safety net for unread messages, Make Task from any row): "Slack in HQ plan" in HQ's files, T-297.
+
 ## 6. Sessions
 
 - **Discovery**: a session appears with its first hook event. Its transcript is read best effort for the name only.

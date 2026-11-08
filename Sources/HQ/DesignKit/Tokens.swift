@@ -275,13 +275,17 @@ nonisolated enum Metric {
     /// The field + opens after a list of tags.
     static var tagField: CGFloat { 140 * Zoom.factor }
     static let settingsWidth: CGFloat = 520
+    /// A secret pasted in Settings, the Slack token.
+    static let settingsField: CGFloat = 240
     static var sheetWidth: CGFloat { 480 * Zoom.factor }
     static let windowMin = CGSize(width: 720, height: 600)
     /// The modal: this share of the window's content, at least `modalMin`.
     static let modalShare: CGFloat = 0.88
     static let modalMin = CGSize(width: 720, height: 520)
-    /// New Reminder…: three rows and its buttons.
-    static let reminderSheet = CGSize(width: 560, height: 224)
+    /// New Reminder…: what, its links, when, important, then its buttons.
+    static let reminderSheet = CGSize(width: 560, height: 262)
+    /// New Task…: the title, a description, the list, the project and the links, then its buttons.
+    static let taskSheet = CGSize(width: 560, height: 328)
     static var modalHeader: CGFloat { 52 * Zoom.factor }
     /// A push button's height in the modal's header.
     static var modalButton: CGFloat { 24 * Zoom.factor }

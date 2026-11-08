@@ -42,7 +42,7 @@ Merged in #418; the canary runs since 14:00. Next: watch it until 14:30, then do
 
 - The first lines: the goal and why. **Done when**: a checklist; tick each item as it's done and verified. **Status**: a few lines you rewrite at each milestone (what's done, what's next, what blocks), not a history. **Decisions**: what was chosen and why, when it matters later. Leave out a section with nothing in it; keep what the user wrote.
 - Edit it whole with `hq task edit T-n --body -`, starting from its current text (`hq task show T-n --json | jq -r .body`): the user edits it too, so never write from a stale copy.
-- PRs, files, artifacts and other tasks go through `hq task link`: they show under the task's row, the description needn't list them.
+- PRs, Slack messages, files, artifacts and other tasks go through `hq task link`: they show under the task's row, the description needn't list them.
 
 ## Fields
 
@@ -68,7 +68,7 @@ hq notify "PR #418 is ready to merge" --link T-12   # the user must check someth
 hq task edit T-12 --body -                          # replace the whole description; the rest stays
 hq task edit T-12 [--title …] [--type t] [--project p] [--add-tag t] [--remove-tag t]
 hq task edit T-12 --parent T-34                     # move it under T-34, as its last subtask; --parent none: top level
-hq task link T-12 <PR or issue URL | web page URL | T-34 | file | artifact URL | session id>
+hq task link T-12 <PR or issue URL | Slack message link | web page URL | T-34 | file | artifact URL | session id>
 hq task unlink T-12 <the same item>                 # a link made by mistake
 hq task delete T-12 --yes                           # only when the user asks; its subtasks go too (without --yes: what it would delete)
 hq task history T-12                                # what sessions changed in it through hq, the last 30 days

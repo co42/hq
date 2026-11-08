@@ -14,6 +14,10 @@ enum ModalRoute: Hashable {
     case github(String)
     /// Any other web page linked to a task (T-299): it opens in the browser.
     case web(String)
+    /// A Slack message, thread or channel linked to a task or a reminder (T-312): it opens in Slack.
+    case slack(String)
+    /// New Task…: a small sheet of its own (T-332), for Tasks or the Backlog.
+    case newTask(TaskList)
     /// New Reminder…: a small sheet of its own.
     case newReminder
     case start
@@ -168,6 +172,14 @@ final class AppModel {
     var artifacts: [ArtifactItem] = [] { didSet { outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
     /// GitHub's last answer, shown while the next one comes.
     var github: GitHubSnapshot? { didSet { outputsCache = nil; syncMenu() } }
+    /// The Slack messages links show, read once each (`slack.json`), by permalink.
+    var slackMessages: [String: SlackMessage] = [:]
+    /// Who the Slack token in Settings › Slack is for; nil without one, or when Slack refused it.
+    var slackAccount: SlackAccount?
+    /// What Slack said when it refused the token or a link.
+    var slackError: String?
+    /// A Slack link copied before New Task: the next task from its quick-add line links it (T-313).
+    var pendingTaskLink: PendingTaskLink?
 
     /// When the user acknowledged a card (`blink:<id>`) or marked a PR reviewed (`review:<url>`).
     var seen: [String: Date] = [:] { didSet { saveAttentionSoon() } }
@@ -378,6 +390,9 @@ final class AppModel {
     @ObservationIgnored var ghosttyLog: [String] = []
     @ObservationIgnored var ghosttyFails = false
     @ObservationIgnored var gitHubService: GitHubService?
+    @ObservationIgnored var slackService: SlackService?
+    /// The Slack links a test run would have opened.
+    @ObservationIgnored var slackLog: [String] = []
     /// While Ghostty is in front: reads the terminal the user looks at, every few seconds.
     @ObservationIgnored var focusTimer: Timer?
     @ObservationIgnored var focusChecking = false
@@ -418,6 +433,7 @@ final class AppModel {
         adoptRenames()
         startVault()
         gitHubService = GitHubService(model: self)
+        slackService = SlackService(model: self)
         watchGhosttyFocus()
         if !Store.isOverridden {
             bannerDelegate.model = self
@@ -464,11 +480,12 @@ final class AppModel {
 
     /// From the page or Next: a fresh modal. From inside it: pushed, so Back returns.
     func open(_ route: ModalRoute, push: Bool = false) {
-        // A web page opens in the browser: HQ shows its own items only.
+        // A web page opens in the browser, a Slack link in Slack: HQ shows its own items only.
         if case .web(let url) = route {
             if let address = URL(string: url) { NSWorkspace.shared.open(address) }
             return
         }
+        if case .slack(let url) = route { return openInSlack(url) }
         if case .github(let url) = route, githubPage?.pr == url {} else { githubPage = nil }
         showWindow()
         saveModalEdits()

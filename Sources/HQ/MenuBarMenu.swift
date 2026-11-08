@@ -14,9 +14,9 @@ struct MenuBarMenu: View {
             model.openCenter()
         }
         Divider()
-        Button("New Task") {
+        Button("New Task…") {
             model.bringForward()
-            model.focusQuickAdd(.overview)
+            model.beginTask(.overview)
         }
         Button("New Reminder…") {
             model.bringForward()

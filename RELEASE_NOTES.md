@@ -1,5 +1,26 @@
 # Release notes
 
+## v11 · 2026-11-08
+
+**Slack**
+- A Slack message, thread or channel links to a task or a reminder as a pull request does: paste it in **Link…**. Under a task it's a chip with the channel at rest ("#registry"), and "Julien in #registry: its first line" under the pointer; a double-click opens it in the Slack app.
+- **Settings › Slack**: paste a user token, kept in the Keychain. HQ reads a linked message once to name it. It never writes to Slack and follows no conversation.
+- Copy a message's link in Slack, then **New Task…** or **New Reminder…**: it comes with the link, named after the message. That copy comes to each new one until you remove it with ×.
+
+**Tasks**
+- **New Task…** (⌘N, ⌥⌘N for the Backlog, +, the menu bar and the Dock) opens a small sheet: title, description, Tasks or Backlog, project, links. The task goes at the end of Tasks or the top of the Backlog, and its row is selected.
+- The New Task line under each list still adds in place; a Slack link pasted there becomes the task's link.
+- **Link…** lists matches as you type: ↑ ↓ or the pointer move, Return links one.
+
+**Notifications**
+- **New Reminder…** has Links too: anything Link… finds, or the Slack link you copied.
+
+**The hq command, and hq plugin 0.7.4**
+- `hq task link` and `hq remind --link` take a Slack message's link, and `hq task show` lists it as one. The skills say so.
+
+**Fixes**
+- The pointing hand shows over the links under a task every time, not only now and then.
+
 ## v10 · 2026-11-07
 
 **Notifications**

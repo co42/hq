@@ -239,7 +239,7 @@ extension AppModel {
     /// A new task note, placed by the tree. Undo moves the note to the Trash.
     @discardableResult
     func addTask(title: String, placement: TaskTree.Placement, status: TaskStatus = .todo, type: TaskType? = nil,
-                 project: String? = nil, tags: [String] = [], body: String = "", session: String? = nil,
+                 project: String? = nil, tags: [String] = [], body: String = "", session: String? = nil, links: [URL] = [],
                  renumber: [Int: TaskTree.Placement] = [:]) -> TaskItem? {
         let split = TitleTags.split(title)
         var item = TaskItem(id: (tasks.map(\.id).max() ?? 0) + 1, title: split.title, status: status, type: type,
@@ -247,6 +247,7 @@ extension AppModel {
                             parent: placement.parent, list: placement.list, order: placement.order,
                             done: status == .done ? .now : nil,
                             sessions: session.map { [$0] } ?? [], created: .now, modified: .now, body: body)
+        item.links = links
         apply(split.tags, to: &item)
         if let vault {
             do {
@@ -276,10 +277,11 @@ extension AppModel {
 
     /// The quick-add line: the end of Tasks, the top of the Backlog.
     @discardableResult
-    func addTask(to list: TaskList, title: String, type: TaskType? = nil, body: String = "", session: String? = nil) -> TaskItem? {
+    func addTask(to list: TaskList, title: String, type: TaskType? = nil, body: String = "", session: String? = nil, project: String? = nil,
+                 links: [URL] = []) -> TaskItem? {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
               let (placement, renumber) = taskTree.placeNew(in: .list(list), at: list == .backlog ? 0 : nil) else { return nil }
-        return addTask(title: title, placement: placement, type: type, body: body, session: session, renumber: renumber)
+        return addTask(title: title, placement: placement, type: type, project: project, body: body, session: session, links: links, renumber: renumber)
     }
 
     /// Add Subtask: the last child, the parent opened, in the parent's project.
@@ -474,9 +476,12 @@ extension AppModel {
             if let address = URL(string: url) { link(task: id, url: address) }
             if GitHubLinks.isItem(url) && githubItem(url) == nil { pollGitHubSoon() }
         case .web(let url): if let address = URL(string: url) { link(task: id, url: address) }
+        case .slack(let url):
+            if let address = URL(string: url) { link(task: id, url: address) }
+            resolveSlack(url)
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newReminder: break
+        case .start, .closedSessions, .notifications, .newTask, .newReminder: break
         }
     }
 
@@ -484,10 +489,10 @@ extension AppModel {
         switch route {
         case .file(let name): changeFile(name, "Unlink") { $0.tasks.removeAll { $0 == id } }
         case .artifact(let url): changeArtifact(url, "Unlink") { $0.tasks.removeAll { $0 == id } }
-        case .github(let url), .web(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
+        case .github(let url), .web(let url), .slack(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newReminder: break
+        case .start, .closedSessions, .notifications, .newTask, .newReminder: break
         }
     }
 
@@ -496,10 +501,10 @@ extension AppModel {
         switch route {
         case .file(let name): file(name)?.tasks.contains(id) ?? false
         case .artifact(let url): artifacts.first { $0.id == url }?.tasks.contains(id) ?? false
-        case .github(let url), .web(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
+        case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true || task(other)?.related.contains(id) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications, .newReminder: false
+        case .start, .closedSessions, .notifications, .newTask, .newReminder: false
         }
     }
 

@@ -279,6 +279,7 @@ struct OutputRows: View {
         case .file: KitIcon.file.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Artifact")
         case .web: KitIcon.link.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Web page")
+        case .slack: KitIcon.slack.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Slack")
         default: EmptyView()
         }
     }
@@ -289,6 +290,7 @@ struct OutputRows: View {
         case .artifact(let url): "Artifact · " + (model.artifacts.first { $0.id == url }?.published.formatted(.relative(presentation: .named)) ?? "")
         case .github(let url): (model.githubItem(url)?.kind == .issue ? "Issue · " : "PR · ") + (model.githubItem(url)?.updatedAt.formatted(.relative(presentation: .named)) ?? "")
         case .web: "Link · opens in the browser"
+        case .slack: "Slack · opens in Slack"
         default: ""
         }
     }
@@ -307,25 +309,47 @@ struct LinkButton: View {
     }
 }
 
+/// Search, or paste a link: the matches as the user types, ↑ ↓ or the pointer to move, Return or a click to link one.
+/// For a task, it links there; for a form being written (New Task…, New Reminder…), `pick` takes it.
 struct LinkPicker: View {
-    let task: Int
+    var task: Int?
+    /// A form's links so far: not offered again.
+    var linked: [ModalRoute] = []
+    var pick: ((ModalRoute) -> Void)?
     let done: () -> Void
     @Environment(AppModel.self) private var model
     @State private var query = ""
+    @State private var index = 0
     @FocusState private var focused: Bool
 
+    init(task: Int, done: @escaping () -> Void) {
+        self.task = task
+        self.done = done
+    }
+
+    init(linked: [ModalRoute], pick: @escaping (ModalRoute) -> Void, done: @escaping () -> Void) {
+        self.linked = linked
+        self.pick = pick
+        self.done = done
+    }
+
     var body: some View {
-        let matches = Self.matches(model, task: task, query: query)
+        let matches = Array((task.map { Self.matches(model, task: $0, query: query) } ?? Self.matches(model, query: query, leaving: Set(linked)))
+            .prefix(Self.shown))
         VStack(alignment: .leading, spacing: Space.sm) {
             TextField("Search, or paste a link", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .focused($focused)
+                .onChange(of: query) { index = 0 }
+                .onKeyPress(.downArrow) { index = min(index + 1, max(matches.count - 1, 0)); return .handled }
+                .onKeyPress(.upArrow) { index = max(index - 1, 0); return .handled }
                 .uiTestAnchor("link-picker")
-                .onSubmit { if let first = matches.first { pick(first) } }
+                .onSubmit { if matches.indices.contains(index) { choose(matches[index]) } }
+            ScrollViewReader { scroller in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(matches.prefix(Self.shown), id: \.self) { route in
-                        Button { pick(route) } label: {
+                    ForEach(Array(matches.enumerated()), id: \.element) { position, route in
+                        Button { choose(route) } label: {
                             HStack(spacing: Space.sm) {
                                 Group {
                                     switch route {
@@ -333,6 +357,7 @@ struct LinkPicker: View {
                                     case .file: KitIcon.file.image.foregroundStyle(.secondary)
                                     case .task(let id): if let task = model.task(id) { TaskGlyph(status: task.status) }
                                     case .web: KitIcon.link.image.foregroundStyle(.secondary)
+                                    case .slack: KitIcon.slack.image.foregroundStyle(.secondary)
                                     case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary)
                                     default: EmptyView()
                                     }
@@ -342,18 +367,26 @@ struct LinkPicker: View {
                                 Spacer(minLength: 0)
                                 Text(Self.kind(route, model)).kitType(.meta).foregroundStyle(.secondary)
                             }
-                            .padding(.horizontal, Space.xs)
+                            .padding(.horizontal, Space.sm)
                             .frame(height: Metric.boxRow)
+                            .background(position == index ? Ink.rowSelection : Color.clear,
+                                        in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .clickable()
+                        .accessibilityAddTraits(position == index ? .isSelected : [])
+                        .onHover { if $0 { index = position } }
+                        .id(position)
+                        .uiTestAnchor("link-match:\(route.selectionKey)")
                     }
                     if matches.isEmpty {
                         Text(query.isEmpty ? "Nothing left to link." : "No match for “\(query)”.")
                             .kitType(.callout).foregroundStyle(.secondary).padding(Space.xs)
                     }
                 }
+            }
+            .onChange(of: index) { scroller.scrollTo(index) }
             }
             .frame(height: Metric.linkPicker)
         }
@@ -364,15 +397,25 @@ struct LinkPicker: View {
 
     static let shown = 40
 
-    /// A pasted address first (T-298); then the task a key names; then tasks, files, artifacts, PRs and issues whose title
-    /// (or key, or PR reference) has the query, newest first. Tasks only once something is typed. Nothing linked already.
+    /// What a task can link: not itself, nothing linked already.
     static func matches(_ model: AppModel, task: Int, query: String) -> [ModalRoute] {
+        matches(model, query: query) { $0 == .task(task) || model.isLinked($0, to: task) }
+    }
+
+    /// What a form being written can link: not what it links already.
+    static func matches(_ model: AppModel, query: String, leaving linked: Set<ModalRoute>) -> [ModalRoute] {
+        matches(model, query: query) { linked.contains($0) }
+    }
+
+    /// A pasted address first (T-298); then the task a key names; then tasks, files, artifacts, PRs and issues whose title
+    /// (or key, or PR reference) has the query, newest first. Tasks only once something is typed.
+    private static func matches(_ model: AppModel, query: String, leaving: (ModalRoute) -> Bool) -> [ModalRoute] {
         let text = query.trimmingCharacters(in: .whitespaces)
         func hit(_ words: String) -> Bool { text.isEmpty || words.localizedStandardContains(text) }
         var routes: [ModalRoute] = []
         if let url = URL(string: text), url.scheme == "https" || url.scheme == "http", url.host() != nil {
             routes.append(model.artifacts.first { $0.id == url }.map { .artifact($0.id) }
-                          ?? (GitHubLinks.isItem(text) ? .github(text) : .web(text)))
+                          ?? (GitHubLinks.isItem(text) ? .github(text) : SlackLink.isLink(text) ? .slack(text) : .web(text)))
         }
         if text.uppercased().hasPrefix("T-") || Int(text) != nil, let id = TaskItem.key(text), model.task(id) != nil { routes.append(.task(id)) }
         let tasks = text.isEmpty ? [] : model.tasks.filter { $0.status != .done }.sorted { $0.modified > $1.modified }
@@ -382,7 +425,7 @@ struct LinkPicker: View {
         let github = (model.github?.items ?? []).filter { $0.state == .open || $0.state == .draft }
             .sorted { $0.updatedAt > $1.updatedAt }.filter { hit("\($0.title) \($0.reference)") }.map { ModalRoute.github($0.url) }
         var seen = Set<ModalRoute>()
-        return (routes + tasks + files + artifacts + github).filter { $0 != .task(task) && !model.isLinked($0, to: task) && seen.insert($0).inserted }
+        return (routes + tasks + files + artifacts + github).filter { !leaving($0) && seen.insert($0).inserted }
     }
 
     static func name(_ route: ModalRoute, _ model: AppModel) -> String {
@@ -397,12 +440,13 @@ struct LinkPicker: View {
         case .artifact: "Artifact"
         case .github(let url): model.githubItem(url).map { "\($0.kind == .issue ? "Issue" : "PR") · \($0.reference)" } ?? "Link"
         case .web: "Link"
+        case .slack: "Slack"
         default: ""
         }
     }
 
-    private func pick(_ route: ModalRoute) {
-        model.link(route, to: task)
+    private func choose(_ route: ModalRoute) {
+        if let task { model.link(route, to: task) } else { pick?(route) }
         done()
     }
 }

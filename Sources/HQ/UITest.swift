@@ -62,6 +62,7 @@ enum UITest {
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
                 ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
+                ("slackLinks", slackLinks),
             ]
             for (name, run) in groups where only?.contains(name) ?? true {
                 await run(model, ui)
@@ -225,6 +226,25 @@ struct Driver {
     }
 
     /// A click on an anchor in a popover's own window, as that window gets it. Nil when no popover shows it.
+    /// The window of the popover that shows `name`.
+    func popoverWindow(_ name: String) -> NSWindow? {
+        UITest.anchors[name, default: []].compactMap(\.view)
+            .last(where: { $0.window != nil && $0.window !== window && $0.window !== window.attachedSheet })?.window
+    }
+
+    /// A key typed in the popover that shows `name`, as its text field gets it.
+    func key(_ key: Key, inPopover name: String) async {
+        guard let popover = popoverWindow(name) else { return }
+        let arrows: NSEvent.ModifierFlags = [.up, .down, .left, .right].contains(key) ? [.numericPad, .function] : []
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: arrows, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: popover.windowNumber, context: nil, characters: key.characters,
+                                               charactersIgnoringModifiers: key.characters, isARepeat: false, keyCode: key.code) else { continue }
+            popover.sendEvent(event)
+        }
+        await settle(0.2)
+    }
+
     func clickInPopover(_ name: String) async -> Bool {
         guard let view = UITest.anchors[name, default: []].compactMap(\.view)
             .last(where: { $0.window != nil && $0.window !== window && $0.window !== window.attachedSheet }),

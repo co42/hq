@@ -443,6 +443,8 @@ final class TaskCell: NSTableCellView {
     private(set) var descriptionHost: NSHostingView<AnyView>?
     /// The task's PRs, files, artifacts and linked tasks, on one line under the title.
     private(set) var linksHost: NSHostingView<AnyView>?
+    /// The hand over the links line's chips, tracked by AppKit over the hosted line.
+    private(set) var chipHand: HandRegionView?
     private var shownLinks: (task: Int, routes: [ModalRoute], expanded: Bool)?
     /// Whole titles in the links line (under the pointer or selected), for the UI test.
     var linksExpanded: Bool? { shownLinks?.expanded }
@@ -684,6 +686,7 @@ final class TaskCell: NSTableCellView {
             // A little closer to the title than a line of its own.
             below -= Space.xs
             linksHost.frame = NSRect(x: titleX, y: below, width: bounds.width - titleX - Space.xs, height: Metric.linksLine)
+            chipHand?.frame = linksHost.frame
             below += Metric.linksLine
         }
         if let descriptionHost {
@@ -699,6 +702,8 @@ final class TaskCell: NSTableCellView {
         if outputs.isEmpty {
             linksHost?.removeFromSuperview()
             linksHost = nil
+            chipHand?.removeFromSuperview()
+            chipHand = nil
             shownLinks = nil
         } else if shownLinks?.task != id || shownLinks?.routes != outputs || shownLinks?.expanded != expanded || linksHost == nil {
             shownLinks = (id, outputs, expanded)
@@ -709,6 +714,9 @@ final class TaskCell: NSTableCellView {
                 host.sizingOptions = []
                 addSubview(host)
                 linksHost = host
+                let hand = HandRegionView { [chipFrames] point in chipFrames.route(at: point) != nil }
+                addSubview(hand, positioned: .above, relativeTo: host)
+                chipHand = hand
             }
         }
     }
@@ -857,11 +865,17 @@ final class QuickAddField: NSTextField {
     var list = TaskList.overview
 }
 
-/// "New task" under a list: Return adds it and keeps the field for the next.
+/// "New task" under a list: Return adds it and keeps the field for the next. A Slack link copied before New Task shows at
+/// its end and names it after the message (T-313).
 final class QuickAddCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("quick-cell")
     let field = QuickAddField()
     private let plus = NSImageView()
+    /// Made only while a link waits: the line comes into view on a scroll, and stays cheap there.
+    private var chip: NSHostingView<AnyView>?
+    private var chipURL: String?
+    /// The title the linked message gave the field: replaced when the message arrives, kept once the user types.
+    private var named: String?
 
     override var isFlipped: Bool { true }
 
@@ -892,6 +906,35 @@ final class QuickAddCell: NSTableCellView {
             .font: KitType.title.nsFont, .foregroundColor: Ink.secondaryTextNS,
         ])
         field.setAccessibilityLabel(placeholder)
+        let model = coordinator.model
+        let pending = model.pendingTaskLink.flatMap { $0.list == list ? $0.url : nil }
+        if pending != chipURL {
+            chipURL = pending
+            chip?.removeFromSuperview()
+            chip = pending.map { url in
+                let view = NSHostingView(rootView: AnyView(PendingLinkChip(url: url).environment(model)))
+                addSubview(view)
+                return view
+            }
+            needsLayout = true
+        }
+        guard let pending else { return named = nil }
+        name(after: model.slackMessages[pending])
+    }
+
+    /// The field takes the message's first line while it's empty or still holds the last one it took.
+    private func name(after message: SlackMessage?) {
+        guard let line = message?.firstLine, !line.isEmpty, line != named else { return }
+        let editor = field.currentEditor()
+        let typed = editor?.string ?? field.stringValue
+        guard typed.isEmpty || typed == named else { return }
+        named = line
+        if let editor {
+            editor.string = line
+            editor.selectAll(nil)
+        } else {
+            field.stringValue = line
+        }
     }
 
     override func layout() {
@@ -902,7 +945,33 @@ final class QuickAddCell: NSTableCellView {
         plus.frame = NSRect(x: 0, y: (line - slot) / 2, width: slot, height: slot)
         let height = ceil(field.intrinsicContentSize.height)
         let x = TaskCell.titleX
-        field.frame = NSRect(x: x, y: (line - height) / 2, width: bounds.width - x - Space.xs, height: height)
+        var end = bounds.width - Space.xs
+        if let chip {
+            let size = chip.fittingSize
+            let width = min(size.width, (bounds.width - x) / 2)
+            chip.frame = NSRect(x: end - width, y: (line - size.height) / 2, width: width, height: size.height)
+            end = chip.frame.minX - Space.sm
+        }
+        field.frame = NSRect(x: x, y: (line - height) / 2, width: end - x, height: height)
+    }
+}
+
+/// The Slack link the next task from a quick-add line links, and a button to drop it (T-313).
+struct PendingLinkChip: View {
+    let url: String
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            OutputChip(route: .slack(url), short: true, plain: true)
+            Button { model.pendingTaskLink = nil } label: { Label("Don’t Link It", icon: .close).labelStyle(.iconOnly) }
+                .buttonStyle(.borderless)
+                .clickable()
+                .help("Don’t link this Slack message")
+                .uiTestAnchor("quick-add-unlink")
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .uiTestAnchor("quick-add-link")
     }
 }
 
@@ -1168,7 +1237,8 @@ struct OutputChip: View {
             .background(compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
                         in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .modifier(ChipClick(route: route, task: task, active: !plain))
-            .clickable()
+            // Under a task's row the outline's AppKit tracking gives the hand (`HandRegionView`).
+            .clickable(task == nil)
             .help(model.title(of: route))
     }
 
@@ -1181,6 +1251,7 @@ struct OutputChip: View {
         case .file: KitIcon.fileTile.image.foregroundStyle(Ink.fileTile).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.fontWeight(.semibold).foregroundStyle(Ink.artifactTile).accessibilityLabel("Artifact")
         case .web: KitIcon.link.image.fontWeight(.semibold).foregroundStyle(.secondary).accessibilityLabel("Web page")
+        case .slack: KitIcon.slack.image.fontWeight(.semibold).foregroundStyle(.secondary).accessibilityLabel("Slack")
         case .task(let id): if let task = model.task(id) { TaskGlyph(status: task.status).scaleEffect(compact ? 0.86 : 1) }
         default: EmptyView()
         }
@@ -1225,9 +1296,16 @@ struct LinkMenu: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if case .web = route { Button("Open in Browser") { model.open(route) } } else { Button("Open") { model.open(route, push: model.modal != nil) } }
+        switch route {
+        case .web: Button("Open in Browser") { model.open(route) }
+        case .slack: Button("Open in Slack") { model.open(route) }
+        default: Button("Open") { model.open(route, push: model.modal != nil) }
+        }
         switch route {
         case .web(let url):
+            Button("Copy Link") { Pasteboard.copy(url) }
+        case .slack(let url):
+            Button("Open in Browser") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
             Button("Copy Link") { Pasteboard.copy(url) }
         case .file(let id):
             Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
@@ -1368,9 +1446,11 @@ extension AppModel {
         case .artifact(let url): artifacts.first { $0.id == url }?.title ?? url.lastPathComponent
         case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? url
         case .web(let url): Self.webName(url)
+        case .slack(let url): slackMessages[url]?.title ?? (SlackLink(url)?.ts == nil ? "Slack channel" : "Slack message")
         case .start: "Start a session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
+        case .newTask: "New Task"
         case .newReminder: "New Reminder"
         }
     }
@@ -1383,6 +1463,10 @@ extension AppModel {
             if let item = githubItem(url) { return "#\(item.number)" }
             return URL(string: url).map { "#\($0.lastPathComponent)" } ?? url
         case .web(let url): return URL(string: url)?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url
+        // Where it was said: #infra, or who wrote it in a direct message.
+        case .slack(let url):
+            let message = slackMessages[url]
+            return message?.channel.map { "#\($0)" } ?? message?.author ?? "Slack"
         case .file, .artifact:
             let title = title(of: route)
             guard title.count > Self.shortTitleLength else { return title }

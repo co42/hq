@@ -31,7 +31,8 @@ struct TaskOutline: NSViewRepresentable {
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
              model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
-             model.sectionFocus, model.selectedSection, model.notices.count) // notices: reminders' marks on rows (T-311)
+             model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
+             model.pendingTaskLink, model.slackMessages)
         context.coordinator.width = width
         context.coordinator.refresh()
     }
@@ -854,6 +855,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             cell.show(model: model, id: id, coordinator: self, hovered: (outline.rowView(atRow: row, makeIfNecessary: false) as? OutlineRowView)?.hovered ?? false)
         } else if let cell = outline.view(atColumn: node.spans ? 0 : 1, row: row, makeIfNecessary: false) as? HostCell {
             cell.show(hosted(node))
+        } else if let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? QuickAddCell, case .quickAdd(let list) = node.kind {
+            cell.configure(list: list, coordinator: self)
         }
         if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, let id = node.task {
             faces.gap = gap
@@ -1290,8 +1293,18 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     // MARK: Completion
 
-    /// Typing after `#` in a title or the quick-add line lists the statuses, projects and tags that start so.
+    /// Typing after `#` in a title or the quick-add line lists the statuses, projects and tags that start so. A Slack link
+    /// pasted in the quick-add line becomes the link the task comes with (T-313).
     func controlTextDidChange(_ notification: Notification) {
+        if let field = notification.object as? QuickAddField, let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView,
+           let found = SlackLink.find(in: editor.string) {
+            var rest = editor.string
+            rest.removeSubrange(found.range)
+            editor.string = rest.trimmingCharacters(in: .whitespaces)
+            model.pendingTaskLink = PendingTaskLink(url: found.url, list: field.list)
+            model.resolveSlack(found.url)
+            return
+        }
         guard !completing, !deleting, let control = notification.object as? NSTextField, control is TitleField || control is QuickAddField,
               let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView, Self.hashWord(in: editor) != nil else {
             deleting = false
@@ -1390,14 +1403,21 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
             let option = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
             let list: TaskList = option ? .backlog : field.list
-            let text = field.stringValue.trimmingCharacters(in: .whitespaces)
+            // A Slack link copied before New Task comes with it, and names it when nothing is typed.
+            let pending = model.pendingTaskLink.flatMap { $0.list == field.list ? $0.url : nil }
+            var text = field.stringValue.trimmingCharacters(in: .whitespaces)
+            if text.isEmpty, let pending { text = model.name(fromSlack: pending) }
             guard !text.isEmpty else { return true }
-            model.addTask(to: list, title: text)
+            model.addTask(to: list, title: text, links: pending.flatMap(URL.init(string:)).map { [$0] } ?? [])
+            if pending != nil { model.pendingTaskLink = nil }
             field.stringValue = ""
             return true
         case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.moveUp(_:)), #selector(NSResponder.insertBacktab(_:)):
-            // Back to the rows: the task above, selected.
-            if selector == #selector(NSResponder.cancelOperation(_:)) { field.stringValue = "" }
+            // Back to the rows: the task above, selected. Escape drops what was typed and the Slack link with it.
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                field.stringValue = ""
+                if model.pendingTaskLink?.list == field.list { model.pendingTaskLink = nil }
+            }
             guard let outline else { return true }
             let row = outline.row(forItem: node(.quickAdd(field.list)))
             if let previous = (stride(from: row - 1, through: 0, by: -1).lazy.compactMap { self.task(atRow: $0) }).first {

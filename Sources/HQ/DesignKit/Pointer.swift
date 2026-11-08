@@ -6,6 +6,9 @@ import SwiftUI
 extension View {
     /// The pointing hand over an icon, a face or a chip that SwiftUI draws itself.
     func clickable() -> some View { pointerStyle(.link) }
+
+    /// The hand only when SwiftUI is the one to give it; off where AppKit tracks it.
+    func clickable(_ on: Bool) -> some View { pointerStyle(on ? .link : nil) }
 }
 
 extension NSView {
@@ -72,6 +75,31 @@ final class ToolbarHandView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func mouseEntered(with event: NSEvent) { NSCursor.pointingHand.set() }
+    override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
+}
+
+/// The hand over the chips of a hosted line (a task row's links), from AppKit: SwiftUI's pointer style in a row's hosted
+/// view comes and goes as the line rebuilds. It asks `chip(at:)` where the chips are; clicks go through to them.
+final class HandRegionView: NSView {
+    private let chip: (NSPoint) -> Bool
+
+    init(chip: @escaping (NSPoint) -> Bool) {
+        self.chip = chip
+        super.init(frame: .zero)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The cursor for a point in window coordinates: the hand over a chip, else the arrow.
+    func cursor(at point: NSPoint) -> NSCursor { chip(convert(point, from: nil)) ? .pointingHand : .arrow }
+
+    override func cursorUpdate(with event: NSEvent) { cursor(at: event.locationInWindow).set() }
+    override func mouseMoved(with event: NSEvent) { cursor(at: event.locationInWindow).set() }
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 }
 

@@ -34,8 +34,8 @@ enum SelfTest {
             let focus = barMenu.items.first { $0.title == "Focus" }?.submenu
             focus?.update()
             let first = focus?.items.first?.title ?? ""
-            check("the menu bar icon's menu: Open HQ first, then Notifications, New Task, New Reminder…, Focus ▸, Quit HQ (T-325)",
-                  titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task")
+            check("the menu bar icon's menu: Open HQ first, then Notifications, New Task…, New Reminder…, Focus ▸, Quit HQ (T-325)",
+                  titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task…")
                   && titles.contains("New Reminder…") && titles.last == "Quit HQ", "\(titles)")
             check("its Focus lists the sessions that wait on the user first, names cut at 30", model.blockedSessions.first.map { first == MenuBarMenu.title($0) } ?? false
                   && (focus?.items ?? []).allSatisfy { ($0.title.components(separatedBy: " · ").first ?? "").count <= MenuBarMenu.nameLimit }
@@ -45,6 +45,7 @@ enum SelfTest {
             await sessionChecks(model)
             await vaultChecks(model)
             await cliChecks(model)
+            await slackChecks(model)
             labelChecks(model)
             spoolChecks(model)
             keysChecks()
@@ -183,6 +184,80 @@ enum SelfTest {
         let count = MenuBarIcon.countTitle(3)
         check("its count is drawn orange, never in the menu bar's dark text", count.string == "3"
               && (count.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == Ink.needsYouNS)
+    }
+
+    /// Slack links (T-312, T-313): on a task and a reminder, named after their message; opened in Slack; the token; a
+    /// copied link offered once.
+    private static func slackChecks(_ model: AppModel) async {
+        func settle() async { try? await Task.sleep(for: .milliseconds(200)) }
+        let url = SlackService.fixtureLink
+        let route = ModalRoute.slack(url)
+        check("a Slack link is its own kind of link, by its keys too", ModalRoute(itemKey: route.selectionKey) == route
+              && ModalRoute(noticeKey: route.selectionKey) == route && ModalRoute(selectionKey: route.selectionKey) == route)
+        guard let task = model.addTask(to: .backlog, title: "Slack target") else { return check("a task for a Slack link", false) }
+        check("Link… takes a pasted Slack link as one", LinkPicker.matches(model, task: task.id, query: url).first == route)
+        let linked = agent("task link", ["task": task.key, "item": url])
+        check("hq task link links a Slack message, named after it: who, where, its first line", linked["error"] == nil
+              && model.outputs(ofTask: task.id).contains(route)
+              && model.title(of: route) == "Julien in #registry: Can you check the eu-west upload retries before Monday?" && model.shortTitle(of: route) == "#registry",
+              "\(linked) · \(model.title(of: route)) · \(model.shortTitle(of: route))")
+        let shown = (agent("task show", ["task": task.key])["linked"] as? [JSONObject]) ?? []
+        check("hq task show lists it as a Slack link", shown.contains { $0["kind"] as? String == "slack" && $0["url"] as? String == url }, "\(shown)")
+        let modal = model.modal
+        model.open(route)
+        check("opening it goes to Slack, not a sheet", model.slackLog.last == url && model.modal == modal)
+        let other = "https://example.slack.com/archives/C0EXAMPLE2/p1762500000000200"
+        check("a Slack link not read yet is named by its kind", model.title(of: .slack(other)) == "Slack message" && model.shortTitle(of: .slack(other)) == "Slack"
+              && model.title(of: .slack("https://example.slack.com/archives/C0EXAMPLE2")) == "Slack channel")
+        model.unlink(route, from: task.id)
+        check("and unlinks", !model.isLinked(route, to: task.id))
+
+        let reminder = agent("remind", ["text": "Answer Julien", "at": "in 2h", "link": url])
+        let reminded = model.notices.last
+        check("hq remind --link takes a Slack link", reminder["error"] == nil && reminded?.links == [route.selectionKey], "\(reminder)")
+        if let reminded { model.removeNotice(reminded.id) }
+
+        model.setSlackToken("xoxp-selftest")
+        await settle()
+        check("a Slack token names its account in Settings", model.slackAccount == SlackService.fixtureAccount)
+        model.setSlackToken(nil)
+        await settle()
+        check("and removing it forgets the account", model.slackAccount == nil)
+
+        // The clipboard, as a test run keeps it: its Slack link comes every time, until × drops that copy (T-333).
+        SlackClipboard.testText = "see \(url)"
+        SlackClipboard.testChange += 1
+        let first = await model.copiedSlackLink()
+        let again = await model.copiedSlackLink()
+        model.dropCopiedLink(url)
+        let dropped = await model.copiedSlackLink()
+        SlackClipboard.testChange += 1
+        let copiedAgain = await model.copiedSlackLink()
+        check("a copied Slack link comes every time, until × drops that copy; copied again, it comes again",
+              first == url && again == url && dropped == nil && copiedAgain == url, "\([first, again, dropped, copiedAgain])")
+        SlackClipboard.testText = "https://github.com/acme/registry/pull/77"
+        SlackClipboard.testChange += 1
+        let notSlack = await model.copiedSlackLink()
+        check("and nothing else on the clipboard comes", notSlack == nil)
+        SlackClipboard.testText = nil
+        SlackClipboard.testChange += 1
+        check("a task or reminder made from a Slack link is named after its message", model.name(fromSlack: url) == "Can you check the eu-west upload retries before Monday?"
+              && model.name(fromSlack: other) == "Slack message")
+
+        // New Task… (T-332) and the links of a form being written (T-333).
+        check("Link… for a form offers tasks by key, minus what the form links", LinkPicker.matches(model, query: task.key, leaving: []).first == .task(task.id)
+              && !LinkPicker.matches(model, query: task.key, leaving: [.task(task.id)]).contains(.task(task.id))
+              && LinkPicker.matches(model, query: url, leaving: []).first == route)
+        model.beginTask(.backlog)
+        check("New Backlog Task… opens its sheet for the Backlog", model.modal == .newTask(.backlog) && model.title(of: .newTask(.backlog)) == "New Task"
+              && ModalRoute.newTask(.backlog).selectionKey == "newTask:backlog")
+        model.closeModal()
+        if let made = model.addTask(to: .overview, title: "From the sheet", body: "Why", project: "Registry", links: [URL(string: url)!]) {
+            check("a task added with a project, a description and links keeps them", made.project == "Registry" && made.body == "Why"
+                  && made.links == [URL(string: url)!] && model.outputs(ofTask: made.id).contains(route))
+            model.deleteTasks([made.id], action: "Delete")
+        }
+        model.deleteTasks([task.id], action: "Delete")
     }
 
     /// Settings › Keys and the menus agree both ways: it lists every menu shortcut, and each ⌘ key it lists under Everywhere is a menu's.

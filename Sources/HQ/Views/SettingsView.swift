@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The Settings tabs. Snapshot mode walks through every case.
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, projects, claude, ghostty, github, keys
+    case general, projects, claude, ghostty, github, slack, keys
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .claude: "Claude"
         case .ghostty: "Ghostty"
         case .github: "GitHub"
+        case .slack: "Slack"
         case .keys: "Keys"
         }
     }
@@ -27,6 +28,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .claude: .sessions
         case .ghostty: .ghostty
         case .github: .pullRequest
+        case .slack: .slack
         case .keys: .keyboard
         }
     }
@@ -57,6 +59,7 @@ struct SettingsView: View {
             case .claude: ClaudeSettings()
             case .ghostty: GhosttySettings()
             case .github: GitHubSettings()
+            case .slack: SlackSettings()
             case .keys: KeysSettings()
             }
         }
@@ -190,14 +193,65 @@ struct GitHubSettings: View {
     }
 }
 
+/// The Slack user token, in the Keychain (T-312): it names a linked message by who wrote it, where, and its first line.
+struct SlackSettings: View {
+    @Environment(AppModel.self) private var model
+    @State private var token = ""
+
+    var body: some View {
+        Section {
+            LabeledContent("Account") {
+                HStack(spacing: Space.sm) {
+                    StatusText(ok: model.slackAccount != nil, yes: model.slackAccount.map { "\($0.user) · \($0.team)" } ?? "",
+                               no: model.slackError ?? "No token")
+                    if model.slackAccount != nil || model.slackError != nil {
+                        Button("Remove") { model.setSlackToken(nil) }
+                            .help("Forget the token: Slack links show as links")
+                            .uiTestAnchor("slack-remove")
+                    }
+                }
+            }
+            LabeledContent("User token") {
+                HStack(spacing: Space.sm) {
+                    SecureField("User token", text: $token, prompt: Text("xoxp-…"))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: Metric.settingsField)
+                        .labelsHidden()
+                        .onSubmit(save)
+                        .uiTestAnchor("slack-token")
+                    Button("Save", action: save)
+                        .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .uiTestAnchor("slack-save")
+                }
+            }
+        } footer: {
+            Text("HQ reads a Slack message once, when it’s linked to a task or a reminder, to show who wrote it, where, and its first line. It never writes to Slack. The token needs these scopes: channels:history, groups:history, im:history, mpim:history, channels:read, groups:read, im:read, mpim:read, users:read.")
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Text("Copy a message’s link in Slack, then New Task or New Reminder…: it comes with the link, named after the message.")
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Links")
+        }
+    }
+
+    private func save() {
+        let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        model.setSlackToken(value)
+        token = ""
+    }
+}
+
 struct KeysSettings: View {
     static let keys: [(String, String)] = [
         ("Next or previous section", "Tab  ⇧Tab"),
         ("Select in a section, open", "↑  ↓, Return or Space"),
         ("Notifications", "⌘J"),
         ("New Reminder…", "⌃⌘R"),
-        ("New Task", "⌘N"),
-        ("New Backlog Task", "⌥⌘N"),
+        ("New Task…", "⌘N"),
+        ("New Backlog Task…", "⌥⌘N"),
         ("New File…", "⌃⌘N"),
         ("New Session…", "⇧⌘N"),
         ("Quick Open", "⌘K  ⌘P"),

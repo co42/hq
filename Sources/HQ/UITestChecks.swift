@@ -990,6 +990,143 @@ extension UITest {
         }
     }
 
+    /// Slack links and the new sheets (T-312, T-313, T-331, T-332, T-333): New Task… and New Reminder… come with the
+    /// copied Slack link until × drops that copy, named after its message; Link… adds anything, by keyboard too; the chips
+    /// under a task's row take the hand; a Slack link pasted in a list's New Task line becomes its link.
+    static func slackLinks(_ model: AppModel, _ ui: Driver) async {
+        let url = SlackService.fixtureLink
+        let route = ModalRoute.slack(url)
+        let line = "Can you check the eu-west upload retries before Monday?"
+        func copy(_ text: String?) {
+            SlackClipboard.testText = text
+            SlackClipboard.testChange += 1
+        }
+        func editor() -> NSTextView? { (ui.window.attachedSheet ?? ui.window).firstResponder as? NSTextView }
+        func open(_ sheet: ModalRoute) async {
+            model.closeModal()
+            await ui.settle(0.3)
+            if case .newTask(let list) = sheet { model.beginTask(list) } else { model.beginReminder() }
+            await ui.until(2) { model.modal == sheet }
+            await ui.settle(0.8)
+        }
+        model.slackMessages = SlackService.fixtures
+        model.closeModal()
+        model.folded = []
+        await ui.settle(0.4)
+
+        // New Task… with a Slack link copied: its own sheet, the link, the message's words.
+        copy("look: \(url)")
+        await open(.newTask(.overview))
+        check("New Task… opens its own sheet with the keyboard in the title", model.modal == .newTask(.overview)
+              && ui.anchor("new-task-title") != nil && editor() != nil, ui.responder)
+        check("a Slack link copied comes as a link, and names the task", ui.anchor("new-task-link:\(route.selectionKey)") != nil
+              && editor()?.string == line, editor()?.string ?? ui.responder)
+        let before = Set(model.tasks.map(\.id))
+        await ui.click(await ui.steadyAnchor("new-task-add"), inSheet: true)
+        await ui.until(2) { model.modal == nil }
+        await ui.settle(0.6)
+        let added = model.tasks.first { !before.contains($0.id) }
+        check("Add Task puts it at the end of Tasks with the link, and selects its row", added?.title == line
+              && added?.links == [URL(string: url)!] && model.list(of: added?.id ?? 0) == .overview && model.selectedTasks == [added?.id ?? 0],
+              "\(added?.title ?? "none") \(added?.links ?? []) selected \(model.selectedTasks)")
+
+        // The chips under its row: the hand from AppKit's tracking over each chip, the arrow between (T-331).
+        model.selectSection(nil)
+        await ui.settle(0.5)
+        if let added, let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
+           let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(added.id))), makeIfNecessary: false) as? TaskCell,
+           let hand = cell.chipHand, let chip = await ui.steadyAnchor(route.chipKey(task: added.id)) {
+            let past = NSPoint(x: hand.convert(NSPoint(x: hand.bounds.maxX - 2, y: hand.bounds.midY), to: nil).x, y: chip.y)
+            check("the hand over a chip under a task's row, from AppKit, and the arrow past the chips", hand.cursor(at: chip) == .pointingHand
+                  && hand.cursor(at: past) == .arrow && hand.hitTest(chip) == nil)
+            let opened = model.slackLog.count
+            await ui.click(chip, count: 2)
+            await ui.settle(0.4)
+            tableCheck(ui, "a double-click on the Slack chip opens it in Slack", model.slackLog.count == opened + 1 && model.slackLog.last == url
+                       && model.modal == nil, "\(model.slackLog)")
+        } else {
+            check("the hand over a chip under a task's row, from AppKit, and the arrow past the chips", false, "no chip line")
+        }
+
+        // The same copy comes to New Reminder… too, until its × drops it.
+        await open(.newReminder)
+        check("New Reminder… gets the same copied link, and the message's words", ui.anchor("new-reminder-link:\(route.selectionKey)") != nil
+              && editor()?.string == line, editor()?.string ?? ui.responder)
+        await ui.click(await ui.steadyAnchor("new-reminder-unlink:\(route.selectionKey)"), inSheet: true)
+        await ui.settle(0.4)
+        tableCheck(ui, "its × drops the link", ui.anchor("new-reminder-link:\(route.selectionKey)") == nil)
+        model.dropCopiedLink(url)
+        await open(.newReminder)
+        check("a copy dropped with × comes no more", ui.anchor("new-reminder-link:\(route.selectionKey)") == nil)
+
+        // Link… finds anything: typed words, ↓ to the next match, Return links it; the chip shows in the sheet.
+        guard let target = model.addTask(to: .backlog, title: "Slack link target"), let second = model.addTask(to: .backlog, title: "Slack link second") else {
+            return check("tasks to link", false)
+        }
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+        if let field = editor() {
+            field.insertText("Answer Julien", replacementRange: NSRange(location: 0, length: field.string.utf16.count))
+        }
+        await ui.click(await ui.steadyAnchor("new-reminder-link-button"), inSheet: true)
+        await ui.settle(0.6)
+        if let picker = ui.popoverWindow("link-picker"), let search = picker.firstResponder as? NSTextView {
+            search.insertText("Slack link", replacementRange: NSRange(location: 0, length: 0))
+            await ui.settle(0.4)
+            let first = UITest.anchors["link-match:\(ModalRoute.task(second.id).selectionKey)"] != nil
+            await ui.key(.down, inPopover: "link-picker")
+            await ui.key(.return, inPopover: "link-picker")
+            await ui.settle(0.5)
+            check("Link… lists the matches as the user types; ↓ and Return link the next one", first
+                  && ui.anchor("new-reminder-link:\(ModalRoute.task(target.id).selectionKey)") != nil,
+                  "\(UITest.anchors.keys.filter { $0.hasPrefix("new-reminder-link:") })")
+        } else {
+            tableCheck(ui, "Link… lists the matches as the user types; ↓ and Return link the next one", false, "no popover")
+        }
+        let count = model.notices.count
+        await ui.click(await ui.steadyAnchor("new-reminder-add"), inSheet: true)
+        await ui.until(2) { model.modal != .newReminder }
+        let reminder = model.notices.last
+        check("Add Reminder keeps what Link… linked", model.notices.count == count + 1 && reminder?.text == "Answer Julien"
+                   && reminder?.links == [ModalRoute.task(target.id).selectionKey], "\(reminder?.text ?? "none") \(reminder?.links ?? [])")
+        if let reminder, model.notices.count == count + 1 { model.removeNotice(reminder.id) }
+
+        // A Slack link pasted in the words of New Task… becomes its link; the Backlog's New Task… lands there.
+        copy(nil)
+        await open(.newTask(.backlog))
+        editor()?.insertText("Ping Julien \(url)", replacementRange: NSRange(location: 0, length: 0))
+        await ui.settle(0.5)
+        check("a Slack link pasted in the title becomes the link, out of the words", ui.anchor("new-task-link:\(route.selectionKey)") != nil
+              && editor()?.string == "Ping Julien", editor()?.string ?? ui.responder)
+        let beforeBacklog = Set(model.tasks.map(\.id))
+        await ui.click(await ui.steadyAnchor("new-task-add"), inSheet: true)
+        await ui.until(2) { model.modal == nil }
+        await ui.settle(0.4)
+        let pinged = model.tasks.first { !beforeBacklog.contains($0.id) }
+        check("New Backlog Task… adds it to the Backlog", pinged?.title == "Ping Julien" && pinged.map { model.list(of: $0.id) } == .backlog
+              && pinged?.links == [URL(string: url)!], "\(pinged?.title ?? "none")")
+
+        // The lists' own New Task lines stay: a Slack link pasted there becomes the task's link; Escape drops it.
+        model.focusQuickAdd(.overview)
+        await ui.settle(0.6)
+        if let field = editor() {
+            field.string = ""
+            field.insertText("Ping again \(url)", replacementRange: NSRange(location: 0, length: 0))
+            await ui.settle(0.5)
+            check("a Slack link pasted in a list's New Task line becomes its link, out of the title", model.pendingTaskLink?.url == url
+                  && ui.anchor("quick-add-link") != nil && editor()?.string == "Ping again", editor()?.string ?? ui.responder)
+        } else {
+            check("a Slack link pasted in a list's New Task line becomes its link, out of the title", false, ui.responder)
+        }
+        await ui.key(.escape)
+        await ui.settle(0.3)
+        check("Escape drops the link with the title", model.pendingTaskLink == nil)
+        model.closeModal()
+        model.deleteTasks([added?.id, pinged?.id, target.id, second.id].compactMap(\.self))
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+    }
+
     /// The grid's validateDrop, with its in-out arguments kept valid for the call.
     static func validate(_ coordinator: SessionGrid.Coordinator, _ collection: NSCollectionView, _ info: FakeDrag, item: Int,
                          operation: NSCollectionView.DropOperation) -> (NSDragOperation, NSCollectionView.DropOperation) {

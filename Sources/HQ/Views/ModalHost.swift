@@ -14,9 +14,10 @@ struct ModalHost: View {
     var body: some View {
         let route = route
         let small = route == .start || route == .closedSessions
-        let size = route == .newReminder ? Metric.reminderSheet : small ? Metric.modalMin
-            : CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
+        let size = if case .newTask = route { Metric.taskSheet } else if route == .newReminder { Metric.reminderSheet } else if small { Metric.modalMin } else {
+            CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
                      height: max(Metric.modalMin.height, (model.windowSize.height * Metric.modalShare).rounded()))
+        }
         VStack(spacing: 0) {
             ModalHeader(route: route, stack: model.modal == nil ? shown?.stack ?? [] : model.modalStack)
             Group {
@@ -27,8 +28,9 @@ struct ModalHost: View {
                 case .artifact(let url):
                     if let artifact = model.artifacts.first(where: { $0.id == url }) { ArtifactReader(artifact: artifact).id(url) } else { gone }
                 case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
-                // A web page opens in the browser, never here.
-                case .web: gone
+                // A web page or a Slack link opens outside HQ, never here.
+                case .web, .slack: gone
+                case .newTask(let list): NewTaskForm(list: list)
                 case .newReminder: NewReminderForm()
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
@@ -126,6 +128,8 @@ private struct ModalHeader: View {
         case .artifact: "Artifact"
         case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
         case .web: "Link"
+        case .slack: "Slack"
+        case .newTask: "New Task"
         case .newReminder: "New Reminder"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
@@ -204,7 +208,7 @@ private struct ModalActions: View {
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
             }
-        case .notifications, .start, .closedSessions, .web, .newReminder, nil:
+        case .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, nil:
             EmptyView()
         }
     }

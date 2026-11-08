@@ -68,7 +68,8 @@ extension AppModel {
             let linked = (related[task.id] ?? []).filter { taskIndex[$0] != nil && ids.insert($0).inserted }
             // Any other web page linked by hand (T-299).
             let web = task.links.map(\.absoluteString).filter { !GitHubLinks.isItem($0) && urls.insert($0).inserted }
-            let routes = github.map { ModalRoute.github($0) } + web.map { ModalRoute.web($0) } + linked.map { ModalRoute.task($0) }
+            let routes = github.map { ModalRoute.github($0) } + web.map { SlackLink.isLink($0) ? ModalRoute.slack($0) : ModalRoute.web($0) }
+                + linked.map { ModalRoute.task($0) }
             if !routes.isEmpty { index[task.id, default: []].append(contentsOf: routes) }
         }
         outputsCache = index

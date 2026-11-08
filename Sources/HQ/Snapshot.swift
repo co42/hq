@@ -27,8 +27,13 @@ enum Snapshot {
     }
 
     static func pages(_ model: AppModel) -> [Page] {
+        func copySlackLink() {
+            SlackClipboard.testText = SlackService.fixtureLink
+            SlackClipboard.testChange += 1
+        }
         func reset(_ model: AppModel) {
             model.closeModal()
+            model.pendingTaskLink = nil
             model.zoom = 1
             model.search = ""
             model.problem = nil
@@ -80,7 +85,29 @@ enum Snapshot {
             },
             Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
             Page(name: "modal-notifications", capture: .sheet, settle: 1) { reset($0); $0.openCenter() },
-            Page(name: "modal-reminder", capture: .sheet, settle: 1) { reset($0); $0.beginReminder() },
+            Page(name: "modal-reminder", capture: .sheet, settle: 1) { model in
+                reset(model)
+                SlackClipboard.testText = nil
+                SlackClipboard.testChange += 1
+                model.beginReminder()
+            },
+            Page(name: "modal-new-task", capture: .sheet, settle: 1) { model in
+                reset(model)
+                SlackClipboard.testText = nil
+                SlackClipboard.testChange += 1
+                model.beginTask(.overview)
+            },
+            // A Slack link copied before New Reminder… and New Task… (T-313).
+            Page(name: "modal-reminder-slack", capture: .sheet, settle: 1) { model in
+                reset(model)
+                copySlackLink()
+                model.beginReminder()
+            },
+            Page(name: "modal-new-task-slack", capture: .sheet, settle: 1) { model in
+                reset(model)
+                copySlackLink()
+                model.beginTask(.overview)
+            },
             Page(name: "modal-caught-up", capture: .sheet, settle: 1) { model in
                 reset(model)
                 model.sessions = model.sessions.filter { !$0.status.needsYou }

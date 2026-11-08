@@ -243,7 +243,7 @@ struct CockpitToolbar: ToolbarContent {
         // Right of the bell at every width, the section bar there or not.
         ToolbarItem(id: "new", placement: .navigation) {
             Menu {
-                Button("New Task") { model.focusQuickAdd(.overview) }
+                Button("New Task…") { model.beginTask(.overview) }
                 Button("New File…") { model.beginNewFile() }
                 Button("New Session…") { model.beginStart() }
                 Button("New Reminder…") { model.beginReminder() }
@@ -341,11 +341,24 @@ extension AppModel {
         return gridSessions.filter { $0.searchText.localizedStandardContains(search) }
     }
 
-    /// File › New Task: the quick-add line of a list takes the keyboard (its list unfolds first).
+    /// A list's quick-add line takes the keyboard (its list unfolds first).
     func focusQuickAdd(_ list: TaskList) {
         closeModal()
         showWindow()
         if list == .backlog { backlogOpen = true } else { folded.remove(.tasks) }
         quickAddFocus = list
+    }
+
+    /// File › New Task… (⌘N, ⌥⌘N for the Backlog): its own small sheet, over what's open (T-332).
+    func beginTask(_ list: TaskList) {
+        if case .newTask = modal { return }
+        showWindow()
+        open(.newTask(list), push: modal != nil)
+    }
+
+    /// A task New Task… added: its list unfolds and its row is selected, so the user sees where it went.
+    func show(newTask id: Int, in list: TaskList) {
+        if list == .backlog { backlogOpen = true } else { folded.remove(.tasks) }
+        outlineFocus = .row(id)
     }
 }

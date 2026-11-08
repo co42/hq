@@ -13,7 +13,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 | **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every minute while it's in front |
 | **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab |
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app |
-| **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, drag and drop moves it. Each task is a note in the vault, linked to its sessions, PRs, files and artifacts |
+| **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, drag and drop moves it. Each task is a note in the vault, linked to its sessions, PRs, files, artifacts and Slack messages. New Task… (⌘N) adds one from a small sheet, with the Slack link you just copied |
 
 Attention is earned: only what needs you is orange (a session that asks, a ping, a due reminder), and the page shows state, never "new". What happened goes to the **notification center** (⌘J, the toolbar's bell, or the menu bar), read once: Needs You, Updates, Later. Sessions tell you there when work is ready (`hq notify`), GitHub reviews and comments on your PRs land there, and reminders, yours or a session's, come back there at their time. ⌘K opens Quick Open.
 
@@ -35,7 +35,7 @@ The look is native macOS 27: raised cards on a calm canvas, a soft sky at the to
              └──────────────────────────────────────────────┘
 ```
 
-- **One process**, the app: a store for what has no file (sessions, artifacts, notifications), an index of the vault, the hook socket, the Ghostty bridge and the GitHub poller. It stays alive when its window closes.
+- **One process**, the app: a store for what has no file (sessions, artifacts, notifications), an index of the vault, the hook socket, the Ghostty bridge and the GitHub poller. It stays alive when its window closes. With a Slack token, it reads a linked Slack message once to name it, and never writes to Slack.
 - **The `hq` command** is the app's own binary, linked at `~/.local/bin/hq`. It talks to the running app over a Unix socket.
 - **A Claude Code plugin** (`plugin/`): its hooks report every session event through `hq hook`, which always exits 0, fast, and never opens the app. Its skills (`hq`, `hq-tasks`, `hq-files`) teach Claude to keep tasks current (`doing` when it starts, a description kept up to date, a notification when you must check something) and to write plans and reports as notes linked to their task.
 - **Tasks and files are notes** under `<vault>/hq/tasks/` and `<vault>/hq/files/`. HQ writes only the front matter keys it owns, line by line, so everything else in a note keeps its exact text:
@@ -62,6 +62,7 @@ The description, in markdown.
 - A folder of markdown notes: Obsidian's iCloud vault named "Notes" by default, any other in Setup
 - The [GitHub CLI](https://cli.github.com), signed in with `gh auth login`, for the pull requests
 - `jq`
+- Optional: a Slack user token (Settings › Slack, the scopes it needs listed there), for Slack links named by their message
 
 ## Install
 
