@@ -103,8 +103,13 @@ enum SelfTest {
         model.openCenter()
         check("⌘J opens the center, and the bell stops breathing", model.modal == .notifications && !model.bellBreathes)
         guard let id = row?.id else { return }
+        model.noticeSelection = id.uuidString
+        let below = model.notices(in: .updates).drop { $0.id != id }.dropFirst().first?.id
         model.markRead(id)
-        check("a row read while the center shows stays in place", model.notices(in: .updates).contains { $0.id == id } && model.updateCount == 3)
+        check("a row read while the center shows goes to Earlier at once (T-365)", model.notices(in: .earlier).contains { $0.id == id }
+              && !model.notices(in: .updates).contains { $0.id == id } && model.updateCount == 3)
+        check("and the selection goes on to the row below it", below != nil && model.noticeSelection == below?.uuidString,
+              "\(String(describing: model.noticeSelection)) for \(String(describing: below))")
         model.setDone(id, false)
         check("E again marks it unread", model.updateCount == 4)
         model.markRead(id)
@@ -129,10 +134,9 @@ enum SelfTest {
         check("opening what a reminder links leaves it to be done", model.modal == .task(13) && model.notices.first { $0.id == reminder.id }?.readAt == nil)
         model.back()
         model.setDone(reminder.id, true)
-        check("Done completes a reminder, which keeps its place while the center shows",
-              model.notices(in: .needsYou).contains { $0.id == reminder.id } && model.notices.first { $0.id == reminder.id }?.readAt != nil)
+        check("Done completes a reminder, which goes to Earlier at once while the center shows",
+              model.notices(in: .earlier).first?.id == reminder.id && model.notices.first { $0.id == reminder.id }?.readAt != nil)
         model.closeModal()
-        check("then it's in Earlier", model.notices(in: .earlier).first?.id == reminder.id)
         model.setDone(reminder.id, false)
         check("and undone, it needs the user again", model.notices(in: .needsYou).contains { $0.id == reminder.id })
         model.editReminder(reminder.id, text: "Call noor at 4", due: .now.addingTimeInterval(7200), level: .update)
@@ -170,12 +174,43 @@ enum SelfTest {
         let added = model.notices.first { $0.source == url && $0.readAt == nil }
         check("an approval on the user's PR notifies, a bot's comment doesn't", model.notices.count == rows + 1 && added?.count == 1
               && added?.text == "noor approved your PR: “Nice”", "\(String(describing: added))")
+        check("it keeps the PR's title, for its row (T-360)", added?.title == snapshot.items[index].title && added?.title?.isEmpty == false)
         model.noteGitHubEvents(before: before, after: snapshot)
         check("the same event never notifies twice", model.notices.filter { $0.source == url && $0.readAt == nil }.first?.count == 1)
         for row in model.notices where row.readAt == nil && row.kind != .reminder { model.markRead(row.id) }
+        itemLineChecks(model, pr: snapshot.items[index])
     }
 
-    /// The menu bar shows HQ's ring and dot: a template at rest, orange while something needs the user.
+    /// Copy and a drag to Ghostty give each item's line: its kind, key and title (T-348, T-358); Remind Me… opens New
+    /// Reminder about the item (T-343); leaving a PR's page asks GitHub again (T-366).
+    private static func itemLineChecks(_ model: AppModel, pr: GitHubItem) {
+        let task = model.tasks.first { !$0.title.isEmpty }
+        let session = model.sessions.first
+        let file = model.files.first
+        let artifact = model.artifacts.first
+        check("a task's line is its kind, key and title", task.map { model.line(of: .task($0.id)) == "Task \($0.key): \($0.title)" } ?? false)
+        check("a PR's names its repository and number", model.line(of: .github(pr.url)) == "PR \(pr.repo)#\(pr.number): \(pr.title)", model.line(of: .github(pr.url)))
+        check("a session's, its id and name", session.map { model.line(of: .session($0.id)) == "Session \($0.id): \($0.name)" } ?? false)
+        check("a file's, the name hq file show takes", file.map { model.line(of: .file($0.id)) == "File \"\($0.id.replacingOccurrences(of: ".md", with: ""))\"" } ?? false,
+              file.map { model.line(of: .file($0.id)) } ?? "no file")
+        check("an artifact's, its address and title", artifact.map { model.line(of: .artifact($0.id)) == "Artifact \($0.id.absoluteString): \($0.title)" } ?? false)
+        check("a PR HQ doesn't know, from its address", model.line(of: .github("https://github.com/acme/api/issues/9")) == "Issue acme/api#9")
+        if let task {
+            model.closeModal()
+            model.beginReminder(about: .task(task.id))
+            check("Remind Me… opens New Reminder about the item", model.modal == .newReminder && model.reminderAbout == .task(task.id))
+            model.closeModal()
+            model.beginReminder()
+            check("New Reminder… alone is about nothing", model.reminderAbout == nil)
+            model.closeModal()
+        }
+        let asked = model.githubAsks
+        model.open(.github(pr.url))
+        model.closeModal()
+        check("leaving a PR's page asks GitHub again soon (T-366)", model.githubAsks == asked + 1)
+    }
+
+    /// The menu bar shows HQ's ring and dot): a template at rest, orange while something needs the user.
     private static func menuBarChecks() {
         func ink(_ image: NSImage, _ x: Int, _ y: Int) -> CGFloat {
             guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: [.ctm: AffineTransform(scale: 2)]) else { return 0 }
@@ -613,10 +648,10 @@ enum SelfTest {
               && long.map { model.shortTitle(of: .file($0.id)).hasSuffix("…") && model.shortTitle(of: .file($0.id)).count <= AppModel.shortTitleLength + 1 } ?? true,
               "\(model.shortTitle(of: .task(task.id))) \(pr.map { model.shortTitle(of: .github($0.url)) } ?? "-") \(long.map { model.shortTitle(of: .file($0.id)) } ?? "-")")
         let untyped = agent("task add", ["title": "No type yet", "backlog": "true"])
-        check("a task has no type until one is set", task.type == nil && untyped["type"] == nil && untyped["id"] != nil, "\(untyped)")
+        check("a task has no type", task.type == nil && untyped["type"] == nil && untyped["id"] != nil, "\(untyped)")
         if let key = untyped["id"] as? String, let id = TaskItem.key(key) {
-            agent("task edit", ["task": key, "type": "bug", "title": "Typed now #infra"])
-            check("task edit --type sets it; --title applies its #words", model.task(id)?.type == .bug && model.task(id)?.tags.contains("infra") == true
+            agent("task edit", ["task": key, "title": "Typed now #infra #bug"])
+            check("task edit --title applies its #words; #bug is a tag (T-220)", model.task(id)?.type == nil && model.task(id)?.tags == ["infra", "bug"]
                   && model.task(id)?.title == "Typed now", "\(String(describing: model.task(id)))")
             let sub = agent("task add", ["title": "Its first part", "parent": key])
             let moved = agent("task move", ["task": key, "status": "doing"])
@@ -640,7 +675,7 @@ enum SelfTest {
               renamed?.title == "Rotate keys" && renamed?.status == .doing && renamed?.project == "Machine Identities" && renamed?.tags.contains("infra") == true,
               "\(String(describing: renamed))")
         model.setTitle(task.id, "Rotate keys #story")
-        check("#story makes it a story, a type: the status stays", model.task(task.id)?.type == .story && model.task(task.id)?.status == .doing
+        check("#story is a tag, not a type: the status stays (T-220)", model.task(task.id)?.type == nil && model.task(task.id)?.tags.contains("story") == true && model.task(task.id)?.status == .doing
               && TaskStatus(parsing: "story") == nil, "\(String(describing: model.task(task.id)))")
         let legacy = FileManager.default.temporaryDirectory.appending(path: "T-9001.md")
         try? "---\ntitle: Old idea\nstatus: story\n---\n".write(to: legacy, atomically: true, encoding: .utf8)
@@ -919,15 +954,15 @@ enum SelfTest {
         if let add = AgentCommands.all.first(where: { $0.name == "task add" }) {
             let dashed = try? AgentCLI.parse(["--not-mine: a title", "--type", "bug"], for: add)
             let ended = try? AgentCLI.parse(["--type", "bug", "--", "--backlog"], for: add)
-            check("a title may start with --, and a bare -- ends the options", dashed?["title"] == "--not-mine: a title" && dashed?["type"] == "bug"
+            check("a title may start with --, a bare -- ends the options, and a retired --type is taken and ignored", dashed?["title"] == "--not-mine: a title" && dashed?["type"] == nil && dashed != nil
                   && ended?["title"] == "--backlog" && ended?["backlog"] == nil, "\(String(describing: dashed)) \(String(describing: ended))")
         }
         let session = "5e550000-0000-4000-8000-000000000001"
         let added = agent("task add", ["title": "Dedup layers on push #perf", "type": "bug", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
         let key = added["id"] as? String ?? ""
         let id = TaskItem.key(key) ?? -1
-        check("task add --backlog goes to the top of the Backlog, with type, project, tags and the session",
-              added["list"] as? String == "backlog" && model.taskTree.top(.backlog).first == id && added["type"] as? String == "bug"
+        check("task add --backlog goes to the top of the Backlog, with project, tags and the session; no type",
+              added["list"] as? String == "backlog" && model.taskTree.top(.backlog).first == id && added["type"] == nil && model.task(id)?.type == nil
                 && added["project"] as? String == "Registry" && (added["tags"] as? [String]) == ["perf"] && model.task(id)?.sessions == [session], "\(added)")
         let now = agent("task add", ["title": "Pair on this"])
         check("task add goes to the end of Tasks unless the user asks for the Backlog", now["list"] as? String == "overview" && model.taskTree.top(.overview).last == TaskItem.key(now["id"] as? String ?? ""))
@@ -957,15 +992,15 @@ enum SelfTest {
                       "\(linked) \(added)")
                 if let child = TaskItem.key(added["id"] as? String ?? "") { model.deleteTasks([child]) }
                 agent("task unlink", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "not-mine": "true", "_session": other])
-                agent("task edit", ["task": "T-\(mine)", "project": "Registry", "type": "chore", "not-mine": "true", "_session": other])
+                agent("task edit", ["task": "T-\(mine)", "project": "Registry", "not-mine": "true", "_session": other])
                 check("--not-mine lets it through, without linking the session", model.task(mine)?.project == "Registry"
                       && model.task(mine)?.sessions.contains(other) == false)
                 agent("task move", ["task": "T-\(mine)", "status": "doing", "not-mine": "true", "_session": other])
                 check("starting the task links the session", model.task(mine)?.sessions.contains(other) == true)
-                agent("task edit", ["task": "T-\(mine)", "type": "feature", "_session": other])
-                check("then it's the session's: no flag needed", model.task(mine)?.type == .feature)
-                agent("task edit", ["task": "T-\(mine)", "type": "chore"])
-                check("a terminal needs no flag", model.task(mine)?.type == .chore)
+                agent("task edit", ["task": "T-\(mine)", "add-tag": "owned", "_session": other])
+                check("then it's the session's: no flag needed", model.task(mine)?.tags.contains("owned") == true)
+                agent("task edit", ["task": "T-\(mine)", "add-tag": "terminal"])
+                check("a terminal needs no flag", model.task(mine)?.tags.contains("terminal") == true)
             }
         }
         let sub = agent("task add", ["title": "Part of it", "parent": key])
@@ -1020,7 +1055,7 @@ enum SelfTest {
         check("hq ls notifications lists Needs You first, then Later", rows.first?["section"] as? String == "needsYou"
               && rows.contains { $0["text"] as? String == "Check the canary" && $0["section"] as? String == "later" })
         if let path = model.task(id)?.path {
-            try? (try? String(contentsOfFile: path, encoding: .utf8))?.replacingOccurrences(of: "type: bug", with: "type: bug\naliases: [dedup]")
+            try? (try? String(contentsOfFile: path, encoding: .utf8))?.replacingOccurrences(of: "status:", with: "type: bug\naliases: [dedup]\nstatus:")
                 .write(toFile: path, atomically: true, encoding: .utf8)
             await settle(0.8)
             let statusBefore = model.task(id)?.status.rawValue
@@ -1028,13 +1063,13 @@ enum SelfTest {
             await settle()
             let note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
             check("task edit changes what it's given and keeps the rest",
-                  note.body == "New description.\n" && note.list("tags") == ["chunks"] && note.string("type") == "feature"
+                  note.body == "New description.\n" && note.list("tags") == ["chunks"] && note.string("type") == "bug"
                     && note.list("aliases") == ["dedup"] && note.string("status") == statusBefore, note.text)
         }
         agent("task link", ["task": key, "item": "https://github.com/acme/registry/pull/418"])
         check("task link adds a PR", model.task(id)?.links.map(\.absoluteString) == ["https://github.com/acme/registry/pull/418"])
-        let listed = agent("ls", ["kind": "tasks", "backlog": "true", "type": "feature"])["tasks"] as? [JSONObject] ?? []
-        check("ls tasks filters by list and type", listed.contains { $0["id"] as? String == key } && listed.allSatisfy { $0["list"] as? String == "backlog" && $0["type"] as? String == "feature" })
+        let listed = agent("ls", ["kind": "tasks", "backlog": "true"])["tasks"] as? [JSONObject] ?? []
+        check("ls tasks filters by list", listed.contains { $0["id"] as? String == key } && listed.allSatisfy { $0["list"] as? String == "backlog" && $0["type"] == nil })
         let file = agent("file new", ["title": "Push path plan", "body": "# Push path plan\n", "_session": session, "task": key])
         check("file new links the file to its task and session", (file["tasks"] as? [String]) == [key] && model.files.contains { $0.tasks == [id] && $0.sessions == [session] })
         check("a note made for a task is in the task's project", model.files.first { $0.title == "Push path plan" }?.project == model.project(ofTask: id),

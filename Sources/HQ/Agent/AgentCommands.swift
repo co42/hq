@@ -60,7 +60,6 @@ enum AgentCommands {
                               .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
                               .init(name: "all", kind: .boolean, help: "include closed sessions and done tasks"),
-                              .init(name: "type", help: "tasks: story, bug, feature, chore, research or docs"),
                               .init(name: "project", help: "tasks: only this project"),
                               .init(name: "tag", help: "tasks: only with this tag"),
                               .init(name: "limit", kind: .integer, help: "at most this many (default 50)"),
@@ -76,12 +75,11 @@ enum AgentCommands {
                 let tree = model.taskTree
                 let overview = try args.bool("overview") ?? false
                 let backlog = try args.bool("backlog") ?? false
-                let type = try args.string("type").map { try taskType($0) }
                 var ids: [Int] = []
                 if !backlog { ids += tree.outline(.overview) }
                 if !overview { ids += tree.outline(.backlog) }
                 items = ids.compactMap { model.task($0) }.filter { task in
-                    (all || task.status != .done) && (type == nil || task.type == type)
+                    (all || task.status != .done)
                         && (args.string("project").map { $0.caseInsensitiveCompare(task.project ?? "") == .orderedSame } ?? true)
                         && (args.string("tag").map { tag in task.tags.contains(tag.replacingOccurrences(of: "#", with: "")) } ?? true)
                 }.map { $0.agentJSON(model) }
@@ -130,8 +128,7 @@ enum AgentCommands {
             return json
         },
         AgentCommand(name: "task add", summary: "Create a task, at the end of Tasks; at the top of the Backlog with --backlog, only when the user asks for the Backlog; under a task with --parent.",
-                     params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status, a type or a project they name, else become tags"),
-                              .init(name: "type", help: "story, bug, feature, chore, research or docs: set it"),
+                     params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status or a project they name, else become tags"),
                               .init(name: "project", help: "the project it belongs to"),
                               .init(name: "tag", help: "tags, comma separated"),
                               .init(name: "parent", help: "T-12: a subtask of that task"),
@@ -139,12 +136,12 @@ enum AgentCommands {
                               .init(name: "now", kind: .boolean, help: "at the end of Tasks: the default"),
                               .init(name: "status", help: "todo (default), doing (also puts it on Tasks) or done"),
                               .init(name: "body", help: "the description in markdown; - reads stdin"), notMine],
-                     example: "hq task add \"Dedup layers on push\" --type feature --project Registry --body -") { args, model in
+                     example: "hq task add \"Dedup layers on push\" --project Registry --body -") { args, model in
             let titled = TitleTags.split((try? args.required("title")) ?? "").tags.compactMap { word -> TaskStatus? in
                 if case .status(let status) = model.titleWord(word) { status } else { nil }
             }.last
             let status = try args.string("status").map { raw in
-                guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage(raw.lowercased() == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, done") }
+                guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage("no status \"\(raw)\". Statuses: todo, doing, done") }
                 return status
             } ?? titled ?? .todo
             let session = model.session(args.string(sessionArg))
@@ -161,7 +158,7 @@ enum AgentCommands {
             }
             guard let (placement, renumber) = placed,
                   let task = model.addTask(title: try args.required("title"), placement: placement, status: status,
-                                           type: try args.string("type").map { try taskType($0) }, project: args.string("project"),
+                                           project: args.string("project"),
                                            tags: tags(args.string("tag")), body: args.string("body") ?? "", session: session?.id, renumber: renumber) else {
                 throw AgentError.invalid("could not create the task. Check that the vault is reachable")
             }
@@ -183,7 +180,7 @@ enum AgentCommands {
                 model.move(task.id, to: .backlog)
             } else {
                 guard let status = TaskStatus(rawValue: raw) else {
-                    throw AgentError.usage(raw == "story" ? "story is a type: --type story" : "no status \"\(raw)\". Statuses: todo, doing, done")
+                    throw AgentError.usage("no status \"\(raw)\". Statuses: todo, doing, done")
                 }
                 model.setStatus(task.id, status)
                 // Work started: a top-level task in the Backlog comes to Tasks.
@@ -201,11 +198,10 @@ enum AgentCommands {
             }
             return result
         },
-        AgentCommand(name: "task edit", summary: "Change a task's title, description, type, project, tags or parent. Everything else stays.",
+        AgentCommand(name: "task edit", summary: "Change a task's title, description, project, tags or parent. Everything else stays.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
                               .init(name: "title", help: "the new title"),
                               .init(name: "body", help: "the new description in markdown; - reads stdin"),
-                              .init(name: "type", help: "story, bug, feature, chore, research or docs"),
                               .init(name: "project", help: "the project; empty clears it"),
                               .init(name: "add-tag", help: "tags to add, comma separated"),
                               .init(name: "remove-tag", help: "tags to remove, comma separated"),
@@ -216,12 +212,10 @@ enum AgentCommands {
             if let ref = args.string("parent")?.trimmingCharacters(in: .whitespaces) {
                 try moveUnder(task.id, ref, model)
             }
-            let type = try args.string("type").map { try taskType($0) }
             let added = tags(args.string("add-tag"))
             let removed = Set(tags(args.string("remove-tag")))
             model.changeTask(task.id, "Edit Task") { task in
                 if let body = args.string("body") { task.body = body.trimmingCharacters(in: .newlines) }
-                if let type { task.type = type }
                 if let project = args.string("project") { task.project = project.isEmpty ? nil : project }
                 task.tags = task.tags.filter { !removed.contains($0) } + added.filter { !task.tags.contains($0) }
             }
@@ -522,13 +516,6 @@ enum AgentCommands {
         (text ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "#", with: "") }.filter { !$0.isEmpty }
     }
 
-    private static func taskType(_ text: String) throws -> TaskType {
-        guard let type = TaskType(parsing: text) else {
-            throw AgentError.usage("no type \"\(text)\". Types: story, bug, feature, chore, research, docs")
-        }
-        return type
-    }
-
     private static func findTask(_ args: Args, _ model: AppModel) throws -> TaskItem {
         let ref = try args.required("task")
         guard let task = model.task(TaskItem.key(ref)) else {
@@ -650,7 +637,6 @@ extension TaskItem {
         var json: JSONObject = ["id": key, "title": title, "status": status.rawValue,
                                 "list": model.list(of: id).rawValue, "tags": tags, "sessions": sessions,
                                 "modified": JSON.date(modified)]
-        if let type { json["type"] = type.rawValue }
         if let project { json["project"] = project }
         if let parent { json["parent"] = "T-\(parent)" }
         if !links.isEmpty { json["links"] = links.map(\.absoluteString) }

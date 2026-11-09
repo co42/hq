@@ -31,7 +31,7 @@ struct ModalHost: View {
                 // A web page or a Slack link opens outside HQ, never here.
                 case .web, .slack: gone
                 case .newTask(let list): NewTaskForm(list: list)
-                case .newReminder: NewReminderForm()
+                case .newReminder: NewReminderForm(about: model.reminderAbout)
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
                 case .notifications: NotificationCenterView()
@@ -155,6 +155,8 @@ private struct ModalActions: View {
         switch route {
         case .task(let id):
             if let task = model.task(id) {
+                CopyItemButton(route: .task(id))
+                RemindMeButton(route: .task(id))
                 Button("Delete") { model.deleteTasks([id]) }
                     .help("Move the task’s note to the Trash; Undo brings it back")
                 Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
@@ -165,6 +167,7 @@ private struct ModalActions: View {
             }
         case .session(let id):
             if let session = model.session(id) {
+                CopyItemButton(route: .session(id))
                 if session.isRunning, session.tty != nil {
                     Button("Close Session") { model.closeSession(id) }
                         .help("Type /exit in its terminal, then close the terminal")
@@ -186,6 +189,8 @@ private struct ModalActions: View {
                         .clickable()
                         .help("Save the changes (Escape or ⌘Return)")
                 } else {
+                    CopyItemButton(route: .file(id))
+                    RemindMeButton(route: .file(id))
                     Button("Delete") { model.deleteFile(id) }.help("Move the note to the Trash; Undo brings it back")
                     Button("Edit") { model.beginFileEdit(id) }.help("Edit the note in markdown (⌘E)")
                     Button("Open in Obsidian") { model.openInObsidian(file.path) }.disabled(file.path == nil)
@@ -194,12 +199,16 @@ private struct ModalActions: View {
             }
         case .artifact(let url):
             ReloadButton(page: url.absoluteString)
+            CopyItemButton(route: .artifact(url))
+            RemindMeButton(route: .artifact(url))
             CopyLinkButton(link: url.absoluteString)
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
                 .help("Open the artifact in the browser (⇧⌘O)")
         case .github(let url):
             if let item = model.githubItem(url) {
                 ReloadButton(page: url)
+                CopyItemButton(route: .github(url))
+                RemindMeButton(route: .github(url))
                 CopyLinkButton(link: url)
                 if model.waitsForReview(item) {
                     Button("Mark Reviewed") { model.markReviewed(url) }
@@ -233,14 +242,53 @@ private struct ReloadButton: View {
     }
 }
 
-/// Copies the open item's link; a checkmark says it's done. As wide either way: the glass doesn't move.
+/// Copy (T-358): the open item's line, its kind, key and title, for a session or a note; a checkmark says it's done.
+private struct CopyItemButton: View {
+    let route: ModalRoute
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        CopyButton(text: { model.line(of: route) }, title: "Copy", icon: .copy, done: "Copied",
+                   help: "Copy \u{201C}\(model.line(of: route))\u{201D}", anchor: "copy-item")
+    }
+}
+
+/// Remind Me… (T-343): a reminder linked to the open item.
+private struct RemindMeButton: View {
+    let route: ModalRoute
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button("Remind Me…", icon: .reminder) { model.beginReminder(about: route) }
+            .clickable()
+            .labelStyle(.iconOnly)
+            .help("Set a reminder linked to it")
+            .uiTestAnchor("item-remind-me")
+    }
+}
+
+/// Copies the open item's link.
 private struct CopyLinkButton: View {
     let link: String
+
+    var body: some View {
+        CopyButton(text: { link }, title: "Copy Link", icon: .link, done: "Link Copied", help: "Copy the link (⇧⌘C)", anchor: "copy-link")
+    }
+}
+
+/// An icon button that copies; a checkmark says it's done. As wide either way: the glass doesn't move.
+private struct CopyButton: View {
+    let text: () -> String
+    let title: String
+    let icon: KitIcon
+    let done: String
+    let help: String
+    let anchor: String
     @State private var copied = false
 
     var body: some View {
         Button {
-            Pasteboard.copy(link)
+            Pasteboard.copy(text())
             copied = true
             Task {
                 try? await Task.sleep(for: .seconds(Motion.copiedSeconds))
@@ -248,21 +296,21 @@ private struct CopyLinkButton: View {
             }
         } label: {
             Label {
-                Text("Copy Link")
+                Text(title)
             } icon: {
                 ZStack {
-                    KitIcon.link.image.hidden()
+                    icon.image.hidden()
                     KitIcon.copied.image.hidden()
-                    (copied ? KitIcon.copied : KitIcon.link).image
+                    (copied ? KitIcon.copied : icon).image
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
         }
         .clickable()
         .labelStyle(.iconOnly)
-        .help(copied ? "Copied" : "Copy the link (⇧⌘C)")
-        .accessibilityLabel(copied ? "Link Copied" : "Copy Link")
-        .uiTestAnchor("copy-link")
+        .help(copied ? "Copied" : help)
+        .accessibilityLabel(copied ? done : title)
+        .uiTestAnchor(anchor)
     }
 }
 

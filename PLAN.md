@@ -65,7 +65,7 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
              └──────────────────────────────────────────────┘
 ```
 
-- `Sources/HQKit`: no UI. Task statuses and types, the task tree and its operations, the vault migration planner, the done rule, front matter, markdown blocks and checkbox toggling, face specs and their palette, GitHub parsing and link rules, hook events and the session state machine.
+- `Sources/HQKit`: no UI. Task statuses, the task tree and its operations, the vault migration planner, front matter, markdown blocks and checkbox toggling, face specs and their palette, GitHub parsing and link rules, hook events and the session state machine.
 - `Sources/HQ`: the app. `CockpitView` (the page), `SessionGrid` (`NSCollectionView`), `TaskOutline` (`NSOutlineView`), `ModalHost` (the sheet and its kinds), `Notices` and `NotificationCenterView` (the notification center, reminders, banners), `DesignKit/` (tokens and parts), `Agent/` (CLI and socket).
 
 ## 5. Model
@@ -76,7 +76,7 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 ---
 title: Retry budget for blob uploads
 status: doing           # todo | doing | done
-type: feature           # story | bug | feature | chore | research | docs (optional: Claude sets it, and adds it where missing)
+type: feature           # optional, older notes: kept as written, never set or shown (T-220)
 project: Registry       # optional
 tags: [perf]
 parent: T-9             # optional: subtasks are their own notes
@@ -108,13 +108,13 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 ### Notifications and seen
 
-`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 30 days, longer than the longest lookback, so nothing notifies twice). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
+`notifications.json`, beside the store, written by the app only: the rows (`Notice`: kind session, GitHub or reminder; level important or update; its source, a session id or a PR's URL; the text; how many events merged into it; its links as selection keys; when; when read; when due, while in Later; a PR's or an issue's title as it notified, T-360), when the user last opened the center (the bell breathes for what needs them after it), the GitHub event keys already turned into rows (kept 30 days, longer than the longest lookback, so nothing notifies twice). Read rows go after two weeks. Needs You = the sessions that wait on the user plus the unread important rows; Updates = the unread update rows; `hq status` reports both as `needsYou` and `updates`.
 
 `SeenRecord(key, seenAt)` keeps what the user acknowledged: `review:<url>` (Mark Reviewed, until the PR's next commit) and `blink:<session id>` (a card stops breathing until its next state). Sessions keep their own unread flag (done after Stop, until the user opens them, or looks at their terminal: while Ghostty is in front, HQ reads its focused tty every 2.5 s and a done session on it is read). Nothing else is new or seen.
 
 ### GitHub
 
-`gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. Every 60 s while HQ is visible, 5 minutes otherwise, at once when it becomes active; back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
+`gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. Every 60 s while HQ's window is on screen (in front or not: the user keeps it beside Ghostty, T-366), 5 minutes otherwise; at once when it becomes active or comes back on screen after a minute; 5 s after a PR's page closes or sends a form (a review submitted); back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
 
 ### Slack
 
@@ -147,18 +147,18 @@ Known gap: Esc, a rejection or an interrupt sends nothing, so the state holds un
 Plugin `plugin/`, bundled into `HQ.app/Contents/Resources/Plugin` by `build.sh` and installed globally from there (`tools/install-plugin.sh`, also Setup › Install). Claude Code runs it from its own copy per version: a change under `plugin/` needs a version bump in `plugin.json` and `tools/install-plugin.sh`, and reaches sessions started after that.
 
 - `hooks/hooks.json`: the events above → `${CLAUDE_PLUGIN_ROOT}/bin/hq hook`, timeout 2 s. PreToolUse matcher `AskUserQuestion|ExitPlanMode`; PostToolUse unfiltered (artifacts, PR URLs).
-- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, with a type; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something (most work), the task stays doing and `hq notify` tells them, and the user moves it to done; `done` only when nothing needs their look; new tasks at the end of Tasks, the Backlog only when the user says so; the task read again between pieces, since the user edits it and adds subtasks), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
+- Skills, without `allowed-tools`: `hq` (what HQ is, the CLI, telling the user: `hq notify` when something is ready to look at, `--important` only for a ping they asked for or when blocked on them, `hq remind`), `hq-tasks` (one task per piece of work the user would track, in its project; subtasks for parts the user wants to see; `doing` when starting; the description kept current by editing it; when the user must check something (most work), the task stays doing and `hq notify` tells them, and the user moves it to done; `done` only when nothing needs their look; new tasks at the end of Tasks, the Backlog only when the user says so; the task read again between pieces, since the user edits it and adds subtasks), `hq-files` (notes linked to their task; `hq notify` when one is ready to read).
 
 ```
 hq status                                      # whether HQ runs; needsYou, updates, and how many sessions, tasks, files, artifacts
 hq ctx                                         # this session's tasks, the overview's Doing, recent files, sibling sessions
-hq ls tasks [--overview|--backlog|--all] [--type t] [--project p] [--tag t]
+hq ls tasks [--overview|--backlog|--all] [--project p] [--tag t]
 hq ls sessions | prs | files | artifacts | projects
 hq ls notifications [--all]                    # Needs You, Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
-hq task add "Title" [--type t] [--project p] [--tag t] [--parent T-n] [--backlog] [--body -]   # end of Tasks; --backlog: top of the Backlog
+hq task add "Title" [--project p] [--tag t] [--parent T-n] [--backlog] [--body -]   # end of Tasks; --backlog: top of the Backlog
 hq task move T-n todo|doing|done|backlog       # review is refused, pointing to hq notify
-hq task edit T-n [--title …] [--body -] [--type t] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
+hq task edit T-n [--title …] [--body -] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
 hq task show T-n                               # parents, description, subtasks, links
 hq task link T-n <url | T-m | session id | path>
 hq task unlink T-n <the same item>

@@ -57,6 +57,8 @@ struct HQCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("New Reminder…") { model.beginReminder() }
                 .keyboardShortcut("r", modifiers: [.command, .control])
+            Button("Remind Me…") { if let route = menu.remindable { model.beginReminder(about: route) } }
+                .disabled(menu.remindable == nil)
             Divider()
             // ⌘P opens it too (AppDelegate), as in Zed: HQ prints nothing.
             Button("Quick Open…", action: quickOpen)
@@ -199,9 +201,7 @@ struct HQCommands: Commands {
                 .keyboardShortcut(rows ? KeyboardShortcut(.leftArrow, modifiers: .shift) : nil)
                 .disabled(task == nil)
             Divider()
-            Button("Copy Key and Title") {
-                Pasteboard.copy(menu.tasks.compactMap { model.task($0) }.map { "\($0.key) \($0.title)" }.joined(separator: "\n"))
-            }
+            Button(several ? "Copy \(menu.tasks.count) Tasks" : "Copy Task") { model.copy(menu.tasks.map { .task($0) }) }
             .disabled(task == nil)
             Button(several ? "Delete \(menu.tasks.count) Tasks" : "Delete") { model.deleteTasks(menu.tasks) }
                 .keyboardShortcut(keys ? KeyboardShortcut(.delete, modifiers: .command) : nil)
@@ -224,6 +224,8 @@ struct HQCommands: Commands {
             Button("Randomize Face") { if let session { model.randomizeFace(session) } }
                 .disabled(session == nil)
             Divider()
+            Button("Copy Session") { if let session { model.copy([.session(session)]) } }
+                .disabled(session == nil)
             Button("Copy Resume Command") { if let item = model.session(session) { Pasteboard.copy(item.resumeCommand) } }
                 .disabled(session == nil)
             Button("Copy Session ID") { if let session { Pasteboard.copy(session) } }

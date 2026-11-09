@@ -389,10 +389,11 @@ final class ProjectButton: LabelStripView {
 }
 
 /// A task's line, and its description under it when shown.
-/// A task's key: a click copies the key and the title, as Copy Key and Title does, and it turns the accent color a moment.
+/// A task's key: a click copies its line ("Task T-12: Title"), as Copy does, and it turns the accent color a moment.
 final class KeyField: NSTextField {
-    var copied = ""
+    var copied = "" { didSet { if copied != oldValue, flashes == shownFlash { toolTip = help } } }
     private var flashes = 0
+    private var shownFlash = 0
 
     override var isHidden: Bool { didSet { if isHidden != oldValue { trackHandCursor(!isHidden) } } }
 
@@ -412,12 +413,13 @@ final class KeyField: NSTextField {
         DispatchQueue.main.asyncAfter(deadline: .now() + Motion.copiedSeconds) { [weak self] in
             guard let self, self.flashes == flash else { return }
             self.textColor = Ink.secondaryTextNS
-            self.toolTip = Self.help
+            self.shownFlash = flash
+            self.toolTip = self.help
         }
         takeRelease()
     }
 
-    static let help = "Click to copy the key and the title"
+    var help: String { "Click to copy \u{201C}\(copied)\u{201D}" }
 }
 
 final class TaskCell: NSTableCellView {
@@ -492,9 +494,9 @@ final class TaskCell: NSTableCellView {
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.alignment = .right
-        key.toolTip = KeyField.help
         key.setAccessibilityLabel("Copy key and title")
         for (icon, help, action) in [(KitIcon.new, "Add a subtask (⇧N)", #selector(addSubtask)),
+                                     (.reminder, "Remind me about the task…", #selector(remindMe)),
                                      (.toBacklog, "Move to the Backlog (⇧⌘B)", #selector(toggleList)),
                                      (.trash, "Delete the task (⌘⌫)", #selector(deleteTask))] {
             let button = HandButton()
@@ -551,11 +553,11 @@ final class TaskCell: NSTableCellView {
         let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
         progress.show(below.map(\.status))
         key.stringValue = task.key
-        key.copied = "\(task.key) \(task.title)"
+        key.copied = model.line(of: .task(id))
         let inBacklog = model.list(of: id) == .backlog
-        actions[1].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
-        actions[1].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
-        actions[1].setAccessibilityLabel(inBacklog ? "Move to Tasks" : "Move to Backlog")
+        actions[2].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
+        actions[2].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
+        actions[2].setAccessibilityLabel(inBacklog ? "Move to Tasks" : "Move to Backlog")
         shownDescription = coordinator.descriptionShown(id)
         note.contentTintColor = shownDescription ? Ink.accentNS : hasNote ? Ink.secondaryTextNS : Ink.quietMarkNS
         note.toolTip = shownDescription ? "Hide the description (⇧Return)" : hasNote ? "Show the description (⇧Return)" : "Write a description (⇧Return)"
@@ -588,6 +590,7 @@ final class TaskCell: NSTableCellView {
             ("Next Status", { model.nextStatus([id]) }),
             ("Show or Hide Description", { model.toggleDescription(id) }),
             ("Add Subtask", { [weak self] in self?.addSubtask() }),
+            ("Remind Me…", { model.beginReminder(about: .task(id)) }),
             (model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog", { model.toggleList(id) }),
             ("Start Session…", { model.beginStart(task: id) }),
             ("Delete", { model.deleteTasks([id]) }),
@@ -740,6 +743,7 @@ final class TaskCell: NSTableCellView {
         guard let id, let added = model?.addSubtask(to: id) else { return }
         coordinator?.beginEditing(added.id)
     }
+    @objc private func remindMe() { if let id { model?.beginReminder(about: .task(id)) } }
     @objc private func toggleList() { if let id { model?.toggleList(id) } }
     @objc private func deleteTask() { if let id { model?.deleteTasks([id]) } }
 }
@@ -833,6 +837,13 @@ final class FacesCell: NSTableCellView {
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// The grip, on the title's line left of the faces: a press there moves the row; anywhere else on it, the task is
+    /// carried, to link (T-348, T-359).
+    func onGrip(_ windowPoint: NSPoint) -> Bool {
+        let local = convert(windowPoint, from: nil)
+        return local.x < faces.frame.minX - Space.xs && abs(local.y - grip.frame.midY) <= Metric.outlineRow / 2
+    }
+
     /// A click on a face shows its session's menu at once; the empty square starts a session. False when the click misses.
     func click(_ event: NSEvent) -> Bool {
         let local = convert(event.locationInWindow, from: nil)
@@ -847,9 +858,18 @@ final class FacesCell: NSTableCellView {
 
 }
 
-/// Six dots: where to grab a row.
+/// Six dots: where to grab a row to move it, under the open hand.
 final class GripView: NSView {
     override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.openHand.set() }
 
     override func draw(_ dirtyRect: NSRect) {
         Ink.quietMarkNS.setFill()
@@ -1277,11 +1297,11 @@ private struct ChipClick: ViewModifier {
             content
                 .selectOpen(route.chipKey(task: task), in: .tasks) { model.open(route, push: model.modal != nil) }
                 .accessibilityAction(named: "Show Menu") { FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), .zero, nil) }
-                .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+                .onDrag { DragItem.provider(route, line: model.line(of: route)) }
                 .uiTestAnchor(route.chipKey(task: task))
         } else {
             content.selectOpen(route.selectionKey) { model.open(route, push: model.modal != nil) }
-                .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+                .onDrag { DragItem.provider(route, line: model.line(of: route)) }
                 .uiTestAnchor("chip:\(route.selectionKey)")
         }
     }
@@ -1307,21 +1327,13 @@ struct LinkMenu: View {
         default: Button("Open") { model.open(route, push: model.modal != nil) }
         }
         switch route {
-        case .web(let url):
-            Button("Copy Link") { Pasteboard.copy(url) }
-        case .slack(let url):
-            Button("Copy Link") { Pasteboard.copy(url) }
-        case .file(let id):
-            Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
-        case .artifact(let url):
-            Button("Open in Browser") { NSWorkspace.shared.open(url) }
-            Button("Copy Link") { Pasteboard.copy(url.absoluteString) }
-        case .github(let url):
-            Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
-            Button("Copy Link") { Pasteboard.copy(url) }
-        default:
-            EmptyView()
+        case .file(let id): Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
+        case .artifact(let url): Button("Open in Browser") { NSWorkspace.shared.open(url) }
+        case .github(let url): Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
+        default: EmptyView()
         }
+        Button("Copy") { model.copy([route]) }
+        if let link = model.link(of: route) ?? route.address { Button("Copy Link") { Pasteboard.copy(link) } }
         if model.isLinked(route, to: task) {
             Divider()
             Button("Unlink from \(model.task(task)?.key ?? "the Task")") { model.unlink(route, from: task) }

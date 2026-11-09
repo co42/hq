@@ -5,9 +5,13 @@ import SwiftUI
 // the keyboard in the first field. What they link is a Links row: a Slack link on the clipboard comes on its own,
 // Link… finds anything else.
 
-/// What a sheet being written links: its chips, × on each, and Link… to search or paste an address (T-333).
+/// What a sheet being written links: its chips, × on each, and Link… to search or paste an address (T-333). A Slack
+/// link on the clipboard comes on its own, unless the sheet is about an item already (Remind Me…, T-343).
 struct LinksField: View {
     @Binding var links: [ModalRoute]
+    var autofill = true
+    /// The item the sheet is about: its chip is short, the words already say its title.
+    var subject: ModalRoute? = nil
     /// The sheet's name in UI test anchors: `new-task`, `new-reminder`.
     let anchor: String
     @Environment(AppModel.self) private var model
@@ -17,8 +21,8 @@ struct LinksField: View {
         HStack(spacing: Space.sm) {
             ForEach(links, id: \.self) { route in
                 HStack(spacing: Space.xs) {
-                    // Short where the sheet's words say the rest: a Slack message, or many links.
-                    OutputChip(route: route, short: route.isSlack || links.count > 2, plain: true)
+                    // Short where the sheet's words say the rest: a Slack message, the item it's about, or many links.
+                    OutputChip(route: route, short: route.isSlack || route == subject || links.count > 2, plain: true)
                     Button { remove(route) } label: { Label("Don’t Link It", icon: .close).labelStyle(.iconOnly) }
                         .buttonStyle(.borderless)
                         .clickable()
@@ -35,7 +39,7 @@ struct LinksField: View {
                 .uiTestAnchor("\(anchor)-link-button")
         }
         .task {
-            guard let copied = await model.copiedSlackLink() else { return }
+            guard autofill, let copied = await model.copiedSlackLink() else { return }
             add(.slack(copied))
         }
     }
@@ -186,7 +190,7 @@ struct NewTaskForm: View {
     }
 }
 
-private extension ModalRoute {
+extension ModalRoute {
     /// A PR's, an issue's, a Slack message's or a web page's address: what a task's note keeps in its links.
     var address: String? {
         switch self {
@@ -197,23 +201,40 @@ private extension ModalRoute {
 }
 
 /// New Reminder… (⌃⌘R, +, the menu bar and Dock menus): what, its links, when, important; the keyboard in the text. A
-/// Slack link copied before it, or pasted in its text, comes with it and names it (T-313).
+/// Slack link copied before it, or pasted in its text, comes with it and names it (T-313). Remind Me… on an item opens it
+/// about that item: linked, its title the words until the user types (T-343).
 struct NewReminderForm: View {
     @Environment(AppModel.self) private var model
+    /// The task, PR, file or artifact it's about.
+    let about: ModalRoute?
     @State private var text = ""
     @State private var due = ReminderTime.date(.tomorrow)
     @State private var important = true
     @State private var picking = false
-    @State private var links: [ModalRoute] = []
+    @State private var links: [ModalRoute]
     @State private var words = DraftWords()
     @FocusState private var typing: Bool
+
+    init(about: ModalRoute? = nil) {
+        self.about = about
+        _links = State(initialValue: about.map { [$0] } ?? [])
+    }
+
+    /// The item it's about, while it's still linked.
+    private var subject: ModalRoute? { about.flatMap { links.contains($0) ? $0 : nil } }
+
+    /// What it reminds of: the typed words, a Slack message's first line, else the item's title.
+    private var reminder: String {
+        let words = DraftWords.words(text, links: links, in: model)
+        return words.isEmpty ? subject.map { model.title(of: $0) } ?? "" : words
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     label("Remind me to")
-                    TextField("Call noor about the GPU quota", text: $text)
+                    TextField(subject.map { model.title(of: $0) } ?? "Call noor about the GPU quota", text: $text)
                         .textFieldStyle(.roundedBorder)
                         .focused($typing)
                         .onSubmit(add)
@@ -221,7 +242,7 @@ struct NewReminderForm: View {
                 }
                 GridRow {
                     label("Links")
-                    LinksField(links: $links, anchor: "new-reminder")
+                    LinksField(links: $links, autofill: about == nil, subject: about, anchor: "new-reminder")
                 }
                 GridRow {
                     label("When")
@@ -255,7 +276,7 @@ struct NewReminderForm: View {
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.return, modifiers: .command)
                     .clickable()
-                    .disabled(DraftWords.words(text, links: links, in: model).isEmpty)
+                    .disabled(reminder.isEmpty)
                     .uiTestAnchor("new-reminder-add")
             }
         }
@@ -272,7 +293,7 @@ struct NewReminderForm: View {
     }
 
     private func add() {
-        let reminder = DraftWords.words(text, links: links, in: model)
+        let reminder = reminder
         guard !reminder.isEmpty else { return }
         model.remind(reminder, at: due, level: important ? .important : .update, links: links.map(\.selectionKey))
         model.back()

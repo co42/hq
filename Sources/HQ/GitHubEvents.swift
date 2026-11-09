@@ -26,7 +26,7 @@ extension AppModel {
             for event in fresh { known[event.key] = now }
             let tasks = tasks(linking: item.url).map { ModalRoute.task($0.id).selectionKey }
             notify(latest.text, level: .update, kind: .github, source: item.url, links: [ModalRoute.github(item.url).selectionKey] + tasks,
-                   count: fresh.count, at: latest.at, anchor: latest.url)
+                   count: fresh.count, at: latest.at, anchor: latest.url, title: item.title)
         }
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
     }

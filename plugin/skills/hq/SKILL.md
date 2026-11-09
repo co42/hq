@@ -7,7 +7,7 @@ description: What HQ is and how to use the hq command, notifications and reminde
 
 HQ is the user's cockpit for their day with Claude Code: a native Mac app beside Ghostty. One page, top to bottom: the **Pull Requests** that wait on them, every open Claude **Session** as a card with a face, **Files and Artifacts**, then their tasks as one outline: **Tasks** (what they work on now) and the **Backlog** (later). A task's row shows the faces of the sessions on it, and under it its PRs, issues, files, artifacts and linked tasks. Anything opens in a sheet over the page. A bell in the toolbar (and the menu bar) opens the **notification center**: **Needs You** (sessions that wait on them, pings, reminders that are due), **Updates** (what sessions tell them, reviews and comments on their PRs), and **Later**.
 
-This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; finished work the user should look at (most of it) stays `doing` with an `hq notify` saying what to check, and they move it to `done`; `done` yourself only when nothing needs their look, its description saying what changed; every task you create gets a `--type`. The `hq-tasks` and `hq-files` skills say how.
+This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; finished work the user should look at (most of it) stays `doing` with an `hq notify` saying what to check, and they move it to `done`; `done` yourself only when nothing needs their look, its description saying what changed; every task you create gets a `--project` when the work belongs to one. The `hq-tasks` and `hq-files` skills say how.
 
 ## The hq command
 
@@ -16,7 +16,7 @@ This session reports to HQ through the plugin's hooks on its own. Your part is t
 ```
 hq ctx                                    # this session's tasks, the overview's Doing, recent files and artifacts, other sessions
 hq status                                 # whether HQ runs, and how much needs the user
-hq ls tasks [--overview|--backlog] [--all] [--type t] [--project p] [--tag t]
+hq ls tasks [--overview|--backlog] [--all] [--project p] [--tag t]
 hq ls sessions | prs | files | artifacts | projects | notifications   # prs: Reviews then Yours, as on the page
 hq notify "…" [--important] [--link T-12,<url>]   # tell the user (below)
 hq remind "…" --at "tomorrow 9:00" [--important] [--link …]   # a reminder: in Later, back at its time

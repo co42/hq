@@ -11,6 +11,8 @@ struct GitHubWebView: NSViewRepresentable {
     @Binding var state: ArtifactLoad
     /// Bumped by Reload.
     var reloads = 0
+    /// A form sent from the page (a review submitted, a comment): HQ asks GitHub again soon (T-366).
+    var onSubmit: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -94,6 +96,7 @@ struct GitHubWebView: NSViewRepresentable {
         /// pages of a sign-in (their organization's identity provider) stay here.
         func webView(_ web: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+            if action.navigationType == .formSubmitted || action.request.httpMethod == "POST" { parent.onSubmit() }
             guard action.navigationType == .linkActivated, action.targetFrame?.isMainFrame ?? true,
                   let url = action.request.url, !GitHubWebView.isGitHub(url), url.scheme?.hasPrefix("http") == true,
                   let current = web.url, GitHubWebView.isGitHub(current) else { return decisionHandler(.allow) }

@@ -537,10 +537,8 @@ extension UITest {
         await ui.back()
         await ui.until(2) { model.modal == .notifications }
         check("Back returns to the center", model.modal == .notifications, "\(String(describing: model.modal))")
-        check("where the row read stays in place", model.notices(in: .updates).contains { $0.id == row.id })
-        model.noticeSelection = row.id.uuidString
-        await ui.settle(0.3)
-        check("and keeps its actions: Mark as Unread shows on it", ui.anchor("read:\(row.id.uuidString)") != nil)
+        check("where the row read went to Earlier at once (T-365)", model.notices(in: .earlier).contains { $0.id == row.id }
+              && !model.notices(in: .updates).contains { $0.id == row.id })
 
         // A long text: two lines at rest, all of it once selected.
         if let long = model.notices(in: .updates).first(where: { $0.text.count > 200 }) {
@@ -582,9 +580,14 @@ extension UITest {
         await ui.settle(0.3)
         check("a due reminder stays in Needs You with Edit, Later and Done", model.notices(in: .needsYou).contains { $0.id == due.id }
               && ["edit", "later", "read"].allSatisfy { ui.anchor("\($0):\(due.id.uuidString)") != nil })
+        let after = (model.notices(in: .needsYou) + model.notices(in: .updates) + model.notices(in: .later))
+            .drop { $0.id != due.id }.dropFirst().first?.id
         await ui.click(await ui.steadyAnchor("read:\(due.id.uuidString)"), inSheet: true)
         await ui.settle(0.3)
-        check("Done completes it, in place", model.notices.first { $0.id == due.id }?.readAt != nil && model.notices(in: .needsYou).contains { $0.id == due.id })
+        check("Done completes it and it goes to Earlier at once (T-365)", model.notices.first { $0.id == due.id }?.readAt != nil
+              && !model.notices(in: .needsYou).contains { $0.id == due.id } && model.notices(in: .earlier).contains { $0.id == due.id })
+        check("the selection goes on to the row after it", after == nil || model.noticeSelection == after?.uuidString,
+              "\(String(describing: model.noticeSelection)) for \(String(describing: after))")
 
         // Editing a reminder: its row turns into the editor, filled in; Important and Save change it.
         let waiting = model.remind("Call the bank", at: .now.addingTimeInterval(7200), level: .important)
@@ -861,7 +864,7 @@ extension UITest {
                 _ = ui.titlePoint(id)
                 await ui.settle(0.3)
                 guard let point = ui.titlePoint(id), let hit = ui.hitView(point), hit.isDescendant(of: outline) else {
-                    problems.append("\(step): T-\(id) can't be clicked: \(ui.titlePoint(id).flatMap(ui.hitView).map { String(describing: type(of: $0)) } ?? "nothing")")
+                    problems.append("\(step): T-\(id) can't be clicked: \(ui.titlePoint(id).flatMap { ui.hitView($0) }.map { String(describing: type(of: $0)) } ?? "nothing")")
                     continue
                 }
             }
@@ -1238,6 +1241,134 @@ extension UITest {
         model.deleteTasks([added?.id, pinged?.id, target.id, second.id].compactMap(\.self))
         await endUndoGroup(model)
         await ui.settle(0.3)
+    }
+
+    /// T-348, T-359, T-358, T-343: the grip moves a task, the rest of its row carries it (onto a task or a card it links;
+    /// other apps get its line); Copy, ⌘C and the modals' Copy give items' lines; Remind Me… opens New Reminder about the item.
+    static func copyAndRemind(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
+              let collection = ui.find(SessionGrid.CardCollection.self),
+              let cards = collection.delegate as? SessionGrid.Coordinator else { return check("the outline and the grid are on the page", false) }
+        model.folded = []
+        model.search = ""
+        guard let carried = model.addTask(to: .overview, title: "Carry me"),
+              let target = model.addTask(to: .overview, title: "Link it here") else { return check("tasks to drag", false) }
+        await endUndoGroup(model)
+        await ui.settle(0.5)
+        let index = outline.row(forItem: coordinator.node(.task(carried.id)))
+        outline.scrollRowToVisible(index)
+        await ui.settle(0.2)
+        guard let faces = outline.view(atColumn: 0, row: index, makeIfNecessary: true) as? FacesCell,
+              let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: true) as? TaskCell else { return check("the row's cells", false) }
+        faces.layoutSubtreeIfNeeded()
+        let line = "Task \(carried.key): Carry me"
+        func writer() -> NSPasteboardItem? { coordinator.outlineView(outline, pasteboardWriterForItem: coordinator.node(.task(carried.id))) as? NSPasteboardItem }
+        _ = outline.canDragRows(with: IndexSet(integer: index), at: faces.convert(NSPoint(x: Space.xs, y: faces.gap + Metric.outlineRow / 2), to: outline))
+        let moved = writer()
+        check("a drag from the grip moves the row (T-348)", outline.dragsFromGrip && moved?.string(forType: DragItem.taskType) == "\(carried.id)"
+              && moved?.data(forType: DragItem.itemType) == nil)
+        _ = outline.canDragRows(with: IndexSet(integer: index), at: cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: outline))
+        let link = writer()
+        check("a drag from its title carries the task, to link, and gives other apps its line", !outline.dragsFromGrip
+              && link?.string(forType: DragItem.taskType) == nil && link?.data(forType: DragItem.itemType).map { String(decoding: $0, as: UTF8.self) } == "task:\(carried.id)"
+              && link?.string(forType: .string) == line, link?.string(forType: .string) ?? "no line")
+        // Onto another task it links there (T-359), never onto itself, and nothing moves.
+        let drag = FakeDrag(item: ModalRoute.task(carried.id).selectionKey, source: outline)
+        let onto = coordinator.node(.task(target.id))
+        check("a task carried onto another task's row proposes a link (T-359)",
+              coordinator.outlineView(outline, validateDrop: drag, proposedItem: onto, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .link)
+        check("never onto itself", coordinator.outlineView(outline, validateDrop: drag, proposedItem: coordinator.node(.task(carried.id)),
+                                                           proposedChildIndex: NSOutlineViewDropOnItemIndex) == [])
+        _ = coordinator.outlineView(outline, acceptDrop: drag, item: onto, childIndex: NSOutlineViewDropOnItemIndex)
+        await endUndoGroup(model)
+        await ui.settle(0.4)
+        check("dropped, the tasks are linked and neither moved", model.isLinked(.task(carried.id), to: target.id)
+              && model.taskTree.parent(of: carried.id) == nil && model.outputs(ofTask: target.id).contains(.task(carried.id)))
+        model.undoManager?.undo()
+        await ui.settle(0.3)
+        check("Undo unlinks them", !model.isLinked(.task(carried.id), to: target.id))
+        // Onto a session's card, as by its grip, it links to that session.
+        if let session = model.gridSessions.first {
+            check("a task carried onto a card proposes a link onto it", validate(cards, collection, drag, item: 0, operation: .before).0 == .link)
+            _ = cards.collectionView(collection, acceptDrop: drag, indexPath: IndexPath(item: 0, section: 0), dropOperation: .on)
+            await endUndoGroup(model)
+            check("dropped, the task is linked to that session", model.task(carried.id)?.sessions.contains(session.id) == true)
+            model.undoManager?.undo()
+            await ui.settle(0.3)
+        }
+
+        // Copy and ⌘C (T-358): the rows', the card's and the open item's lines.
+        Pasteboard.copied = nil
+        outline.selectRowIndexes(IndexSet([index, outline.row(forItem: onto)]), byExtendingSelection: false)
+        outline.copy(nil)
+        check("⌘C on selected rows copies their lines", Pasteboard.copied == "\(line)\nTask \(target.key): Link it here", Pasteboard.copied ?? "nothing")
+        if let press = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: ui.window.windowNumber,
+                                          context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { cell.key.mouseDown(with: press) }
+        check("a click on the key copies the same line", Pasteboard.copied == line, Pasteboard.copied ?? "nothing")
+        if let session = model.gridSessions.first {
+            model.selectedSession = session.id
+            collection.copy(nil)
+            check("⌘C on a card copies its session's line", Pasteboard.copied == "Session \(session.id): \(session.name)", Pasteboard.copied ?? "nothing")
+        }
+        var routes: [ModalRoute] = [.task(target.id)]
+        routes += model.gridSessions.prefix(1).map { .session($0.id) }
+        routes += model.files.prefix(1).map { .file($0.id) }
+        routes += model.artifacts.prefix(1).map { .artifact($0.id) }
+        routes += (model.github?.items ?? []).filter { $0.kind == .pullRequest }.prefix(1).map { .github($0.url) }
+        for route in routes {
+            model.open(route)
+            await ui.until(2) { ui.window.attachedSheet != nil }
+            await ui.settle(0.6)
+            Pasteboard.copied = nil
+            await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
+            check("the modal's Copy copies the item's line: \(route.selectionKey.prefix(12))", Pasteboard.copied == model.line(of: route),
+                  Pasteboard.copied ?? "nothing")
+            let remind = ui.anchor("item-remind-me") != nil
+            if case .session = route { check("a session's modal has no Remind Me…", !remind) } else { check("and Remind Me…", remind) }
+            model.closeModal()
+            await ui.settle(0.3)
+        }
+
+        // Remind Me… (T-343): the row's alarm, then the PR modal's.
+        guard let row = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(target.id))), makeIfNecessary: true) as? TaskCell,
+              let alarm = row.subviews.compactMap({ $0 as? NSButton }).first(where: { $0.toolTip == "Remind me about the task…" }) else {
+            return check("the row's Remind Me… button", false)
+        }
+        row.setHovered(true)
+        row.layoutSubtreeIfNeeded()
+        check("under the pointer, the row shows Remind Me… with the hand", !alarm.isHidden && alarm.tracksHandCursor)
+        alarm.performClick(nil)
+        await ui.until(2) { model.modal == .newReminder }
+        await ui.settle(0.6)
+        row.setHovered(false)
+        check("it opens New Reminder with the task linked", model.modal == .newReminder && ui.anchor("new-reminder-link:task:\(target.id)") != nil)
+        let before = model.notices.count
+        await ui.click(await ui.steadyAnchor("new-reminder-add"), inSheet: true)
+        await ui.until(2) { model.modal == nil }
+        let added = model.notices.last
+        check("Add Reminder with no words of the user's: the task's title, linked to it", model.notices.count == before + 1
+              && added?.text == "Link it here" && added?.links == ["task:\(target.id)"], "\(String(describing: added))")
+        if let added { model.removeNotice(added.id) }
+        if let pr = (model.github?.items ?? []).first(where: { $0.kind == .pullRequest }) {
+            model.open(.github(pr.url))
+            await ui.settle(0.6)
+            await ui.click(await ui.steadyAnchor("item-remind-me"), inSheet: true)
+            await ui.until(2) { model.modal == .newReminder }
+            await ui.settle(0.4)
+            check("a PR's modal opens it over the PR, linked to it", model.modalStack.last == .github(pr.url)
+                  && ui.anchor("new-reminder-link:github:\(pr.url)") != nil)
+            model.back()
+            await ui.until(2) { model.modal == .github(pr.url) }
+            check("Cancel goes back to the PR", model.modal == .github(pr.url))
+            model.closeModal()
+            await ui.settle(0.3)
+        }
+        // The two tasks stay: deleted here, in a test window behind the user's, their rows' slide-out never ends and leaves
+        // their views below the outline for the sweep to find (2026-11-09).
+        let outside = outline.subviews.filter { $0 is NSTableRowView && !$0.isHidden
+            && !outline.bounds.insetBy(dx: -1, dy: -1).contains(NSPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        check("the outline fits its rows after the drops, the copies and the reminders", outside.isEmpty,
+              "outline \(Int(outline.bounds.height)), outside at \(outside.map { Int($0.frame.minY) })")
     }
 
     /// The grid's validateDrop, with its in-out arguments kept valid for the call.
@@ -1729,9 +1860,6 @@ extension UITest {
         // A drag that ends outside the window leaves no drop target behind.
         coordinator.dragEnded()
         check("a cancelled drag leaves no row marked as a drop target", (0..<outline.numberOfRows).allSatisfy { !(outline.rowView(atRow: $0, makeIfNecessary: false)?.isTargetForDropOperation ?? false) })
-        let writer = coordinator.outlineView(outline, pasteboardWriterForItem: coordinator.node(.task(a))) as? NSPasteboardItem
-        check("a dragged task carries its key and its title for other apps",
-              writer?.string(forType: DragItem.taskType) == "\(a)" && writer?.string(forType: .string) == "T-\(a) A")
         model.backlogOpen = false
     }
 
@@ -1899,7 +2027,7 @@ extension UITest {
             if let click = ui.mouseDown(point, clicks: 1) { outline.mouseDown(with: click) }
             await ui.settle(0.2)
             let copied = Pasteboard.copied
-            check("a click on a task's key copies its key and title", copied == "\(task.key) \(task.title)" && cell.key.tracksHandCursor,
+            check("a click on a task's key copies its line, as Copy does (T-358)", copied == "Task \(task.key): \(task.title)" && cell.key.tracksHandCursor,
                   "\(copied ?? "nothing"), hand \(cell.key.tracksHandCursor), hits \(cell.button(at: point).map { String(describing: type(of: $0)) } ?? "none"), row \(outline.row(at: outline.convert(point, from: nil))) of \(keyRow), in outline \(cell.superview != nil), key \(cell.key.frame) hidden \(cell.key.isHidden), copies \(cell.key.copied)")
             check("and the key turns the accent color", cell.key.textColor == Ink.accentNS)
             cell.setHovered(false)

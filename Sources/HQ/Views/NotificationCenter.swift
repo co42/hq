@@ -315,7 +315,8 @@ private struct NoticeRow: View {
         case .github: model.githubItem(notice.source)?.reference ?? notice.source.flatMap(GitHubThreads.reference) ?? "GitHub"
         case .reminder: notice.level == .important ? "Reminder · Important" : "Reminder"
         }
-        let label = Text(name).kitType(done ? .title : .titleBold).lineLimit(1)
+        let title = notice.kind == .github ? model.githubItem(notice.source)?.title ?? notice.title : nil
+        let label = NoticeName(name: name, title: title, bold: !done)
         if let source {
             Button { model.markRead(notice.id); model.open(source, from: notice) } label: { label }
                 .buttonStyle(.plain)
@@ -615,6 +616,23 @@ struct ReminderMark: View {
 
 /// A PR that waits for the user's review (T-319): it stands in Needs You until they review it or mark it reviewed; Later
 /// puts it away until a time, then it comes back.
+/// A row's name: a session's, a reminder's, or a PR's or an issue's reference with its title after it, quieter, which
+/// truncates first (T-360).
+private struct NoticeName: View {
+    let name: String
+    let title: String?
+    let bold: Bool
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs + 2) {
+            Text(name).kitType(bold ? .titleBold : .title).lineLimit(1).layoutPriority(1)
+            if let title, !title.isEmpty {
+                Text(title).kitType(.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+            }
+        }
+    }
+}
+
 private struct ReviewRow: View {
     let item: GitHubItem
     /// Put away until then: it shows in Later.
@@ -630,7 +648,7 @@ private struct ReviewRow: View {
             GitHubStateIcon.tile(item).frame(width: Metric.faceRow + Space.xs)
             VStack(alignment: .leading, spacing: Metric.lineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-                    Text(item.reference).kitType(.titleBold).lineLimit(1)
+                    NoticeName(name: item.reference, title: item.title, bold: true)
                     Spacer(minLength: Space.sm)
                     Group {
                         if let until { Label(ReminderTime.describe(until, now: model.now), icon: .later) }
@@ -638,7 +656,7 @@ private struct ReviewRow: View {
                     }
                     .kitType(.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 }
-                NoticeBody(text: "\(item.author) asked for your review: \(item.title)", full: selected)
+                NoticeBody(text: "\(item.author) asked for your review", full: selected)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button("Later", icon: .later) { showLater = true }

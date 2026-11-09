@@ -12,7 +12,7 @@ How a version of HQ goes from the user's list to their `/Applications`. Read it 
 
 1. `hq ls sessions --tag hq` and `git status`: no other session on HQ, a clean tree. Otherwise stop and tell the user.
 2. A branch `vN` from `main`, in this checkout.
-3. The story to doing; read every subtask; set each one's type and project.
+3. The story to doing; read every subtask; set each one's project.
 4. `tools/check.sh` once before changing anything: a check that already fails isn't yours, but say so.
 5. Every subtask that adds a surface or changes how something looks or acts gets its questions answered before code (CLAUDE.md, Building a UI change). Ask the user every open question at once, each with your recommendation, in a sentence they can answer without opening the code.
 

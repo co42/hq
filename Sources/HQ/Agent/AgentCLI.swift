@@ -124,6 +124,9 @@ enum AgentCLI {
                          exit: ["usage": 2, "not_found": 3, "app_unavailable": 4, "not_mine": 5][code] ?? 1)
     }
 
+    /// Options HQ no longer has, taken and ignored: sessions started before keep their skills (T-220: task types).
+    static let retired: Set<String> = ["type"]
+
     /// --name value, --flag, and positional values, checked against the params.
     static func parse(_ words: [String], for command: AgentCommand) throws -> [String: String] {
         var values: [String: String] = [:]
@@ -141,6 +144,11 @@ enum AgentCLI {
             if !optionsDone, word.hasPrefix("--"), word.count > 2, word.dropFirst(2).allSatisfy({ $0.isLetter || $0 == "-" }) {
                 let name = String(word.dropFirst(2))
                 if name == "yes", command.destructive { values["yes"] = "true"; index += 1; continue }
+                if retired.contains(name) {
+                    let next = index + 1 < words.count ? words[index + 1] : nil
+                    index += next.map { $0.hasPrefix("--") } == false ? 2 : 1
+                    continue
+                }
                 guard let param = command.params.first(where: { $0.name == name }) else {
                     throw AgentError.usage("\(command.name) has no option --\(name). Run `hq \(command.name) --help`")
                 }
@@ -288,7 +296,7 @@ enum AgentCLI {
         return "\(id.prefix(8)) [\(section)] \(object["text"] as? String ?? "")\(due)\(read)"
     }
 
-    /// One line per item, short enough for a card: `T-4 [doing] Title #ui · bug · HQ`. `--json` has every field.
+    /// One line per item, short enough for a card: `T-4 [doing] Title #ui · HQ`. `--json` has every field.
     private static func line(_ object: JSONObject) -> String {
         if let notice = notice(object) { return notice }
         let tags = (object["tags"] as? [String]).flatMap { $0.isEmpty ? nil : " " + $0.map { "#\($0)" }.joined(separator: " ") } ?? ""
@@ -296,9 +304,8 @@ enum AgentCLI {
         if let id = object["id"] as? String, id.hasPrefix("T-"), let status = object["status"] as? String {
             let list = (object["list"] as? String) == "backlog" ? " · Backlog" : ""
             let review = (object["review"] as? String).map { " · Review: \($0)" } ?? ""
-            let kind = (object["type"] as? String).map { " · \($0)" } ?? " · no type"
             let project = (object["project"] as? String).map { " · \($0)" } ?? ""
-            return "\(id) [\(status)] \(title)\(tags)\(kind)\(project)\(review)\(list)"
+            return "\(id) [\(status)] \(title)\(tags)\(project)\(review)\(list)"
         }
         if let id = object["id"] as? String, let state = object["state"] as? String {
             let reason = (object["reason"] as? String).map { " · \($0)" } ?? ""

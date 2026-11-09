@@ -274,7 +274,7 @@ private struct ItemRow: View {
         .frame(height: Metric.itemRow)
         .background(hovering ? Ink.hoverFill : Color.clear, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
         .selectOpen(route.selectionKey, in: .files) { model.open(route) }
-        .onDrag { DragItem.provider(route, title: model.title(of: route)) }
+        .onDrag { DragItem.provider(route, line: model.line(of: route)) }
         .onHover { hovering = $0 }
         .animation(Motion.hover, value: hovering)
         .help("\(model.title(of: route))\n\(detail(item))")
@@ -282,14 +282,17 @@ private struct ItemRow: View {
             Button("Open") { model.open(route) }
             Button(item.pinned ? "Unpin" : "Pin") { model.setPinned(route, !item.pinned) }
             Button("Link to Task…") { linking = true }
+            Button("Remind Me…") { model.beginReminder(about: route) }
             Divider()
             switch route {
             case .file(let id):
                 Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
+                Button("Copy") { model.copy([route]) }
                 Divider()
                 Button("Delete") { model.deleteFile(id) }
             case .artifact(let url):
                 Button("Open in Browser") { NSWorkspace.shared.open(url) }
+                Button("Copy") { model.copy([route]) }
                 Button("Copy Link") { Pasteboard.copy(url.absoluteString) }
                 Divider()
                 Button("Remove from HQ") { model.removeArtifact(url) }

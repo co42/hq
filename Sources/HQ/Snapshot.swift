@@ -103,6 +103,12 @@ enum Snapshot {
                 copySlackLink()
                 model.beginReminder()
             },
+            // Remind Me… on a task (T-343): linked, named after it; the copied Slack link stays out.
+            Page(name: "modal-remind-task", capture: .sheet, settle: 1) { model in
+                reset(model)
+                copySlackLink()
+                model.beginReminder(about: .task(13))
+            },
             Page(name: "modal-new-task-slack", capture: .sheet, settle: 1) { model in
                 reset(model)
                 copySlackLink()

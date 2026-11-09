@@ -164,12 +164,11 @@ extension AppModel {
         labelColors["\(kind.rawValue):\(name.lowercased())"] = color?.rawValue
     }
 
-    /// What `#word` in a title means: a status, a type, an existing project, else a tag.
-    enum TitleWord: Equatable { case status(TaskStatus), type(TaskType), project(String), tag(String) }
+    /// What `#word` in a title means: a status, an existing project, else a tag (T-220: `#bug` is a tag).
+    enum TitleWord: Equatable { case status(TaskStatus), project(String), tag(String) }
 
     func titleWord(_ word: String) -> TitleWord {
         if let status = TaskStatus(rawValue: word.lowercased()) { return .status(status) }
-        if let type = TaskType(rawValue: word.lowercased()) { return .type(type) }
         let key = Self.projectKey(word)
         if let project = projects.first(where: { Self.projectKey($0) == key }) { return .project(project) }
         return .tag(word)
@@ -180,9 +179,9 @@ extension AppModel {
         name.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
-    /// The words to complete after `#` in a title: statuses, types, projects, tags.
+    /// The words to complete after `#` in a title: statuses, projects, tags.
     func titleCompletions(_ partial: String) -> [String] {
-        let words = TaskStatus.allCases.map(\.rawValue) + TaskType.allCases.map(\.rawValue) + projects.map { $0.replacingOccurrences(of: " ", with: "-") } + allTags
+        let words = TaskStatus.allCases.map(\.rawValue) + projects.map { $0.replacingOccurrences(of: " ", with: "-") } + allTags
         var seen = Set<String>()
         return words.filter { word in
             (partial.isEmpty || word.lowercased().hasPrefix(partial.lowercased())) && word.lowercased() != partial.lowercased()
@@ -238,11 +237,11 @@ extension AppModel {
 
     /// A new task note, placed by the tree. Undo moves the note to the Trash.
     @discardableResult
-    func addTask(title: String, placement: TaskTree.Placement, status: TaskStatus = .todo, type: TaskType? = nil,
+    func addTask(title: String, placement: TaskTree.Placement, status: TaskStatus = .todo,
                  project: String? = nil, tags: [String] = [], body: String = "", session: String? = nil, links: [URL] = [],
                  renumber: [Int: TaskTree.Placement] = [:]) -> TaskItem? {
         let split = TitleTags.split(title)
-        var item = TaskItem(id: (tasks.map(\.id).max() ?? 0) + 1, title: split.title, status: status, type: type,
+        var item = TaskItem(id: (tasks.map(\.id).max() ?? 0) + 1, title: split.title, status: status,
                             project: project, tags: tags,
                             parent: placement.parent, list: placement.list, order: placement.order,
                             done: status == .done ? .now : nil,
@@ -277,11 +276,11 @@ extension AppModel {
 
     /// The quick-add line: the end of Tasks, the top of the Backlog.
     @discardableResult
-    func addTask(to list: TaskList, title: String, type: TaskType? = nil, body: String = "", session: String? = nil, project: String? = nil,
+    func addTask(to list: TaskList, title: String, body: String = "", session: String? = nil, project: String? = nil,
                  links: [URL] = []) -> TaskItem? {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
               let (placement, renumber) = taskTree.placeNew(in: .list(list), at: list == .backlog ? 0 : nil) else { return nil }
-        return addTask(title: title, placement: placement, type: type, project: project, body: body, session: session, links: links, renumber: renumber)
+        return addTask(title: title, placement: placement, project: project, body: body, session: session, links: links, renumber: renumber)
     }
 
     /// Add Subtask: the last child, the parent opened, in the parent's project.
@@ -292,7 +291,7 @@ extension AppModel {
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
-    /// The title as typed: `#word` sets the status, the type or the project it names, else becomes a tag.
+    /// The title as typed: `#word` sets the status or the project it names, else becomes a tag.
     func setTitle(_ id: Int, _ text: String) {
         let split = TitleTags.split(text)
         changeTask(id, "Rename Task") { task in
@@ -309,7 +308,6 @@ extension AppModel {
                 guard task.status != status else { continue }
                 task.status = status
                 task.done = status == .done ? .now : nil
-            case .type(let type): task.type = type
             case .project(let project): task.project = project
             case .tag(let tag): if !task.tags.contains(tag) { task.tags.append(tag) }
             }
@@ -418,7 +416,6 @@ extension AppModel {
         changeTask(id, "Tick Checkbox") { $0.body = toggled }
     }
 
-    func setType(_ id: Int, _ type: TaskType?) { changeTask(id, "Set Type") { $0.type = type } }
 
     func setProject(_ id: Int, _ project: String?) {
         changeTask(id, "Set Project") { $0.project = project.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
@@ -483,6 +480,11 @@ extension AppModel {
         case .session(let session): link(task: id, session: session)
         case .start, .closedSessions, .notifications, .newTask, .newReminder: break
         }
+    }
+
+    /// Several items dropped on a task at once: one Undo, the event's.
+    func link(_ routes: [ModalRoute], to id: Int) {
+        for route in routes { link(route, to: id) }
     }
 
     func unlink(_ route: ModalRoute, from id: Int) {

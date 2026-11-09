@@ -55,6 +55,13 @@ struct SectionKeys: ViewModifier {
             .onKeyPress(.downArrow) { model.moveSelection(in: section, by: 1) ? .handled : .ignored }
             .onKeyPress(.return) { model.openSelected(in: section) ? .handled : .ignored }
             .onKeyPress(.space) { model.openSelected(in: section) ? .handled : .ignored }
+            // ⌘C, Edit › Copy: the selected PR's, file's or artifact's line (T-358). Test runs keep the user's clipboard.
+            .onCopyCommand {
+                guard model.modal == nil, let route = model.menuRoute else { return [] }
+                let line = model.line(of: route)
+                Pasteboard.copied = line
+                return Store.isOverridden ? [] : [NSItemProvider(object: line as NSString)]
+            }
             .onChange(of: model.sectionFocus) { _, next in
                 guard next == section else { return }
                 model.sectionFocus = nil

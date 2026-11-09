@@ -296,7 +296,7 @@ struct PRRow: View {
             .frame(height: Metric.prRow)
             .background(hovering ? Ink.hoverFill : Color.clear, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
         .selectOpen(ModalRoute.github(item.url).selectionKey, in: .pullRequests) { model.open(.github(item.url)) }
-        .onDrag { DragItem.provider(.github(item.url), title: item.title) }
+        .onDrag { DragItem.provider(.github(item.url), line: model.line(of: .github(item.url))) }
         .onHover { hovering = $0 }
         .animation(Motion.hover, value: hovering)
         .help("\(item.title) (\(item.reference))")
@@ -307,6 +307,9 @@ struct PRRow: View {
             Divider()
             Button("Start Review Session…") { model.beginStart(pullRequest: item) }
             Button("Link to Task…") { linking = true }
+            Button("Remind Me…") { model.beginReminder(about: .github(item.url)) }
+            Divider()
+            Button("Copy") { model.copy([.github(item.url)]) }
             Button("Copy Link") { Pasteboard.copy(item.url) }
         }
         .popover(isPresented: $linking, arrowEdge: .bottom) { TaskFinder { model.link(.github(item.url), to: $0); linking = false } }

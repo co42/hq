@@ -1,5 +1,25 @@
 # Release notes
 
+## v12 · 2026-11-09
+
+**Tasks**
+- A task row moves only by its **grip** (⠿, at its left under the pointer, with the open hand). Dragged from anywhere else, its title included, a task is carried as a PR or a file row is. Dropped on another task, it links the two and neither moves. Dropped on a session card, it links to that session. Dropped in Ghostty, it types the task's line.
+- **Remind Me…**: the alarm among a task row's actions under the pointer, and in its menu and its window, opens New Reminder about the task. The task is linked, and its title is the reminder's words until you type your own. PRs, files and artifacts have it too, in their menus and windows, and File › Remind Me… works on whichever is open or selected.
+
+**Copy**
+- **Copy**, in every item's menu and as the first button in its window, copies one line per item: its kind, key and title, ready to paste for a session. "Task T-12: Retry budget", "PR acme/registry#418: Retry budget", "Session <id>: its name", `File "<name>"`, "Artifact <address>: its title". ⌘C copies the selected rows or card, and a click on a task's key copies its line. Copy Key and Title is gone: Copy does it.
+- Anything dragged out of HQ gives that same line.
+
+**Notifications**
+- A notification about a PR or an issue shows its title after "registry #418", quieter, cut with an ellipsis when the row is short. Review requests show it the same way.
+- A row you read, complete, put Later or edit moves to its section at once. The selection goes to the next row, so E, E, E works down the list, and ⌘Z brings a row back.
+
+**Pull Requests**
+- Reviews keep up: HQ asks GitHub every minute while its window is on screen, also beside Ghostty. Before, that was every 5 minutes unless HQ was in front. It also asks a few seconds after you leave a PR's page or submit a review in it.
+
+**Sessions** (plugin 0.8.0)
+- Tasks have no type any more, in `hq` and its skills too: sessions no longer spend a command setting one. `#bug` in a title is a tag. `--type` is ignored, for sessions on older skills, and older notes keep their `type:` as written.
+
 ## v11.1 · 2026-11-09
 
 A stability release.

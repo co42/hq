@@ -201,7 +201,7 @@ final class OutlineContainer: NSView {
         outline.focusRingType = .none
         outline.usesAutomaticRowHeights = false
         outline.registerForDraggedTypes([DragItem.taskType, DragItem.itemType])
-        outline.setDraggingSourceOperationMask(.move, forLocal: true)
+        outline.setDraggingSourceOperationMask([.move, .link], forLocal: true)
         outline.setDraggingSourceOperationMask(.copy, forLocal: false)
         outline.draggingDestinationFeedbackStyle = .gap
         outline.setAccessibilityLabel("Tasks and Backlog")
@@ -339,6 +339,8 @@ final class TaskOutlineView: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        // The press a drag starts from, also when AppKit doesn't ask canDragRows.
+        dragsFromGrip = onGrip(point)
         let row = self.row(at: point)
         // The status glyph, the type icon and the faces take their clicks: the table would only select the row.
         // ⌥ goes through too: ⌥-click on the status picks one.
@@ -357,6 +359,28 @@ final class TaskOutlineView: NSOutlineView {
             return takeRelease()
         }
         super.mouseDown(with: event)
+    }
+
+    /// The drag starting now came from a grip: it moves the rows. From anywhere else it carries the tasks, to link them
+    /// where they land and to give other apps their lines (T-348, T-359).
+    private(set) var dragsFromGrip = false
+
+    override func canDragRows(with rowIndexes: IndexSet, at mouseDownPoint: NSPoint) -> Bool {
+        dragsFromGrip = onGrip(mouseDownPoint)
+        return super.canDragRows(with: rowIndexes, at: mouseDownPoint)
+    }
+
+    /// A point in the outline on a row's grip.
+    private func onGrip(_ point: NSPoint) -> Bool {
+        let row = row(at: point)
+        let faces = row >= 0 ? view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell : nil
+        return faces?.onGrip(convert(point, to: nil)) == true
+    }
+
+    /// ⌘C, Edit › Copy: the selected tasks' lines (T-358).
+    @objc func copy(_ sender: Any?) {
+        let tasks = selectedRowIndexes.compactMap { (item(atRow: $0) as? OutlineNode)?.task }
+        coordinator?.model.copy(tasks.map { .task($0) })
     }
 
     override func keyDown(with event: NSEvent) {
@@ -1452,8 +1476,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         // Never while its title is being edited: the field editor keeps its text drags.
         if (outlineView.window?.firstResponder as? NSTextView)?.editedTitle?.task == id { return nil }
         let pasteboard = NSPasteboardItem()
-        pasteboard.setString("\(id)", forType: DragItem.taskType)
-        pasteboard.setString("\(task.key) \(task.title)", forType: .string)
+        if (outlineView as? TaskOutlineView)?.dragsFromGrip == true {
+            pasteboard.setString("\(id)", forType: DragItem.taskType)
+        } else {
+            pasteboard.setData(Data(ModalRoute.task(task.id).selectionKey.utf8), forType: DragItem.itemType)
+        }
+        pasteboard.setString(model.line(of: .task(task.id)), forType: .string)
         return pasteboard
     }
 
@@ -1467,10 +1495,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private(set) var dragged: [Int] = []
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        if let route = draggedRoute(info) {
-            // Onto the task under the pointer, its row highlighted: it links there.
-            guard let id = linkTarget(info, item: item, index: index, outline: outlineView), !model.isLinked(route, to: id),
-                  route != .task(id) else { return [] }
+        let carried = DragItem.routes(on: info.draggingPasteboard)
+        if !carried.isEmpty {
+            // Onto the task under the pointer, its row highlighted: they link there.
+            guard let id = linkTarget(info, item: item, index: index, outline: outlineView), !linkable(carried, to: id).isEmpty else { return [] }
             outlineView.setDropItem(node(.task(id)), dropChildIndex: NSOutlineViewDropOnItemIndex)
             return .link
         }
@@ -1480,9 +1508,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
-        if let route = draggedRoute(info) {
-            guard let id = (item as? OutlineNode)?.task, !model.isLinked(route, to: id) else { return false }
-            model.link(route, to: id)
+        let carried = DragItem.routes(on: info.draggingPasteboard)
+        if !carried.isEmpty {
+            guard let id = (item as? OutlineNode)?.task, case let routes = linkable(carried, to: id), !routes.isEmpty else { return false }
+            model.link(routes, to: id)
             return true
         }
         guard let ids = draggedIDs(info), let target = dropTarget(item: item, index: index, outline: outlineView),
@@ -1536,11 +1565,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     private var dragWatch: Task<Void, Never>?
 
-    /// A file, an artifact, a PR or a task dragged from a row or a chip.
-    private func draggedRoute(_ info: NSDraggingInfo) -> ModalRoute? {
-        guard let item = info.draggingPasteboard.pasteboardItems?.first,
-              let data = item.data(forType: DragItem.itemType) else { return nil }
-        return ModalRoute(itemKey: String(decoding: data, as: UTF8.self))
+    /// What of the carried items can link to a task: not the task itself, nor what's linked there already.
+    private func linkable(_ routes: [ModalRoute], to id: Int) -> [ModalRoute] {
+        routes.filter { $0 != .task(id) && !model.isLinked($0, to: id) }
     }
 
     /// The task a link drop lands on: the row proposed, else the task row under the pointer.
@@ -1550,6 +1577,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         return row >= 0 ? (outline.item(atRow: row) as? OutlineNode)?.task : nil
     }
 
+    /// The tasks a grip moves.
     private func draggedIDs(_ info: NSDraggingInfo) -> [Int]? {
         let ids = info.draggingPasteboard.pasteboardItems?.compactMap { $0.string(forType: DragItem.taskType).flatMap(Int.init) } ?? []
         return ids.isEmpty ? nil : ids
@@ -1623,8 +1651,9 @@ struct TaskMenu: View {
             Button(model.descriptionShownInOutline(id) ? "Hide Description" : "Show Description") { model.toggleDescription(id) }
             Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }
             Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
+            Button("Remind Me…") { model.beginReminder(about: .task(id)) }
             Divider()
-            Button("Copy Key and Title") { Pasteboard.copy("\(task.key) \(task.title)") }
+            Button("Copy") { model.copy([.task(id)]) }
             Button("Delete") { model.deleteTasks([id]) }
         }
     }
@@ -1646,7 +1675,7 @@ struct TaskMenu: View {
             model.moveTasks(tasks.map(\.id), toBacklog: toBacklog)
         }
         Divider()
-        Button("Copy Keys and Titles") { Pasteboard.copy(tasks.map { "\($0.key) \($0.title)" }.joined(separator: "\n")) }
+        Button("Copy") { model.copy(tasks.map { .task($0.id) }) }
         Button("Delete \(tasks.count) Tasks") { model.deleteTasks(tasks.map(\.id)) }
     }
 }

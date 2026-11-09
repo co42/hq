@@ -30,6 +30,9 @@ retired=(
   'the next morning' 'nothing: no task moves on its own (T-345)'
   'Done rule' 'nothing: no task moves on its own (T-345)'
   'claude attach' 'nothing: HQ never attaches a background session (T-327)'
+  '--type' 'nothing: tasks have no type (T-220)'
+  'Copy Key and Title' 'Copy: the kind, key and title of an item (T-358)'
+  'Read in place' 'a row moves at once (T-365)'
 )
 
 SCHEMA=$schema RETIRED=${(pj:\t:)retired} perl -ne '

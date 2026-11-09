@@ -31,6 +31,15 @@ final class GitHubService {
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         })
+        // The window back on screen after a while away: ask now (T-366).
+        observers.append(center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] note in
+            let sender = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            MainActor.assumeIsolated {
+                guard let self, let window = self.model?.window, sender == ObjectIdentifier(window), self.onScreen,
+                      (self.model?.githubUpdated ?? .distantPast) < Date.now.addingTimeInterval(-60) else { return }
+                self.poll()
+            }
+        })
         Task { [weak self] in
             await self?.findGH()
             self?.poll()
@@ -54,7 +63,8 @@ final class GitHubService {
 
     // MARK: Polling
 
-    /// Polls now, then every minute while HQ is in front and every five otherwise; slower after errors.
+    /// Polls now, then every minute while HQ's window is on screen, in front or beside another app, and every five
+    /// otherwise; slower after errors (T-366: the user keeps HQ beside Ghostty).
     func poll() {
         guard !Self.usesFixtures, searched, !polling else { return }
         polling = true
@@ -64,6 +74,12 @@ final class GitHubService {
             polling = false
             if again { pollSoon() } else { schedule() }
         }
+    }
+
+    /// The window shows, at least partly: the user may be looking at the PRs.
+    private var onScreen: Bool {
+        guard let window = model?.window else { return NSApp.isActive }
+        return window.isVisible && window.occlusionState.contains(.visible)
     }
 
     func pollSoon() {
@@ -76,7 +92,7 @@ final class GitHubService {
     }
 
     private func schedule() {
-        let base: Double = NSApp.isActive ? 60 : 300
+        let base: Double = onScreen ? 60 : 300
         let delay = failures == 0 ? base : min(base * pow(2, Double(failures)), 1_800)
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
@@ -179,7 +195,7 @@ final class GitHubService {
             let quote = said?.text.map { ": “\($0.count > 120 ? String($0.prefix(119)) + "…" : $0)”" } ?? ""
             let text = thread.reason == "comment" ? "\(who) commented\(quote)" : "\(who) mentioned you\(quote)"
             model.notify(text, level: .update, kind: .github, source: thread.url,
-                         links: [ModalRoute.github(thread.url).selectionKey] + model.tasks(linking: thread.url).map { ModalRoute.task($0.id).selectionKey }, at: thread.updatedAt, anchor: said?.url)
+                         links: [ModalRoute.github(thread.url).selectionKey] + model.tasks(linking: thread.url).map { ModalRoute.task($0.id).selectionKey }, at: thread.updatedAt, anchor: said?.url, title: thread.title.isEmpty ? nil : thread.title)
         }
         if known != model.noticeStore.githubEvents { model.noticeStore.githubEvents = known }
     }
@@ -265,7 +281,10 @@ final class GitHubService {
 
 extension AppModel {
     /// A session printed a PR URL: ask GitHub soon.
-    func pollGitHubSoon() { gitHubService?.pollSoon() }
+    func pollGitHubSoon() {
+        githubAsks += 1
+        gitHubService?.pollSoon()
+    }
 
     /// Refresh in the PR section: ask GitHub now.
     func refreshGitHub() { gitHubService?.poll() }

@@ -23,6 +23,8 @@ nonisolated struct Notice: Codable, Hashable, Identifiable, Sendable {
     var dueAt: Date?
     /// A GitHub review's or comment's page: opening the row opens its PR there, scrolled to it (T-328).
     var anchor: String?
+    /// A PR's or an issue's title, as it was when it notified: the row shows it after the reference (T-360).
+    var title: String?
 }
 
 /// Where a row shows in the center.
@@ -65,8 +67,8 @@ extension AppModel {
     /// The center is open, or something it opened is, with it to go Back to.
     var centerOpen: Bool { modal == .notifications || modalStack.contains(.notifications) }
 
+    /// Where a row shows, at once: a row read, done, put Later or edited moves there while the center shows (T-365).
     func section(of notice: Notice) -> NoticeSection {
-        if centerOpen, let pinned = noticePins[notice.id] { return pinned }
         if let due = notice.dueAt, due > now { return .later }
         if notice.readAt != nil { return .earlier }
         return notice.level == .important ? .needsYou : .updates
@@ -175,7 +177,6 @@ extension AppModel {
             modal = .notifications
             return
         }
-        noticePins = [:]
         noticeSelection = nil
         noticeStore.bellSeenAt = .now
         open(.notifications)
@@ -184,6 +185,15 @@ extension AppModel {
     /// New Reminder… (⌃⌘R, +, the menu bar and Dock menus): its own small sheet, over what's open.
     func beginReminder() {
         guard modal != .newReminder else { return }
+        reminderAbout = nil
+        open(.newReminder, push: modal != nil)
+    }
+
+    /// Remind Me… on a task, a PR, a file or an artifact (T-343): New Reminder with the item linked, its title the
+    /// reminder's words until the user types theirs.
+    func beginReminder(about route: ModalRoute) {
+        guard modal != .newReminder else { return }
+        reminderAbout = route
         open(.newReminder, push: modal != nil)
     }
 
@@ -193,7 +203,7 @@ extension AppModel {
     /// `at`: when it happened, a GitHub review's or comment's own time; a session's notification happens now.
     @discardableResult
     func notify(_ text: String, level: Notice.Level, kind: Notice.Kind = .session, source: String?, links: [String] = [],
-                count: Int = 1, at happened: Date = .now, anchor: String? = nil) -> Notice {
+                count: Int = 1, at happened: Date = .now, anchor: String? = nil, title: String? = nil) -> Notice {
         if kind != .reminder, source != nil, let index = notices.firstIndex(where: { $0.kind == kind && $0.source == source && $0.level == level && unread($0) && $0.dueAt == nil }) {
             var row = notices[index]
             row.text = text
@@ -201,11 +211,12 @@ extension AppModel {
             row.links = links + row.links.filter { !links.contains($0) }
             row.at = max(row.at, happened)
             if happened >= row.at, let anchor { row.anchor = anchor }
+            if let title { row.title = title }
             notices[index] = row
             if level == .important { banner(row) }
             return row
         }
-        let row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: happened, anchor: anchor)
+        let row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: happened, anchor: anchor, title: title)
         notices.append(row)
         if level == .important { banner(row) }
         return row
@@ -239,11 +250,11 @@ extension AppModel {
 
     func markRead(_ id: Notice.ID) { setDone(id, true) }
 
-    /// Read or unread, completed or not (E). While the center shows, the row stays where it is.
+    /// Read or unread, completed or not (E). The row moves to its section at once; the selection goes on to the next.
     func setDone(_ id: Notice.ID, _ done: Bool) {
         guard let index = notices.firstIndex(where: { $0.id == id }), isDone(notices[index]) != done else { return }
         let before = notices[index]
-        pin(before)
+        handOnSelection(from: id)
         notices[index].readAt = done ? .now : nil
         // Dealt with before its time: it doesn't come back.
         if done { notices[index].dueAt = nil }
@@ -258,7 +269,7 @@ extension AppModel {
     func snooze(_ id: Notice.ID, until date: Date) {
         guard let index = notices.firstIndex(where: { $0.id == id }) else { return }
         let before = notices[index]
-        noticePins[id] = nil
+        handOnSelection(from: id)
         notices[index].dueAt = date
         notices[index].readAt = nil
         registerUndo("Later") { model in
@@ -271,7 +282,6 @@ extension AppModel {
     func bringBack(_ id: Notice.ID) {
         guard let index = notices.firstIndex(where: { $0.id == id }) else { return }
         let before = notices[index]
-        noticePins[id] = nil
         notices[index].dueAt = nil
         notices[index].readAt = nil
         notices[index].at = .now
@@ -284,7 +294,6 @@ extension AppModel {
     func editReminder(_ id: Notice.ID, text: String, due: Date?, level: Notice.Level) {
         guard let index = notices.firstIndex(where: { $0.id == id }) else { return }
         let before = notices[index]
-        noticePins[id] = nil
         notices[index].text = text
         notices[index].level = level
         notices[index].readAt = nil
@@ -300,14 +309,20 @@ extension AppModel {
         scheduleDue()
     }
 
-    /// While the center shows, a row acted on keeps its place.
-    private func pin(_ notice: Notice) {
-        guard centerOpen, noticePins[notice.id] == nil else { return }
-        noticePins[notice.id] = section(of: notice)
+    /// A selected row about to move away hands the selection to the row after it, else the one before, as they show:
+    /// E, E, E goes down the list (T-365).
+    private func handOnSelection(from id: Notice.ID) {
+        guard noticeSelection == id.uuidString else { return }
+        let sections: [NoticeSection] = earlierOpen ? [.needsYou, .updates, .later, .earlier] : [.needsYou, .updates, .later]
+        let rows = sections.flatMap { notices(in: $0) }.map(\.id)
+        guard let index = rows.firstIndex(of: id) else { return }
+        let next = index + 1 < rows.count ? rows[index + 1] : index > 0 ? rows[index - 1] : nil
+        noticeSelection = next?.uuidString
     }
 
     func removeNotice(_ id: Notice.ID) {
         guard let row = notices.first(where: { $0.id == id }) else { return }
+        handOnSelection(from: id)
         notices.removeAll { $0.id == id }
         registerUndo("Remove") { $0.notices.append(row) }
     }

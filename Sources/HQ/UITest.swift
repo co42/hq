@@ -61,7 +61,7 @@ enum UITest {
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind),
                 ("slackLinks", slackLinks),
             ]
             for (name, run) in groups where only?.contains(name) ?? true {
@@ -277,8 +277,8 @@ struct Driver {
         guard let point else { return }
         let target = inSheet ? window.attachedSheet ?? window : window
         if UITest.verbose {
-            let hit = hitView(point)
-            let probe = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            let hit = hitView(point, in: target)
+            let probe = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0, windowNumber: target.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
             print("  click at \(Int(point.x)),\(Int(point.y)) on \(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing"), first mouse: \(hit?.acceptsFirstMouse(for: probe) ?? false), key: \(window.isKeyWindow)")
         }
         for click in 1...count {
@@ -294,7 +294,7 @@ struct Driver {
             if NSApp.isActive {
                 NSApp.postEvent(down, atStart: false)
                 NSApp.postEvent(up, atStart: false)
-            } else if let hit = hitView(point), hit.acceptsFirstMouse(for: down),
+            } else if let hit = hitView(point, in: target), hit.acceptsFirstMouse(for: down),
                       let table = sequence(first: hit, next: \.superview).first(where: { $0 is NSTableView }) {
                 NSApp.postEvent(up, atStart: false)
                 table.mouseDown(with: down)
@@ -380,8 +380,10 @@ struct Driver {
 
     /// A text field or text view is taking the keys.
     /// The view a click at `point` (window coordinates) lands on.
-    func hitView(_ point: NSPoint) -> NSView? {
-        window.contentView?.superview?.hitTest(point)
+    /// The view under a point of `target` (the window by default): a click meant for a sheet tests the sheet, never the
+    /// window under it.
+    func hitView(_ point: NSPoint, in target: NSWindow? = nil) -> NSView? {
+        (target ?? window).contentView?.superview?.hitTest(point)
     }
 
     /// True when the view under the anchor takes the click that activates the window.

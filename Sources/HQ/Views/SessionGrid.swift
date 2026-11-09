@@ -201,7 +201,7 @@ struct SessionGrid: NSViewRepresentable {
             guard let session = byID[ids[indexPath.item]] else { return nil }
             let item = NSPasteboardItem()
             item.setString(session.id, forType: DragItem.sessionType)
-            item.setString(session.name, forType: .string)
+            item.setString(model.line(of: .session(session.id)), forType: .string)
             return item
         }
 
@@ -209,8 +209,8 @@ struct SessionGrid: NSViewRepresentable {
                             proposedIndexPath path: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                             dropOperation operation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
             let pasteboard = info.draggingPasteboard
-            if pasteboard.availableType(from: [DragItem.taskType]) != nil {
-                // A task links to the card it's dropped on.
+            if !DragItem.tasks(on: pasteboard).isEmpty {
+                // A task, by its grip or carried from its row, links to the card it's dropped on.
                 let index = path.pointee.item
                 guard ids.indices.contains(index) else { return setDropTarget(nil) }
                 operation.pointee = .on
@@ -235,7 +235,7 @@ struct SessionGrid: NSViewRepresentable {
                             dropOperation: NSCollectionView.DropOperation) -> Bool {
             let pasteboard = info.draggingPasteboard
             defer { setDropTarget(nil) }
-            if let tasks = pasteboard.pasteboardItems?.compactMap({ $0.string(forType: DragItem.taskType).flatMap(Int.init) }), !tasks.isEmpty {
+            if case let tasks = DragItem.tasks(on: pasteboard), !tasks.isEmpty {
                 guard ids.indices.contains(indexPath.item) else { return false }
                 let session = ids[indexPath.item]
                 for task in tasks { model.link(task: task, session: session) }
@@ -260,6 +260,10 @@ struct SessionGrid: NSViewRepresentable {
         /// A drag ended, dropped or not: no card stays marked.
         func dragEnded() {
             setDropTarget(nil)
+        }
+
+        func copySelection() {
+            if let id = model.selectedSession { model.copy([.session(id)]) }
         }
     }
 
@@ -298,6 +302,7 @@ struct SessionGrid: NSViewRepresentable {
             collection.onFaceClick = { [weak self] path in self?.coordinator?.faceClicked(at: path) }
             collection.onEmptyClick = { [weak self] in self?.coordinator?.model.selectSection(nil) }
             collection.onDragLeft = { [weak self] in self?.coordinator?.dragEnded() }
+            collection.onCopy = { [weak self] in self?.coordinator?.copySelection() }
             addSubview(collection)
         }
 
@@ -333,6 +338,10 @@ struct SessionGrid: NSViewRepresentable {
         private var facePress: (path: IndexPath, at: NSPoint)?
         /// A drag left the grid or ended, wherever it started.
         var onDragLeft: (() -> Void)?
+        /// ⌘C, Edit › Copy: the selected card's session line (T-358).
+        var onCopy: (() -> Void)?
+
+        @objc func copy(_ sender: Any?) { onCopy?() }
 
         /// AppKit sizes a collection view and lays out its cards to its enclosing scroll view, the page's, wider than the
         /// grid: cards past the grid's edge show but take no clicks. The grid has no scroll view, and stays its own size.
@@ -559,6 +568,7 @@ struct SessionMenu: View {
         Divider()
         Button("Randomize Face") { model.randomizeFace(session.id) }
         Divider()
+        Button("Copy") { model.copy([.session(session.id)]) }
         Button("Copy Resume Command") { Pasteboard.copy(session.resumeCommand) }
         Button("Copy Session ID") { Pasteboard.copy(session.id) }
     }

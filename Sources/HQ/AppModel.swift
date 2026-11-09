@@ -189,10 +189,12 @@ final class AppModel {
         get { noticeStore.notices }
         set { noticeStore.notices = newValue }
     }
-    /// Rows read, completed or brought back while the center shows: they stay in the section they were in until it closes.
-    var noticePins: [Notice.ID: NoticeSection] = [:]
     /// The row the center has selected: a notification's id, or `session:<id>` for one that waits.
     var noticeSelection: String?
+    /// Remind Me… on a task, a PR, a file or an artifact: what the New Reminder sheet opening now links (T-343).
+    var reminderAbout: ModalRoute?
+    /// How often HQ asked GitHub to poll soon, for the self-test.
+    @ObservationIgnored var githubAsks = 0
     /// The center's reminder form is open.
 
     // MARK: The page
@@ -313,7 +315,13 @@ final class AppModel {
 
     // MARK: The modal
 
-    var modal: ModalRoute? { didSet { syncMenu() } }
+    var modal: ModalRoute? {
+        didSet {
+            syncMenu()
+            // Back from a PR's page, where the user may have reviewed it: Reviews catch up in seconds (T-366).
+            if case .github? = oldValue, modal != oldValue { pollGitHubSoon() }
+        }
+    }
     /// What Back returns to, newest last.
     var modalStack: [ModalRoute] = [] { didSet { syncMenu() } }
     var startDraft: StartDraft?
@@ -650,6 +658,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var pullRequest = false
     @Published private(set) var reviewable = false
     @Published private(set) var artifact = false
+    /// What Remind Me… acts on: the open or selected task, PR, file or artifact.
+    @Published private(set) var remindable: ModalRoute?
 
     func update(model: AppModel) {
         func set<T: Equatable>(_ path: ReferenceWritableKeyPath<MenuState, T>, _ value: T) {
@@ -696,5 +706,10 @@ final class MenuState: ObservableObject {
         set(\.reviewable, item.map(model.waitsForReview) ?? false)
         let artifact: Bool = switch model.modal { case .artifact, .github: true; default: false }
         set(\.artifact, artifact)
+        let remindable: ModalRoute? = switch model.menuRoute {
+        case .task, .github, .file, .artifact: model.menuRoute
+        default: model.modal == nil ? task.map { .task($0.id) } : nil
+        }
+        set(\.remindable, remindable)
     }
 }
