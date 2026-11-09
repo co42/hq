@@ -271,7 +271,7 @@ struct KeysSettings: View {
         ("Next or previous task", "↓  ↑"),
         ("Edit the title", "Return, or double-click"),
         ("Show or hide the description", "⇧Return"),
-        ("Edit the description", "Double-click it"),
+        ("Edit the description", "Double-click where to type"),
         ("New task below, new subtask", "N  ⇧N"),
         ("Indent, outdent", "⇧→  ⇧←"),
         ("Move up or down", "⇧↑  ⇧↓"),
@@ -293,7 +293,12 @@ struct KeysSettings: View {
     ]
     static let descriptionKeys: [(String, String)] = [
         ("Save, back to the row", "Escape  ⌘Return"),
-        ("Edit the next title, this title", "Tab  ⇧Tab"),
+        ("Next list item, or end the list on an empty one", "Return"),
+        ("Nest a list item, take it out", "Tab  ⇧Tab"),
+        ("Edit the next title, this title, off a list", "Tab  ⇧Tab"),
+        ("Bold, italic, link", "⌘B  ⌘I  ⌘K"),
+        ("Link words to a copied address", "⌘V over them"),
+        ("Tick a checkbox", "Click it"),
     ]
     static let noticeKeys: [(String, String)] = [
         ("Next or previous", "↓  ↑"),
@@ -316,7 +321,13 @@ struct KeysSettings: View {
         } footer: {
             Text("A task left with no title and no description is deleted; Undo brings it back.").foregroundStyle(.secondary)
         }
-        Section("In a task’s description") { rows(Self.descriptionKeys) }
+        Section {
+            rows(Self.descriptionKeys)
+        } header: {
+            Text("In a task’s description")
+        } footer: {
+            Text("A note’s editor has the same keys; a double-click on a description or a note edits it where you clicked.").foregroundStyle(.secondary)
+        }
         Section("In the notifications") { rows(Self.noticeKeys) }
     }
 

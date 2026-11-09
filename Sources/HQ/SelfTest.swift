@@ -713,15 +713,27 @@ enum SelfTest {
         check("a description's first line drops markdown marks",
               Markdown.firstLine("\n# Retry **budget**\nMore") == "Retry budget" && Markdown.firstLine("```\ncode\n```") == "code"
                 && Markdown.firstLine("- [ ] Ship [it](https://x.y) in `cli`") == "Ship it in cli", Markdown.firstLine("- [ ] Ship [it](https://x.y) in `cli`"))
-        // Links between tasks, both ways; pins and labels on files.
+        // The editor styles the whole note on every keystroke (T-368): a long one stays quick.
+        let longNote = String(repeating: "## Part\n\nSome **bold**, _italic_, `code` and [a link](https://x.y).\n\n- [ ] an item\n- [x] done\n\n```\nlet x = 1\n```\n\n", count: 300)
+        let styled = NSTextStorage(string: longNote)
+        let styleTimes = (0..<5).map { _ in
+            let start = Date()
+            MarkdownStyle.apply(to: styled)
+            return Date().timeIntervalSince(start)
+        }.sorted()
+        check("the editor styles a 3,600-line note in under 40 ms", styleTimes[2] < 0.04, "median \(Int(styleTimes[2] * 1000)) ms")
+        // Links between tasks, one way; pins and labels on files.
         guard let other = model.addTask(to: .backlog, title: "Linked") else { return check("a task to link", false) }
         let linked = agent("task link", ["task": task.key, "item": other.key])
-        check("task link T-a T-b links two tasks, each shows the other",
-              (linked["related"] as? [String]) == [other.key] && model.outputs(ofTask: other.id).contains(.task(task.id))
-                && model.outputs(ofTask: task.id).contains(.task(other.id)) && model.tasksWithOutputs.isSuperset(of: [task.id, other.id]), "\(linked)")
+        check("task link T-a T-b shows T-b under T-a, not T-a under T-b",
+              (linked["related"] as? [String]) == [other.key] && model.outputs(ofTask: task.id).contains(.task(other.id))
+                && !model.outputs(ofTask: other.id).contains(.task(task.id)) && model.tasksWithOutputs.contains(task.id), "\(linked)")
         check("a task can't link to itself", (agent("task link", ["task": task.key, "item": task.key])["error"] as? JSONObject) != nil)
-        model.unrelate(other.id, from: task.id)
-        check("Unlink removes the link both ways", !model.outputs(ofTask: task.id).contains(.task(other.id)) && !model.outputs(ofTask: other.id).contains(.task(task.id)))
+        model.link(.task(task.id), to: other.id)
+        model.unlink(.task(other.id), from: task.id)
+        check("Unlink removes the link from that task only",
+              !model.outputs(ofTask: task.id).contains(.task(other.id)) && model.outputs(ofTask: other.id).contains(.task(task.id)))
+        model.unlink(.task(task.id), from: other.id)
         if let old = model.addFile(title: "Older note"), let pinned = model.addFile(title: "Pinned note") {
             model.setFileLabels(pinned.id, project: .some("Registry"), tags: ["#perf", "perf"])
             model.setFileLabels(pinned.id, pinned: true)
@@ -952,13 +964,15 @@ enum SelfTest {
     private static func cliChecks(_ model: AppModel) async {
         func settle(_ seconds: Double = 0.3) async { try? await Task.sleep(for: .seconds(seconds)) }
         if let add = AgentCommands.all.first(where: { $0.name == "task add" }) {
-            let dashed = try? AgentCLI.parse(["--not-mine: a title", "--type", "bug"], for: add)
-            let ended = try? AgentCLI.parse(["--type", "bug", "--", "--backlog"], for: add)
-            check("a title may start with --, a bare -- ends the options, and a retired --type is taken and ignored", dashed?["title"] == "--not-mine: a title" && dashed?["type"] == nil && dashed != nil
-                  && ended?["title"] == "--backlog" && ended?["backlog"] == nil, "\(String(describing: dashed)) \(String(describing: ended))")
+            let dashed = try? AgentCLI.parse(["--not-mine: a title"], for: add)
+            let ended = try? AgentCLI.parse(["--project", "HQ", "--", "--backlog"], for: add)
+            let typed = Result { try AgentCLI.parse(["A title", "--type", "bug"], for: add) }
+            check("a title may start with --, a bare -- ends the options, and --type is unknown", dashed?["title"] == "--not-mine: a title"
+                  && ended?["title"] == "--backlog" && ended?["backlog"] == nil && (try? typed.get()) == nil,
+                  "\(String(describing: dashed)) \(String(describing: ended)) \(typed)")
         }
         let session = "5e550000-0000-4000-8000-000000000001"
-        let added = agent("task add", ["title": "Dedup layers on push #perf", "type": "bug", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
+        let added = agent("task add", ["title": "Dedup layers on push #perf", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
         let key = added["id"] as? String ?? ""
         let id = TaskItem.key(key) ?? -1
         check("task add --backlog goes to the top of the Backlog, with project, tags and the session; no type",
@@ -1059,7 +1073,7 @@ enum SelfTest {
                 .write(toFile: path, atomically: true, encoding: .utf8)
             await settle(0.8)
             let statusBefore = model.task(id)?.status.rawValue
-            agent("task edit", ["task": key, "body": "New description.", "add-tag": "chunks", "remove-tag": "perf", "type": "feature"])
+            agent("task edit", ["task": key, "body": "New description.", "add-tag": "chunks", "remove-tag": "perf"])
             await settle()
             let note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
             check("task edit changes what it's given and keeps the rest",

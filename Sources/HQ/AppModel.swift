@@ -260,7 +260,11 @@ final class AppModel {
     /// Descriptions hidden one by one while their list shows them all.
     var hiddenDescriptions: Set<Int> = []
     /// The description whose markdown is in an editor in the outline.
-    var editingDescription: Int?
+    var editingDescription: Int? { didSet { if editingDescription != oldValue { descriptionEditorHeight = 0 } } }
+    /// Its editor's text height, once it reports one: the row grows with it.
+    var descriptionEditorHeight: CGFloat = 0
+    /// Where a double-click landed on rendered markdown, from its top-left: the next editor puts the caret there.
+    @ObservationIgnored var editorCaret: CGPoint?
     /// Folded tasks, remembered by key.
     var collapsed: Set<Int> = Set((UserDefaults.standard.array(forKey: "outline.collapsed") as? [Int]) ?? []) {
         didSet { if !Store.isOverridden { UserDefaults.standard.set(Array(collapsed), forKey: "outline.collapsed") } }

@@ -254,6 +254,7 @@ struct SessionGrid: NSViewRepresentable {
         }
 
         func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, dragOperation operation: NSDragOperation) {
+            DragItem.logEnd("card", operation: operation)
             dragEnded()
         }
 
@@ -292,7 +293,7 @@ struct SessionGrid: NSViewRepresentable {
             collection.register(CardItem.self, forItemWithIdentifier: CardItem.id)
             collection.registerForDraggedTypes([DragItem.sessionType, DragItem.taskType])
             collection.setDraggingSourceOperationMask(.move, forLocal: true)
-            collection.setDraggingSourceOperationMask([], forLocal: false)
+            collection.setDraggingSourceOperationMask(.copy, forLocal: false)  // Into another app (Ghostty): its line, as a task gives (T-348)
             collection.register(GapIndicator.self, forSupplementaryViewOfKind: NSCollectionView.elementKindInterItemGapIndicator,
                                 withIdentifier: GapIndicator.id)
             collection.setAccessibilityLabel("Sessions")

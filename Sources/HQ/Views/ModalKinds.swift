@@ -155,22 +155,28 @@ struct TaskModal: View {
     }
 }
 
-/// The description in the modal: rendered with Edit, checkboxes tick in place.
+/// The description in the modal: rendered with Edit, checkboxes tick in place, a double-click edits at the spot.
 private struct DescriptionCard: View {
     let id: Int
     @Environment(AppModel.self) private var model
+    /// The editor's text height, and the rendered text's: the box opens as tall as what it replaces, then grows with its text.
+    @State private var editorHeight: CGFloat = 0
+    @State private var renderedHeight: CGFloat = 0
 
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: Space.sm) {
             if model.modalEditingDescription {
-                MarkdownEditor(text: $model.descriptionDraft, focusOnAppear: true, label: "Description",
+                MarkdownEditor(text: $model.descriptionDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
+                               onHeight: { editorHeight = $0 },
                                onCommit: { model.saveModalEdits() },
                                onCancel: { model.saveModalEdits() },
                                onEnd: { model.saveModalEdits() })
-                    .frame(minHeight: Metric.editorMin * 1.5)
+                    .frame(height: MarkdownEditor.box(editorHeight > 0 ? editorHeight : renderedHeight + Space.sm * 2))
                     .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
+                    .onAppear { model.editorCaret = nil }
+                    .onDisappear { editorHeight = 0 }
                 HStack {
                     Text("Markdown · Escape or ⌘Return saves, ⌘Z undoes").kitType(.secondary).foregroundStyle(.secondary)
                     Spacer()
@@ -180,22 +186,30 @@ private struct DescriptionCard: View {
                 HStack(alignment: .top) {
                     if let body = model.task(id)?.body, !body.isEmpty {
                         MarkdownView(body) { index in model.toggleCheckbox(id, at: index) }
+                            .background(EditOnDoubleClick { point in edit(at: point) })
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
+                            .uiTestAnchor("modal-description")
                     } else {
-                        Text("No description yet.").kitType(.callout).foregroundStyle(.secondary)
+                        Text("No description yet. Double-click to write one.").kitType(.callout).foregroundStyle(.secondary)
+                            .background(EditOnDoubleClick { _ in edit(at: nil) })
                     }
                     Spacer(minLength: Space.sm)
-                    Button("Edit") {
-                        model.descriptionDraft = model.task(id)?.body ?? ""
-                        model.modalEditingDescription = true
-                    }
-                    .help("Edit the description in markdown")
-                    .uiTestAnchor("modal-edit-description")
+                    Button("Edit") { edit(at: nil) }
+                        .help("Edit the description in markdown")
+                        .uiTestAnchor("modal-edit-description")
                 }
                 .padding(Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .surface(radius: Radius.card)
             }
         }
+    }
+
+    /// Edits the description: the caret under a point of the rendered text, else at the end.
+    private func edit(at point: CGPoint?) {
+        model.editorCaret = point
+        model.descriptionDraft = model.task(id)?.body ?? ""
+        model.modalEditingDescription = true
     }
 }
 
@@ -592,8 +606,9 @@ struct FileModal: View {
         @Bindable var model = model
         if model.editingFile == file.id {
             // The page's column: the text starts and wraps where the view's does.
-            MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, label: file.title,
+            MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: file.title,
                            onCommit: { model.saveModalEdits() }, onCancel: { model.saveModalEdits() }, onEnd: {})
+                .onAppear { model.editorCaret = nil }
                 .frame(maxWidth: Metric.pageWidth + Space.sm * 2)
                 .padding(.horizontal, Space.xxl - Space.sm)
                 .padding(.vertical, Space.xl - Space.sm)
@@ -613,6 +628,11 @@ struct FileModal: View {
                     Text(file.title).kitType(.heading1)
                 }
                 MarkdownView(blocks: blocks) { index in model.toggleFileCheckbox(file.id, at: index) }
+                    .background(EditOnDoubleClick { point in
+                        model.editorCaret = point
+                        model.beginFileEdit(file.id)
+                    })
+                    .uiTestAnchor("file-text")
             }
             .uiTestAnchor("file-page")
         }
@@ -897,7 +917,7 @@ struct StartSessionForm: View {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Text("First message").kitType(.groupLabel).foregroundStyle(.secondary)
                     MarkdownEditor(text: Binding(get: { model.startDraft?.message ?? "" }, set: { model.startDraft?.message = $0 }),
-                                   focusOnAppear: true, prose: true, onCommit: { model.startFromDraft() }, onCancel: { model.closeModal() })
+                                   focusOnAppear: true, label: "First message", onCommit: { model.startFromDraft() }, onCancel: { model.closeModal() })
                         .frame(minHeight: Metric.messageEditor)
                         .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))

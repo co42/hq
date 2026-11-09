@@ -250,7 +250,7 @@ nonisolated enum Metric {
     static var outlineQuick: CGFloat { 32 * Zoom.factor }
     static var outlineEmpty: CGFloat { 36 * Zoom.factor }
     /// Space above a top-level task after the first: groups read apart from their subtasks.
-    static var outlineGroupGap: CGFloat { 16 * Zoom.factor }
+    static var outlineGroupGap: CGFloat { 12 * Zoom.factor }
     /// Space inside a list's card above its first task.
     static var listCardPadding: CGFloat { 8 * Zoom.factor }
     /// The line of links under a task's title.
@@ -296,10 +296,11 @@ nonisolated enum Metric {
     /// Labels in the task modal's property grid.
     static var propertyLabel: CGFloat { 72 * Zoom.factor }
     static var boxRow: CGFloat { 32 * Zoom.factor }
-    /// Editors before they scroll.
-    static var editorMin: CGFloat { 160 * Zoom.factor }
-    /// The markdown editor's line height, as a multiple of its font's.
-    static let editorLineHeight: CGFloat = 1.35
+    /// A markdown editor's box grows with its text from a few lines, then scrolls.
+    static var editorMinimum: CGFloat { 72 * Zoom.factor }
+    static var editorMaximum: CGFloat { 480 * Zoom.factor }
+    /// The markdown editor's line height, as a multiple of its font's: the rendered note's.
+    static let editorLineHeight: CGFloat = 1
     static var messageEditor: CGFloat { 200 * Zoom.factor }
     /// A Mermaid diagram while it's drawn the first time.
     static var diagramPlaceholder: CGFloat { 120 * Zoom.factor }

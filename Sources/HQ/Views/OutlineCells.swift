@@ -859,17 +859,9 @@ final class FacesCell: NSTableCellView {
 }
 
 /// Six dots: where to grab a row to move it, under the open hand.
+/// Six dots; its pointer is the outline's (`TaskOutlineView.pointGrip`).
 final class GripView: NSView {
     override var isFlipped: Bool { true }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func cursorUpdate(with event: NSEvent) { NSCursor.openHand.set() }
 
     override func draw(_ dirtyRect: NSRect) {
         Ink.quietMarkNS.setFill()
@@ -1164,7 +1156,7 @@ struct DescriptionBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if model.editingDescription == id {
-                InlineDescriptionEditor(id: id)
+                InlineDescriptionEditor(id: id, body: model.task(id)?.body ?? "")
             } else if let task = model.task(id) {
                 let lines = task.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false)
                 if task.body.isEmpty {
@@ -1194,21 +1186,32 @@ struct DescriptionBlock: View {
 
 /// The description's editor in the outline. Escape and ⌘Return save and select the row; Tab saves
 /// and edits the next task's title, ⇧Tab this one's; leaving saves.
+extension AppModel {
+    /// The outline's description editor: as tall as its text, a few lines at least, then it scrolls.
+    var descriptionEditorBox: CGFloat { MarkdownEditor.box(descriptionEditorHeight > 0 ? descriptionEditorHeight : Metric.editorMinimum) }
+}
+
 private struct InlineDescriptionEditor: View {
     let id: Int
     @Environment(AppModel.self) private var model
-    @State private var draft = ""
+    @State private var draft: String
+
+    init(id: Int, body: String) {
+        self.id = id
+        _draft = State(initialValue: body)
+    }
 
     var body: some View {
-        MarkdownEditor(text: $draft, focusOnAppear: true, label: "Description",
+        MarkdownEditor(text: $draft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
+                       onHeight: { model.descriptionEditorHeight = $0 },
                        onCommit: { save(then: .row(id)) },
                        onCancel: { save(then: .row(id)) },
                        onEnd: { save(then: .left(id)) },
                        onTab: { backward in save(then: .title(id, by: backward ? 0 : 1)) })
-            .frame(height: Metric.editorMin)
+            .frame(height: model.descriptionEditorBox)
             .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
-            .onAppear { draft = model.task(id)?.body ?? "" }
+            .onAppear { model.editorCaret = nil }
             .uiTestAnchor("description-editor:\(id)")
     }
 

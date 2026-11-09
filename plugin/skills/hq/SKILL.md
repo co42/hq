@@ -39,7 +39,7 @@ The user doesn't watch every session. When a turn ends, its card shows it quietl
 ## What links where
 
 - A task you create, move or edit from this session is linked to it: this session's face shows on the task's row. The user can also drop a task on a session's card.
-- Link what you make to the task it's for, so it shows under the task's row: `hq task link T-12 <PR or issue URL | Slack message link | any web page | T-34 | file | artifact URL>`. A PR opened by a session on the task shows there on its own; link it anyway, so the link lives in the task's note. Two linked tasks show under each other. A wrong link: `hq task unlink T-12 <the same item>`.
+- Link what you make to the task it's for, so it shows under the task's row: `hq task link T-12 <PR or issue URL | Slack message link | any web page | T-34 | file | artifact URL>`. A PR opened by a session on the task shows there on its own; link it anyway, so the link lives in the task's note. `hq task link T-12 T-34` shows T-34 under T-12, not the other way. A wrong link: `hq task unlink T-12 <the same item>`.
 - A file you create links to its task (`hq file new --task`). An artifact you publish links to this session, and to its task when the session works on exactly one. Either one made for a task is in the task's project.
 
 ## Projects

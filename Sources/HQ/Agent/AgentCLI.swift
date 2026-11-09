@@ -124,9 +124,6 @@ enum AgentCLI {
                          exit: ["usage": 2, "not_found": 3, "app_unavailable": 4, "not_mine": 5][code] ?? 1)
     }
 
-    /// Options HQ no longer has, taken and ignored: sessions started before keep their skills (T-220: task types).
-    static let retired: Set<String> = ["type"]
-
     /// --name value, --flag, and positional values, checked against the params.
     static func parse(_ words: [String], for command: AgentCommand) throws -> [String: String] {
         var values: [String: String] = [:]
@@ -144,11 +141,6 @@ enum AgentCLI {
             if !optionsDone, word.hasPrefix("--"), word.count > 2, word.dropFirst(2).allSatisfy({ $0.isLetter || $0 == "-" }) {
                 let name = String(word.dropFirst(2))
                 if name == "yes", command.destructive { values["yes"] = "true"; index += 1; continue }
-                if retired.contains(name) {
-                    let next = index + 1 < words.count ? words[index + 1] : nil
-                    index += next.map { $0.hasPrefix("--") } == false ? 2 : 1
-                    continue
-                }
                 guard let param = command.params.first(where: { $0.name == name }) else {
                     throw AgentError.usage("\(command.name) has no option --\(name). Run `hq \(command.name) --help`")
                 }

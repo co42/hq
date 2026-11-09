@@ -445,7 +445,7 @@ extension AppModel {
         }
     }
 
-    /// Two tasks linked: each shows the other under its row.
+    /// A task linked to another: it shows under that one's row only.
     func relate(_ id: Int, to other: Int) {
         guard id != other, task(other) != nil else { return }
         changeTask(id, "Link Task") { task in
@@ -454,10 +454,7 @@ extension AppModel {
     }
 
     func unrelate(_ id: Int, from other: Int) {
-        editTasks("Unlink Task") { tasks in
-            tasks[id]?.related.removeAll { $0 == other }
-            tasks[other]?.related.removeAll { $0 == id }
-        }
+        changeTask(id, "Unlink Task") { $0.related.removeAll { $0 == other } }
     }
 
     func unlink(task id: Int, url: URL) {
@@ -504,7 +501,7 @@ extension AppModel {
         case .file(let name): file(name)?.tasks.contains(id) ?? false
         case .artifact(let url): artifacts.first { $0.id == url }?.tasks.contains(id) ?? false
         case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
-        case .task(let other): task(id)?.related.contains(other) == true || task(other)?.related.contains(id) == true
+        case .task(let other): task(id)?.related.contains(other) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
         case .start, .closedSessions, .notifications, .newTask, .newReminder: false
         }

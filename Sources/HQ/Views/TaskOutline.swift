@@ -29,7 +29,7 @@ struct TaskOutline: NSViewRepresentable {
         }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
-             model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.seen,
+             model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.descriptionEditorHeight, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
              model.pendingTaskLink, model.slackMessages)
@@ -341,6 +341,11 @@ final class TaskOutlineView: NSOutlineView {
         let point = convert(event.locationInWindow, from: nil)
         // The press a drag starts from, also when AppKit doesn't ask canDragRows.
         dragsFromGrip = onGrip(point)
+        if dragsFromGrip, event.clickCount == 1 { NSCursor.closedHand.set() }
+        defer {
+            // Released without a drag: the open hand again over the grip. A drag shows its own pointer.
+            if dragsFromGrip, let up = NSApp.currentEvent, up.type == .leftMouseUp { pointGrip(at: up.locationInWindow) }
+        }
         let row = self.row(at: point)
         // The status glyph, the type icon and the faces take their clicks: the table would only select the row.
         // ⌥ goes through too: ⌥-click on the status picks one.
@@ -375,6 +380,61 @@ final class TaskOutlineView: NSOutlineView {
         let row = row(at: point)
         let faces = row >= 0 ? view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell : nil
         return faces?.onGrip(convert(point, to: nil)) == true
+    }
+
+    // MARK: The grip's pointer
+
+    /// The open hand over a row's grip, wherever a press moves the row; the closed hand while it's pressed; the drag's own
+    /// pointer once it moves (DESIGN.md §12). One area for the whole outline: it follows the pointer from row to row and
+    /// shows the hand as the grip appears under it.
+    private var gripArea: NSTrackingArea?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        trackGrip()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackGrip()
+    }
+
+    /// From the moment the outline is in a window: AppKit asks `updateTrackingAreas` only once something scrolls or resizes.
+    private func trackGrip() {
+        guard window != nil, gripArea.map({ trackingAreas.contains($0) }) != true else { return }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self)
+        addTrackingArea(area)
+        gripArea = area
+    }
+
+    /// The hand for the pointer at a window point: open over a grip; off it, the arrow back only if the hand was the grip's,
+    /// so a face or a chip next to it keeps its own.
+    func pointGrip(at windowPoint: NSPoint) {
+        if onGrip(convert(windowPoint, from: nil)) {
+            NSCursor.openHand.set()
+        } else if NSCursor.current == NSCursor.openHand || NSCursor.current == NSCursor.closedHand {
+            NSCursor.arrow.set()
+        }
+    }
+
+    // The grip's events stop here: up the responder chain, the page's SwiftUI would set its own pointer.
+    override func mouseMoved(with event: NSEvent) {
+        guard event.trackingArea === gripArea else { return super.mouseMoved(with: event) }
+        pointGrip(at: event.locationInWindow)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if onGrip(convert(event.locationInWindow, from: nil)) { NSCursor.openHand.set() } else { super.cursorUpdate(with: event) }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea === gripArea else { return super.mouseEntered(with: event) }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === gripArea else { return super.mouseExited(with: event) }
+        if NSCursor.current == NSCursor.openHand { NSCursor.arrow.set() }
     }
 
     /// ⌘C, Edit › Copy: the selected tasks' lines (T-358).
@@ -959,7 +1019,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         // The task cell's width at its level, less the glyphs before the title.
         let level = CGFloat(max(outline.level(forItem: node(.task(id))), 1))
         let available = width - facesWidth - level * outline.indentationPerLevel - TaskCell.titleX
-        let height = editing ? Metric.editorMin + Space.xl : DescriptionBlock.measure(model: model, id: id, width: max(available, Metric.titleMinimum))
+        // Editing, the box grows with its text: never cached.
+        if editing { return line + model.descriptionEditorBox + Space.xl }
+        let height = DescriptionBlock.measure(model: model, id: id, width: max(available, Metric.titleMinimum))
         heights[id] = (key, height)
         return line + height
     }
@@ -1401,9 +1463,14 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         if !split.tags.isEmpty { field.stringValue = model.task(id)?.title ?? split.title }
     }
 
-    func editDescription(_ id: Int) {
+    /// Edits the description, the caret under `point` (a double-click on the rendered text, from its top-left), else at its end.
+    func editDescription(_ id: Int, at point: CGPoint? = nil) {
         model.shownDescriptions.insert(id)
+        model.editorCaret = point
+        let rendered = heights[id]?.height
         model.editingDescription = id
+        // The box opens as tall as the text it replaces, until the editor measures its own.
+        if let rendered { model.descriptionEditorHeight = max(rendered - Space.xs - Space.md, 0) }
     }
 
     /// A click in a shown description selects its row and still reaches its links, checkboxes and
@@ -1420,7 +1487,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             return event
         }
         if outline.selectedRowIndexes != [row] { outline.selectRowIndexes([row], byExtendingSelection: false) }
-        editDescription(id)
+        // At the spot: the editor shows the same text in the same place, so the point finds its source (T-368).
+        var point = host.convert(event.locationInWindow, from: nil)
+        if !host.isFlipped { point.y = host.bounds.height - point.y }
+        editDescription(id, at: CGPoint(x: point.x, y: point.y - Space.xs))
         return nil
     }
 
@@ -1530,6 +1600,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     }
 
     func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DragItem.logEnd("task", operation: operation)
         dragEnded()
     }
 

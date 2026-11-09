@@ -30,7 +30,7 @@ enum KitType {
     case header
     /// Labels in the modal (On it, Subtasks): Subheadline 11 semibold.
     case groupLabel
-    /// A markdown editor: Body 13 monospaced.
+    /// Inline code in the markdown editor: Body 13 monospaced.
     case editor
     /// Quick Open's field, Title 2 17.
     case field
@@ -114,7 +114,9 @@ enum KitType {
         case .groupLabel: return .systemFont(ofSize: small, weight: .semibold)
         case .editor: return .monospacedSystemFont(ofSize: body, weight: .regular)
         case .code: return .monospacedSystemFont(ofSize: Self.size(.callout), weight: .regular)
-        case .section: return .systemFont(ofSize: Self.size(.title3), weight: .semibold)
+        case .section, .heading2: return .systemFont(ofSize: Self.size(.title3), weight: .semibold)
+        case .heading1: return .systemFont(ofSize: Self.size(.title2), weight: .semibold)
+        case .heading3: return .systemFont(ofSize: body, weight: .bold)
         default: return .systemFont(ofSize: body)
         }
     }

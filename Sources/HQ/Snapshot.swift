@@ -67,6 +67,12 @@ enum Snapshot {
                 model.allDescriptions = [.overview, .backlog]
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroll(to: 0.45) }
             },
+            Page(name: "cockpit-description-edit", settle: 1.5) { model in
+                reset(model)
+                model.allDescriptions = [.overview, .backlog]
+                model.editDescription(13)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroll(to: 0.45) }
+            },
             Page(name: "cockpit-folded", settle: 1) { model in
                 reset(model)
                 model.folded = [.pullRequests, .files]
@@ -84,6 +90,11 @@ enum Snapshot {
                 model.search = "zzzz"
             },
             Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
+            Page(name: "modal-task-edit", capture: .sheet, settle: 1.5) { model in
+                reset(model)
+                model.open(.task(13))
+                model.editDescription(13)
+            },
             Page(name: "modal-notifications", capture: .sheet, settle: 1) { reset($0); $0.openCenter() },
             Page(name: "modal-reminder", capture: .sheet, settle: 1) { model in
                 reset(model)

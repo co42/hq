@@ -56,10 +56,7 @@ extension AppModel {
         }
         var related: [Int: [Int]] = [:]
         for task in tasks {
-            for other in task.related where other != task.id {
-                related[task.id, default: []].append(other)
-                related[other, default: []].append(task.id)
-            }
+            for other in task.related where other != task.id { related[task.id, default: []].append(other) }
         }
         for task in tasks {
             var urls = Set<String>()

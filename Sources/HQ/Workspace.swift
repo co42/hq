@@ -121,7 +121,7 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     /// When it was done.
     var done: Date?
     var links: [URL] = []
-    /// Tasks linked to it, both ways.
+    /// Tasks linked to it: they show under its row, not it under theirs.
     var related: [Int] = []
     var sessions: [String] = []
     var created: Date

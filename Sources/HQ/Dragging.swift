@@ -27,6 +27,14 @@ enum DragItem {
         }
     }
 
+    /// A drag that ended long after its release, logged to drags.log: a card dropped on Ghostty once stalled HQ 2.7 s.
+    static func logEnd(_ what: String, operation: NSDragOperation) {
+        guard let up = NSApp.currentEvent, up.type == .leftMouseUp else { return }
+        let late = ProcessInfo.processInfo.systemUptime - up.timestamp
+        guard late > 0.5 else { return }
+        AppLog.write("\(what) drag ended \(String(format: "%.1f", late)) s after its release, operation \(operation.rawValue)", to: "drags.log")
+    }
+
     /// An item carried from a SwiftUI row or chip: its key for HQ, its line for other apps.
     static func provider(_ route: ModalRoute, line: String) -> NSItemProvider {
         NSItemProvider(object: DragPayload(key: route.selectionKey, line: line))

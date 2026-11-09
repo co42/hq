@@ -1243,6 +1243,168 @@ extension UITest {
         await ui.settle(0.3)
     }
 
+    /// T-368: the editor looks like the rendered text and grows with it, continues lists, marks words, ticks checkboxes; a
+    /// double-click edits at the spot, in the outline, the task's window and a note.
+    static func markdownEditing(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
+        model.closeModal()
+        model.folded = []
+        model.search = ""
+        let body = "# Plan\n\nFirst line.\n\nSecond line.\n\n- one\n- [ ] two\n\n```\ncode\n```\n\nLast line."
+        guard let task = model.addTask(to: .overview, title: "Write it down", body: body) else { return check("a task to describe", false) }
+        await endUndoGroup(model)
+        model.shownDescriptions.insert(task.id)
+        await ui.settle(0.6)
+        func row() -> Int { outline.row(forItem: coordinator.node(.task(task.id))) }
+        outline.scrollRowToVisible(row())
+        let rowAtRest = outline.rect(ofRow: row()).height
+        coordinator.editDescription(task.id)
+        await ui.settle(0.8)
+        guard let editor = ui.window.firstResponder as? MarkdownEditor.EditorTextView, let storage = editor.textStorage else {
+            return check("the description's editor takes the keyboard", false, ui.responder)
+        }
+        func at(_ needle: String) -> Int { (editor.string as NSString).range(of: needle).location }
+        func font(_ needle: String) -> NSFont? { at(needle) == NSNotFound ? nil : storage.attribute(.font, at: at(needle), effectiveRange: nil) as? NSFont }
+        let plain = font("First line")
+        check("the editor writes in the rendered text's font and size, headings at theirs, mono only in code, marks dimmed",
+              plain?.isFixedPitch == false && plain?.pointSize == KitType.body.nsFont.pointSize
+                && font("Plan")?.pointSize == KitType.heading1.nsFont.pointSize && font("code")?.isFixedPitch == true
+                && storage.attribute(.foregroundColor, at: at("# Plan"), effectiveRange: nil) as? NSColor == Ink.syntaxQuietNS,
+              "\(plain?.fontName ?? "-") \(font("Plan")?.pointSize ?? 0) \(font("code")?.fontName ?? "-")")
+        check("the editor opens about as tall as the text it replaces", abs(outline.rect(ofRow: row()).height - rowAtRest) < Space.section * 2,
+              "\(rowAtRest) → \(outline.rect(ofRow: row()).height)")
+        // It grows with its text, and its row with it.
+        let box = { editor.enclosingScrollView?.frame.height ?? 0 }
+        let boxBefore = box(), rowBefore = outline.rect(ofRow: row()).height
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        for line in ["More.", "And more.", "And more again."] {
+            await ui.key(.return)
+            await ui.key(.return)
+            await ui.type(line)
+        }
+        await ui.settle(0.6)
+        check("the box grows with its text, and its row with it", box() > boxBefore + Space.lg && outline.rect(ofRow: row()).height > rowBefore + Space.lg,
+              "box \(boxBefore) → \(box()), row \(rowBefore) → \(outline.rect(ofRow: row()).height)")
+        // Lists.
+        func caret(after needle: String) { editor.setSelectedRange(NSRange(location: at(needle) + (needle as NSString).length, length: 0)) }
+        caret(after: "- one")
+        await ui.key(.return)
+        await ui.type("half")
+        check("Return on a list item starts the next one", editor.string.contains("- one\n- half\n- [ ] two"), editor.string)
+        caret(after: "- [ ] two")
+        await ui.key(.return)
+        check("a checkbox item's next one has a checkbox", editor.string.contains("- [ ] two\n- [ ] \n"), editor.string)
+        await ui.key(.return)
+        check("Return on an empty item ends the list", editor.string.contains("- [ ] two\n\n\n```") && model.editingDescription == task.id, editor.string)
+        caret(after: "- half")
+        await ui.key(.tab)
+        check("Tab nests a list item, the editor keeping the keyboard", editor.string.contains("\n  - half") && model.editingDescription == task.id, editor.string)
+        await ui.key(.tab, .shift)
+        check("Shift-Tab takes it back out", editor.string.contains("\n- half") && model.editingDescription == task.id, editor.string)
+        // ⌘B, ⌘I, ⌘K, a pasted address.
+        editor.setSelectedRange((editor.string as NSString).range(of: "Second"))
+        await ui.chord("b", .command, code: 11)
+        check("Command-B marks the selection bold", editor.string.contains("**Second** line."), editor.string)
+        await ui.chord("b", .command, code: 11)
+        check("Command-B again takes the marks off", editor.string.contains("\nSecond line."), editor.string)
+        await ui.chord("i", .command, code: 34)
+        check("Command-I marks it italic, and doesn't open the task", editor.string.contains("_Second_ line.") && model.modal == nil, editor.string)
+        await ui.chord("i", .command, code: 34)
+        Pasteboard.copy("https://example.com/plan")
+        editor.setSelectedRange((editor.string as NSString).range(of: "Second"))
+        await ui.chord("k", .command, code: 40)
+        check("Command-K links the selection to a copied address", editor.string.contains("[Second](https://example.com/plan) line."), editor.string)
+        editor.setSelectedRange((editor.string as NSString).range(of: "Last"))
+        editor.paste(nil)
+        check("an address pasted over words links them", editor.string.contains("[Last](https://example.com/plan) line."), editor.string)
+        // A checkbox ticks on a click, with the pointing hand over it.
+        if let layout = editor.layoutManager, let container = editor.textContainer {
+            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: at("[ ] two"), length: 3), actualCharacterRange: nil)
+            let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            let point = editor.convert(NSPoint(x: rect.midX + editor.textContainerOrigin.x, y: rect.midY + editor.textContainerOrigin.y), to: nil)
+            if let click = ui.mouseDown(point, clicks: 1) {
+                NSCursor.arrow.set()
+                editor.cursorUpdate(with: click)
+                let hand = NSCursor.current == NSCursor.pointingHand
+                editor.mouseDown(with: click)
+                check("a click on a checkbox in the editor ticks it, the pointing hand over it", editor.string.contains("- [x] two") && hand, editor.string)
+                editor.mouseDown(with: click)
+                check("and another unticks it", editor.string.contains("- [ ] two"), editor.string)
+            }
+        }
+        await ui.key(.escape)
+        await ui.settle(0.6)
+        check("Escape saves what the editor wrote", model.task(task.id)?.body.contains("[Second](https://example.com/plan) line.") == true
+              && model.editingDescription == nil, model.task(task.id)?.body ?? "-")
+
+        // A double-click edits at the spot: six lines, the fourth double-clicked.
+        let lines = "Line one.\n\nLine two.\n\nLine three.\n\nLine four.\n\nLine five.\n\nLine six."
+        let four = (lines as NSString).range(of: "Line four.")
+        func onFour(_ responder: NSResponder?) -> Bool {
+            guard let text = responder as? NSTextView else { return false }
+            return NSLocationInRange(text.selectedRange().location, NSRange(location: four.location, length: four.length + 1))
+        }
+        model.setDescription(task.id, lines)
+        await ui.settle(0.6)
+        outline.scrollRowToVisible(row())
+        if let host = (outline.view(atColumn: 1, row: row(), makeIfNecessary: true) as? TaskCell)?.descriptionHost {
+            host.scrollToVisible(host.bounds)
+            let height = host.bounds.height - Space.xs - Space.md
+            let point = host.convert(NSPoint(x: Space.xl, y: host.isFlipped ? Space.xs + height * 3.5 / 6 : host.bounds.height - Space.xs - height * 3.5 / 6), to: nil)
+            if let double = ui.mouseDown(point, clicks: 2) {
+                let swallowed = coordinator.descriptionClick(double) == nil
+                await ui.settle(0.8)
+                check("a double-click on a description edits it at the spot (T-368)", swallowed && model.editingDescription == task.id && onFour(ui.window.firstResponder),
+                      "caret \((ui.window.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
+                await ui.key(.escape)
+                await ui.settle(0.5)
+            }
+        } else {
+            check("the description shows under its row", false)
+        }
+        // In the task's window and in a note, the same.
+        func catcher(_ view: NSView?) -> EditOnDoubleClick.CatcherView? {
+            guard let view else { return nil }
+            return (view as? EditOnDoubleClick.CatcherView) ?? view.subviews.lazy.compactMap(catcher).first
+        }
+        func doubleClick(fourthOf area: EditOnDoubleClick.CatcherView, in sheet: NSWindow) -> Bool {
+            let point = area.convert(NSPoint(x: Space.xl, y: area.bounds.height * 3.5 / 6), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: sheet.windowNumber, context: nil, eventNumber: 0, clickCount: 2, pressure: 1) else { return false }
+            return area.take(event) == nil
+        }
+        model.open(.task(task.id))
+        await ui.settle(1)
+        if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
+            let swallowed = doubleClick(fourthOf: area, in: sheet)
+            await ui.settle(0.8)
+            check("a double-click on the description in the task's window edits it at the spot", swallowed && model.modalEditingDescription && onFour(sheet.firstResponder),
+                  "caret \((sheet.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
+            model.saveModalEdits()
+        } else {
+            check("the task's window shows its description", false)
+        }
+        model.closeModal()
+        await ui.settle(0.5)
+        if let file = model.addFile(title: "Notes to edit", body: lines) {
+            model.open(.file(file.id))
+            await ui.settle(1)
+            if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
+                let swallowed = doubleClick(fourthOf: area, in: sheet)
+                await ui.settle(0.8)
+                check("a double-click on a note edits it at the spot", swallowed && model.editingFile == file.id && onFour(sheet.firstResponder),
+                      "caret \((sheet.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
+                model.editingFile = nil
+            } else {
+                check("a note's window shows its text", false)
+            }
+            model.closeModal()
+            model.deleteFile(file.id)
+        }
+        await ui.settle(0.4)
+        model.deleteTasks([task.id])
+    }
+
     /// T-348, T-359, T-358, T-343: the grip moves a task, the rest of its row carries it (onto a task or a card it links;
     /// other apps get its line); Copy, ⌘C and the modals' Copy give items' lines; Remind Me… opens New Reminder about the item.
     static func copyAndRemind(_ model: AppModel, _ ui: Driver) async {
@@ -1267,6 +1429,15 @@ extension UITest {
         let moved = writer()
         check("a drag from the grip moves the row (T-348)", outline.dragsFromGrip && moved?.string(forType: DragItem.taskType) == "\(carried.id)"
               && moved?.data(forType: DragItem.itemType) == nil)
+        // The grip's pointer: the open hand wherever a press moves the row, the arrow back off it.
+        let onGripPoint = faces.convert(NSPoint(x: Space.xs, y: faces.gap + Metric.outlineRow / 2), to: nil)
+        let onTitlePoint = cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: nil)
+        NSCursor.arrow.set()
+        outline.pointGrip(at: onGripPoint)
+        let open = NSCursor.current == NSCursor.openHand
+        outline.pointGrip(at: onTitlePoint)
+        check("the grip shows the open hand, the title the arrow, from one area over the outline", open && NSCursor.current == NSCursor.arrow
+              && outline.trackingAreas.contains { $0.owner === outline && $0.options.isSuperset(of: [.mouseMoved, .cursorUpdate]) }, "open \(open)")
         _ = outline.canDragRows(with: IndexSet(integer: index), at: cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: outline))
         let link = writer()
         check("a drag from its title carries the task, to link, and gives other apps its line", !outline.dragsFromGrip
@@ -1282,8 +1453,9 @@ extension UITest {
         _ = coordinator.outlineView(outline, acceptDrop: drag, item: onto, childIndex: NSOutlineViewDropOnItemIndex)
         await endUndoGroup(model)
         await ui.settle(0.4)
-        check("dropped, the tasks are linked and neither moved", model.isLinked(.task(carried.id), to: target.id)
-              && model.taskTree.parent(of: carried.id) == nil && model.outputs(ofTask: target.id).contains(.task(carried.id)))
+        check("dropped, the carried task shows under the target only, and neither moved", model.isLinked(.task(carried.id), to: target.id)
+              && model.taskTree.parent(of: carried.id) == nil && model.outputs(ofTask: target.id).contains(.task(carried.id))
+              && !model.outputs(ofTask: carried.id).contains(.task(target.id)))
         model.undoManager?.undo()
         await ui.settle(0.3)
         check("Undo unlinks them", !model.isLinked(.task(carried.id), to: target.id))

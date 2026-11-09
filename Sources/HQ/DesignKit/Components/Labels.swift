@@ -318,4 +318,7 @@ enum Pasteboard {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+
+    /// The text on the pasteboard; a test run reads what it copied.
+    static var text: String? { Store.isOverridden ? copied : NSPasteboard.general.string(forType: .string) }
 }
