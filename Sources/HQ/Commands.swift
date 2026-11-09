@@ -215,6 +215,8 @@ struct HQCommands: Commands {
                 .disabled(session == nil || !menu.sessionCanFocus)
             Button("Show Details") { if let session { model.open(.session(session)) } }
                 .disabled(session == nil)
+            Button("Fork Session") { if let session { model.forkSession(session) } }
+                .disabled(session == nil)
             Divider()
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)

@@ -348,6 +348,8 @@ final class AppModel {
     @ObservationIgnored var exitWatchers: [Int32: DispatchSourceProcess] = [:]
     /// Close Session's terminals, by their Claude's pid: they close when it exits.
     @ObservationIgnored var closingTerminals: [Int32: String] = [:]
+    /// Background sessions (`claude --bg`) by their handle in `claude stop`, learnt when first reached.
+    var backgroundHandles: [String: String] = [:]
     /// Running sessions' transcripts, watched for a /rename.
     @ObservationIgnored var titleWatchers: [String: DispatchSourceFileSystemObject] = [:]
     /// Hook events that moved only a session's last activity, by session: not in `sessions` yet (`settleActivity`).
@@ -428,7 +430,6 @@ final class AppModel {
             MainActor.assumeIsolated {
                 self?.settleActivity()
                 self?.now = date
-                self?.rollDoneTasks()
             }
         }
         reviveSessions()

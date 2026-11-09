@@ -63,8 +63,8 @@ extension AppModel {
             readingVault = false
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
-            rollDoneTasks()
             migrateReviews()
+            forgetEmptySessions()
             // A note read too early (downloading, mid-write) keeps its last read: read it again soon.
             let unreadable = Set(result.unreadable)
             if unreadable != vaultUnreadable {
@@ -516,18 +516,6 @@ extension AppModel {
         guard new != old else { return }
         artifacts[index] = new
         registerUndo(action) { model in model.changeArtifact(url, action) { $0 = old } }
-    }
-
-    /// The done rule: a done top-level task on the overview moves to the top of the Backlog the next morning.
-    func rollDoneTasks() {
-        let tree = taskTree
-        let due = tree.top(.overview).compactMap { task($0) }.filter { task in
-            task.status == .done && DoneRule.shouldMove(done: task.done ?? task.modified, now: .now)
-        }
-        guard !due.isEmpty else { return }
-        undoManager?.disableUndoRegistration()
-        defer { undoManager?.enableUndoRegistration() }
-        for task in due { place(taskTree.moveToList(task.id, .backlog), "Move to Backlog") }
     }
 
     // MARK: Outline state

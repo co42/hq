@@ -93,7 +93,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 - `n` is the highest existing plus one. All other keys and the body keep their exact text.
 - `HQKit.TaskTree`: built from (parent, list, order); a missing parent or a cycle puts a task at the top level. Operations return the notes that change: insert after, insert first child, indent, outdent, move among siblings, move to a list, drop (on a row: last child; between rows: sibling at that index; on a list header: last top-level task), delete with the subtree. Never into its own subtree. Order is fractional: the midpoint between neighbors, the siblings renumbered when a gap falls under 1e-6.
 - **Migration** (once, then idempotent; `HQKit.TaskMigration` plans it, the app applies it after zipping `<vault>/hq/tasks` to `~/Library/Application Support/HQ/Backups/tasks-<date>.zip`): `status: backlog` → `todo` + `list: backlog`; `todo` → `list: backlog`; `doing`, `review` → `list: overview`; `done` → `list: backlog` with `done:` from the file's modification date. A missing type stays missing.
-- **Done rule**: a done top-level task on the overview moves to the top of the Backlog at the first 05:00 local after it was done.
+- **Nothing moves on its own** (2026-11-09, T-345): a task changes list or place only when the user moves it, or a session through `hq`. A done task stays where it is.
 - **Review** is no status (2026-11-06): a note whose front matter says `status: review` reads as doing. On the first vault scan each overview task still in Review gets an Updates row, "T-12 was in Review: <reason>", linked to it; its `review`, `review_by` and `review_at` keys go the next time HQ writes the note.
 
 ### Session (SwiftData `SessionRecord`)
@@ -123,8 +123,9 @@ A user token pasted in Settings › Slack, kept in the Keychain (`io.github.co42
 ## 6. Sessions
 
 - **Discovery**: a session appears with its first hook event. Its transcript is read best effort for the name only.
-- **Open**: running in a Ghostty terminal (matched by `tty`): `focus` it; running elsewhere: say so; ended: a new Ghostty tab with `claude --resume <id>`, typed then Return.
-- **Start**: from a task, a PR or New Session…: a name, a folder and a first message, then a Ghostty tab running `claude --session-id <uuid> --name '<name>' "$(cat '<prompt file>')"`. hq knows the id up front, so the card and the task link exist from the start.
+- **Open**: running in a Ghostty terminal (matched by `tty`): `focus` it; a background session (`claude --bg`: `claude agents --json` lists it with `kind: background` and the handle it takes) has no Ghostty terminal: the only Ghostty terminal titled with its name (after Claude's status glyph) whose tty runs Claude, since an agent-view viewer shows no session in its arguments or sockets; else its modal; running elsewhere: say so; ended: a new Ghostty tab with `claude --resume <id>`, typed then Return. Close Session: `/exit` in its terminal, or `claude stop <handle>` for a background session, run as the session's own Claude binary.
+- **Empty sessions**: a session with no prompt, name, title, link or task is off the grid while it runs outside Ghostty, and its record goes when it ends (and at each vault read for one that ended before): the claude daemon's spares (`~/.claude/daemon.log`: `bg claimed-spare … (spare)`, then `killed`) run the plugin's hooks like any Claude.
+- **Start**: from a task, a PR or New Session…: a name, a folder and a first message, then a Ghostty tab running `claude --session-id <uuid> --name '<name>' "$(cat '<prompt file>')"`. hq knows the id up front, so the card and the task link exist from the start. **Fork**: `claude --resume <id> --fork-session --session-id <uuid> --name '<name> ⑂'` in a new Ghostty tab in the session's folder, the same way.
 - **Close**: a running session gets `/exit` and Return typed into its terminal; once its Claude has quit, the terminal closes (its tab with it when alone).
 - **Interrupted**: Esc or Ctrl+C in the terminal sends no Stop. HQ reads the transcript's "[Request interrupted by user…]" (best effort) and a working or waiting session goes idle.
 

@@ -40,7 +40,26 @@ public enum ClaudeProcess {
         return chain
     }
 
-    static func path(of pid: Int32) -> String? {
+    /// True when a Claude runs on `tty`.
+    public static func runsClaude(tty: String) -> Bool {
+        pids(onTTY: tty).contains(where: isClaude)
+    }
+
+    /// The processes whose controlling terminal is `tty` ("/dev/ttys006").
+    static func pids(onTTY tty: String) -> [Int32] {
+        var device = stat()
+        guard stat(tty, &device) == 0 else { return [] }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, Int32(device.st_rdev)]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 8)
+        size = processes.count * stride
+        guard sysctl(&mib, 4, &processes, &size, nil, 0) == 0 else { return [] }
+        return processes.prefix(size / stride).map(\.kp_proc.p_pid)
+    }
+
+    public static func path(of pid: Int32) -> String? {
         var buffer = [UInt8](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard length > 0 else { return nil }

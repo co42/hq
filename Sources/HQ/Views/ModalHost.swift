@@ -169,6 +169,8 @@ private struct ModalActions: View {
                     Button("Close Session") { model.closeSession(id) }
                         .help("Type /exit in its terminal, then close the terminal")
                 }
+                Button("Fork Session") { model.forkSession(id) }
+                    .help("A new session with this one’s conversation, in a new Ghostty tab")
                 Button(session.isRunning ? "Focus" : "Resume") { model.open(id) }
                     .disabled(session.isRunning && session.tty == nil)
                     .buttonStyle(.glassProminent)

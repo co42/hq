@@ -367,13 +367,34 @@ enum SelfTest {
         return object?["result"] as? JSONObject ?? object ?? [:]
     }
 
-    private static func hook(_ name: String, _ id: String, _ extra: String = "", pid: Int32? = nil) {
+    private static func hook(_ name: String, _ id: String, _ extra: String = "", pid: Int32? = nil, ghostty: Bool? = nil) {
         var args = ["event": "{\"hook_event_name\":\"\(name)\",\"session_id\":\"\(id)\",\"cwd\":\"\(FileManager.default.currentDirectoryPath)\"\(extra)}"]
         if let pid { args["pid"] = "\(pid)" }
+        if let ghostty { args["ghostty"] = ghostty ? "true" : "false" }
         agent("hook", args)
     }
 
     private static func sessionChecks(_ model: AppModel) async {
+        // Empty sessions (T-354): a spare the claude daemon starts outside Ghostty stays off the grid, and one that ends with
+        // nothing in it leaves no record; one with a prompt stays in Closed Sessions.
+        let spare = "5e550000-0000-4000-8000-0000000000a1"
+        hook("SessionStart", spare, #","source":"startup""#, ghostty: false)
+        check("a Claude outside Ghostty with no prompt yet stays off the grid", model.session(spare) != nil && !model.gridSessions.contains { $0.id == spare })
+        hook("SessionEnd", spare, #","reason":"other""#)
+        check("an empty session that ends leaves no record", model.session(spare) == nil && !model.closedSessions.contains { $0.id == spare })
+        let quick = "5e550000-0000-4000-8000-0000000000a2"
+        hook("SessionStart", quick, #","source":"startup""#, ghostty: true)
+        check("a Claude in Ghostty shows on the grid before its first prompt", model.gridSessions.contains { $0.id == quick })
+        hook("UserPromptSubmit", quick, #","prompt":"Look at the logs""#)
+        hook("SessionEnd", quick, #","reason":"prompt_input_exit""#)
+        check("a session with a prompt stays in Closed Sessions", model.closedSessions.first?.id == quick)
+        var stale = SessionItem(id: "5e550000-0000-4000-8000-0000000000a3", status: SessionStatus(state: .ended, since: .now), cwd: "/tmp",
+                                repo: "", branch: "", origin: nil, started: .now, order: 1)
+        stale.closedAt = .now
+        model.put(stale)
+        model.forgetEmptySessions()
+        check("an empty session already closed goes at the next sweep", model.session(stale.id) == nil && model.session(quick) != nil)
+        model.sessions.removeAll { $0.id == quick }
         let id = "5e550000-0000-4000-8000-000000000001"
         let end = model.gridSessions.count
         hook("SessionStart", id, #","source":"startup""#)
@@ -474,6 +495,33 @@ enum SelfTest {
                   model.ghosttyLog.suffix(2) == ["type /exit in /dev/ttys099", "close /dev/ttys099"], "\(model.ghosttyLog.suffix(2))")
             hook("SessionStart", id, #","source":"resume""#)
         }
+        // A background session (claude --bg) has no Ghostty terminal: Focus attaches it in a new tab, Close Session stops it.
+        if var item = model.session(id) {
+            item.pid = 999_998
+            item.tty = "/dev/ttys098"
+            model.put(item)
+            model.backgroundHandles[id] = "bg123456"
+            let logged = model.ghosttyLog.count
+            model.open(id)
+            check("a background session's face looks for the tab that shows it, and never opens one",
+                  model.ghosttyLog.last == "focus the tab titled \(item.name)" && !model.ghosttyLog.dropFirst(logged).contains { $0.hasPrefix("new tab") },
+                  model.ghosttyLog.last ?? "-")
+            model.closeSession(id)
+            check("Close Session stops a background session, with no /exit typed", model.ghosttyLog.last == "claude stop bg123456"
+                  && model.closingTerminals[999_998] == nil, model.ghosttyLog.last ?? "-")
+            model.processExited(999_998)
+            check("an ended background session forgets its handle", model.backgroundHandles[id] == nil)
+            hook("SessionStart", id, #","source":"resume""#)
+        }
+        // Fork Session: a new interactive session with the conversation so far, in a new Ghostty tab, its card at once.
+        if let original = model.session(id), let fork = model.forkSession(id) {
+            check("Fork Session opens a tab resuming it as a new session HQ knows",
+                  model.ghosttyLog.last == "new tab in \(original.cwd): claude --resume \(id) --fork-session --session-id \(fork) --name '\(original.name) ⑂'"
+                  && model.gridSessions.last?.id == fork && model.session(fork)?.name == "\(original.name) ⑂", model.ghosttyLog.last ?? "-")
+            model.sessions.removeAll { $0.id == fork }
+        } else {
+            check("Fork Session", false)
+        }
         // A review session shows on its PR from the start.
         let review = model.startSession(named: "Review #7", in: NSTemporaryDirectory(), pullRequest: "https://github.com/acme/registry/pull/7")
         check("a review session is linked to its PR", model.session(review)?.links == ["https://github.com/acme/registry/pull/7"])
@@ -538,12 +586,13 @@ enum SelfTest {
         model.toggleCheckbox(2, at: 1)
         await settle()
         check("a checkbox ticks in the note", note(2).body == "- [ ] one\n- [x] two\n", note(2).body)
-        // The done rule: done yesterday, still on the overview, moves to the Backlog.
+        // Nothing moves on its own (T-345): a task done days ago stays on Tasks through a vault read.
         model.setStatus(1, .done)
-        model.changeTask(1, "Seed") { $0.done = Date.now.addingTimeInterval(-36 * 3600) }
-        model.rollDoneTasks()
+        model.changeTask(1, "Seed") { $0.done = Date.now.addingTimeInterval(-72 * 3600) }
         await settle()
-        check("a done task moves to the top of the Backlog the next morning", model.list(of: 1) == .backlog && model.taskTree.top(.backlog).first == 1)
+        model.rescanVault()
+        await settle(0.6)
+        check("a task done days ago stays on Tasks", model.list(of: 1) == .overview, "list \(model.list(of: 1))")
         model.deleteTasks([3])
         await settle()
         check("Delete moves the note to the Trash", !FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path))

@@ -383,6 +383,31 @@ extension UITest {
         await ui.settle(0.6)
         var result = await caret(parent.id)
         check("a task's first subtask brings its disclosure, on its line", result.ok, result.detail)
+        // The pointing hand over the disclosure, as the window would hit it, and over every AppKit button a task row
+        // shows (T-350).
+        let parentRow = outline.row(forItem: coordinator.node(.task(parent.id)))
+        if parentRow >= 0, let rowView = outline.rowView(atRow: parentRow, makeIfNecessary: false),
+           let button = rowView.subviews.first(where: { $0.identifier == NSOutlineView.disclosureButtonIdentifier }) {
+            let hit = ui.hitView(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil))
+            check("the pointing hand over a task's disclosure", hit === button && button.tracksHandCursor,
+                  "hit \(hit.map { String(describing: type(of: $0)) } ?? "none"), tracks \(button.tracksHandCursor)")
+        } else {
+            check("the pointing hand over a task's disclosure", false, "no disclosure")
+        }
+        var bare: [String] = []
+        for row in 0..<outline.numberOfRows {
+            guard outline.item(atRow: row) is OutlineNode, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) else { continue }
+            // AppKit's views only: SwiftUI's give the hand themselves (clickable()).
+            func shown(_ view: NSView) -> [NSButton] {
+                let name = String(reflecting: type(of: view))
+                guard !view.isHidden, !name.hasPrefix("_"), !name.hasPrefix("SwiftUI."), !name.contains("HostingView") else { return [] }
+                return ((view as? NSButton).map { [$0] } ?? []) + view.subviews.flatMap(shown)
+            }
+            for button in shown(rowView) where button.isEnabled && !button.tracksHandCursor {
+                bare.append("row \(row): \(type(of: button)) \(button.identifier?.rawValue ?? button.toolTip ?? "-")")
+            }
+        }
+        check("every AppKit button on a row shows the pointing hand", bare.isEmpty, bare.prefix(5).joined(separator: "; "))
         model.indentTasks([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
@@ -716,6 +741,63 @@ extension UITest {
             check("and shows it again", model.descriptionShownInOutline(noted.id))
         }
         model.allDescriptions = []
+        // One face per row, the same open or folded: the task's own session, never a subtask's (T-346).
+        let ranked = model.byImportance(model.gridSessions)
+        if let top = ranked.first, let low = ranked.last, top.id != low.id, let sub = model.addSubtask(to: plain.id, title: "Under it") {
+            model.link(task: plain.id, session: low.id)
+            model.link(task: sub.id, session: top.id)
+            model.setCollapsed(plain.id, false)
+            await endUndoGroup(model)
+            await ui.settle(0.5)
+            let openRow = await row(plain.id)
+            let open = openRow?.faces.shownSession
+            model.setCollapsed(plain.id, true)
+            await ui.settle(0.5)
+            let foldedRow = await row(plain.id)
+            let folded = foldedRow?.faces.shownSession
+            check("a task shows its own session's face, open or folded", open == low.id && folded == low.id, "open \(open ?? "-"), folded \(folded ?? "-")")
+            model.unlink(task: plain.id, session: low.id)
+            model.deleteTasks([sub.id])
+            await endUndoGroup(model)
+            await ui.settle(0.4)
+        } else {
+            check("two sessions and a subtask for the face check", false)
+        }
+        // Rows hold still until AppKit ends a drag, also once the button is up: a drop elsewhere changes the model before the
+        // drag's end, and AppKit then closes its drop gap on the rows it had (T-353, a crash).
+        let rowsBefore = outline.numberOfRows
+        coordinator.dragBegan([plain.id])
+        let added = model.addTask(to: .overview, title: "Added mid-drag")
+        await ui.settle(0.8)
+        check("rows hold still while a drag ends, the button up", outline.numberOfRows == rowsBefore && coordinator.dragged == [plain.id],
+              "\(rowsBefore) → \(outline.numberOfRows) rows, dragged \(coordinator.dragged)")
+        coordinator.dragEnded()
+        await ui.settle(0.6)
+        check("and move once it ended", outline.numberOfRows > rowsBefore && added.map { outline.row(forItem: coordinator.node(.task($0.id))) >= 0 } == true)
+        // A drag whose end never comes lets the rows go 3 s after the button is up.
+        coordinator.dragBegan([plain.id])
+        if let late = model.addTask(to: .overview, title: "Added after a lost drag") {
+            await ui.settle(4)
+            check("a drag that never ends holds the rows 3 s, no more", coordinator.dragged.isEmpty && outline.row(forItem: coordinator.node(.task(late.id))) >= 0)
+            model.deleteTasks([late.id])
+        }
+        if let added { model.deleteTasks([added.id]) }
+        await endUndoGroup(model)
+        await ui.settle(0.4)
+        // A title being edited takes the row's width at once, also when the keyboard goes straight from another title (T-351).
+        coordinator.beginEditing(noted.id)
+        await ui.settle(0.3)
+        if let target = await row(plain.id) {
+            ui.window.makeFirstResponder(target.cell.title)
+            await ui.settle(0.3)
+            if let edited = await row(plain.id) {
+                let room = edited.cell.bounds.width - TaskCell.titleX
+                check("a title edited straight after another takes the row's width", edited.cell.title.currentEditor() != nil
+                      && edited.cell.title.frame.width > room / 2, "\(edited.cell.title.frame.width) of \(room)")
+            }
+        }
+        ui.window.makeFirstResponder(outline)
+        await ui.settle(0.3)
         // Link… on a row: the link picker opens under it, in its own popover (T-298). The row is on screen, as when right-clicked.
         _ = await row(plain.id)
         model.showLinkPicker(plain.id)
@@ -1046,6 +1128,37 @@ extension UITest {
                        && model.modal == nil, "\(model.slackLog)")
         } else {
             check("the hand over a chip under a task's row, from AppKit, and the arrow past the chips", false, "no chip line")
+        }
+
+        // A link added from the CLI shows under the task's row at once, every kind (T-352): through the socket, as `hq` does it.
+        if let parent = model.addTask(to: .overview, title: "Parent of linked ones"), let other = model.addTask(to: .overview, title: "Related"),
+           let target = model.addSubtask(to: parent.id, title: "Linked from the CLI"),
+           let shut = model.addSubtask(to: parent.id, title: "Linked while folded") {
+            model.setCollapsed(parent.id, false)
+            await endUndoGroup(model)
+            await ui.settle(0.4)
+            let routes: [(String, ModalRoute)] = [(url, route), ("https://example.com/notes", .web("https://example.com/notes")),
+                                                  ("https://github.com/acme/registry/pull/431", .github("https://github.com/acme/registry/pull/431")),
+                                                  (other.key, .task(other.id))]
+            func link(_ id: Int, _ key: String, _ item: String) -> String {
+                String(decoding: AgentRouter.handle(JSON.data(["command": "task link", "args": ["task": key, "item": item, "not-mine": "true"]])), as: UTF8.self)
+            }
+            var missing: [String] = []
+            for (item, shown) in routes {
+                let reply = link(target.id, target.key, item)
+                if await ui.steadyAnchor(shown.chipKey(task: target.id)) == nil { missing.append("\(item): \(reply.prefix(80))") }
+            }
+            check("a link added from the CLI shows under a subtask's row at once, every kind", missing.isEmpty, missing.joined(separator: "; "))
+            // Linked while its parent is folded: there when the parent opens.
+            model.setCollapsed(parent.id, true)
+            await ui.settle(0.4)
+            _ = link(shut.id, shut.key, url)
+            model.setCollapsed(parent.id, false)
+            await ui.settle(0.5)
+            check("a link added while its parent is folded shows once it opens", await ui.steadyAnchor(route.chipKey(task: shut.id)) != nil)
+            model.deleteTasks([parent.id, target.id, shut.id, other.id])
+            await endUndoGroup(model)
+            await ui.settle(0.3)
         }
 
         // The same copy comes to New Reminder… too, until its × drops it.

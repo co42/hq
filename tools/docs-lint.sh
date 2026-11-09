@@ -27,6 +27,9 @@ retired=(
   'Start in Ghostty' 'Start'
   'Hidden and Closed' 'Closed Sessions'
   'Mark All Read' 'nothing: each notification on its own (T-310)'
+  'the next morning' 'nothing: no task moves on its own (T-345)'
+  'Done rule' 'nothing: no task moves on its own (T-345)'
+  'claude attach' 'nothing: HQ never attaches a background session (T-327)'
 )
 
 SCHEMA=$schema RETIRED=${(pj:\t:)retired} perl -ne '

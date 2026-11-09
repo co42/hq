@@ -30,29 +30,6 @@ func migrationPlansEachStatus(_ status: String, _ expected: [String: String]) {
     #expect(TaskMigration.plan(FrontMatter("---\nstatus: todo\nparent: T-3\ntype: bug\n---\n"), modified: modified).isEmpty)
 }
 
-// MARK: The done rule
-
-@Test func doneTasksMoveTheNextMorning() throws {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = try #require(TimeZone(identifier: "Europe/Paris"))
-    func at(_ text: String) -> Date {
-        let parts = text.split(separator: " ")
-        let day = parts[0].split(separator: "-").map { Int($0)! }
-        let time = parts[1].split(separator: ":").map { Int($0)! }
-        return calendar.date(from: DateComponents(year: day[0], month: day[1], day: day[2], hour: time[0], minute: time[1]))!
-    }
-    // Done in the evening: still there at 04:59, gone at 05:00.
-    #expect(!DoneRule.shouldMove(done: at("2026-11-04 18:00"), now: at("2026-11-05 04:59"), calendar: calendar))
-    #expect(DoneRule.shouldMove(done: at("2026-11-04 18:00"), now: at("2026-11-05 05:00"), calendar: calendar))
-    // Done after midnight but before 05:00: the same morning.
-    #expect(DoneRule.moves(after: at("2026-11-05 01:30"), calendar: calendar) == at("2026-11-05 05:00"))
-    // Done at 06:00: the next morning, not today's.
-    #expect(DoneRule.moves(after: at("2026-11-05 06:00"), calendar: calendar) == at("2026-11-06 05:00"))
-    // Across the change to winter time (25 October 2026) and to summer time (29 March 2026).
-    #expect(DoneRule.moves(after: at("2026-10-24 22:00"), calendar: calendar) == at("2026-10-25 05:00"))
-    #expect(DoneRule.moves(after: at("2026-03-28 23:00"), calendar: calendar) == at("2026-03-29 05:00"))
-}
-
 // MARK: Titles
 
 @Test("#word in a title becomes a tag", arguments: [

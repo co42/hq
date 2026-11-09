@@ -462,6 +462,7 @@ struct SessionModal: View {
             ModalPage {
                 HStack(spacing: Space.lg) {
                     SessionFace(session, size: Metric.faceModal)
+                        .task(id: id) { model.learnBackground(id) }
                     VStack(alignment: .leading, spacing: Space.xs) {
                         Text(session.name).kitType(.pageTitle).lineLimit(2)
                         Text(session.place).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -479,8 +480,11 @@ struct SessionModal: View {
                     }
                 }
                 if session.status.needsYou { needsYouBox(session) }
-                if session.isRunning, let tty = session.tty, !session.inGhostty {
-                    Text("Running in another terminal, \(tty): HQ can't bring it forward.").kitType(.callout).foregroundStyle(.secondary)
+                if session.isRunning, model.backgroundHandles[id] != nil {
+                    Text("Running in the background (claude --bg), in no terminal of its own: Focus brings forward a Ghostty tab that shows it, when one does. Close Session stops it.")
+                        .kitType(.callout).foregroundStyle(.secondary)
+                } else if session.isRunning, let tty = session.tty, !session.inGhostty {
+                    Text("Running in another terminal, \(tty): HQ can't bring it forward or close it.").kitType(.callout).foregroundStyle(.secondary)
                 } else if session.isRunning, session.tty == nil {
                     Text("HQ doesn't know its terminal, so it can't bring it forward: it may run in an editor or the Claude app.")
                         .kitType(.callout).foregroundStyle(.secondary)

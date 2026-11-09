@@ -246,6 +246,13 @@ final class TaskOutlineView: NSOutlineView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// AppKit's disclosure triangle takes the pointing hand, as every control on a row does (T-350).
+    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
+        let view = super.makeView(withIdentifier: identifier, owner: owner)
+        if identifier == NSOutlineView.disclosureButtonIdentifier { view?.trackHandCursor(for: HandCursorOwner.shared) }
+        return view
+    }
+
     /// How far a list's rows sit inside its card.
     static var cardInset: CGFloat { Space.sm }
 
@@ -498,13 +505,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     /// The model changed: structure as a diff with animations, content in place.
     func refresh() {
-        // Rows hold still while one is dragged: AppKit keeps the drop gap's row heights until the drag ends.
-        // A drag whose end never came (the button is up) holds them no more.
-        if !dragged.isEmpty, NSEvent.pressedMouseButtons & 1 == 0 {
-            AppLog.write("outline: a drag of \(dragged) never ended; rows move again", to: "outline.log")
-            dragged = []
-        }
-        guard let outline, !refreshing, dragged.isEmpty else { return }
+        // Rows hold still until AppKit ends the drag: it closes the drop gap on the rows it had, after the drop elsewhere
+        // and after a refused drag's image slides back, with the button already up (T-353).
+        guard dragged.isEmpty else { return holdUntilDragEnds() }
+        guard let outline, !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
         // Another section took the page's selection: the rows unselect, kept aside for when Tab comes back.
@@ -564,6 +568,20 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// The outline shows every row of the snapshot: if AppKit lost one of the changes, a reload puts them back, logged.
     private func verifyRows() {
         guard let outline else { return }
+        // A shown task whose links don't show under its row (T-352, not reproduced): its row again, logged.
+        var linkless: [Int] = []
+        outline.enumerateAvailableRowViews { _, row in
+            guard let id = (outline.item(atRow: row) as? OutlineNode)?.task, withLinks.contains(id),
+                  let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return }
+            if cell.linksHost == nil || outline.rect(ofRow: row).height < gap(of: id) + Metric.outlineRow + Metric.linksLine - 0.5 { linkless.append(row) }
+        }
+        if !linkless.isEmpty {
+            Self.repairs += 1
+            AppLog.write("outline: \(linkless.compactMap { (outline.item(atRow: $0) as? OutlineNode)?.task }.map { "T-\($0)" }.joined(separator: ", ")) have links their rows don't show; refitted",
+                         to: "outline.log")
+            for row in linkless { configure(row: row) }
+            outline.noteHeightOfRows(withIndexesChanged: IndexSet(linkless))
+        }
         var expected = 0
         func count(_ parent: OutlineNode.Kind?) {
             for child in snapshot.children(of: parent) {
@@ -844,7 +862,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         }
         if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, let id = node.task {
             faces.gap = gap
-            faces.show(model: model, id: id, folded: !outline.isItemExpanded(node))
+            faces.show(model: model, id: id)
         }
     }
 
@@ -940,6 +958,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// A diagram finished drawing: description heights may have changed.
     func descriptionsChanged() {
         heights.removeAll()
+        // Mid-drag the gap's heights stay: the refresh after the drag notes the new ones.
+        guard dragged.isEmpty else { return }
         noteDescriptionHeights()
         refreshVisibleCells()
         reportHeight()
@@ -1006,7 +1026,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (Self.facesColumn, .task(let id)):
             let cell = outlineView.makeView(withIdentifier: FacesCell.id, owner: nil) as? FacesCell ?? FacesCell()
             cell.gap = gap(of: id)
-            cell.show(model: model, id: id, folded: !outlineView.isItemExpanded(node))
+            cell.show(model: model, id: id)
             return cell
         case (Self.mainColumn, .task(let id)):
             let cell = outlineView.makeView(withIdentifier: TaskCell.id, owner: nil) as? TaskCell ?? TaskCell()
@@ -1439,10 +1459,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
         session.draggingFormation = .list
-        dragged = draggedItems.compactMap { ($0 as? OutlineNode)?.task }
+        dragBegan(draggedItems.compactMap { ($0 as? OutlineNode)?.task })
     }
 
-    private var dragged: [Int] = []
+    func dragBegan(_ ids: [Int]) { dragged = ids }
+
+    private(set) var dragged: [Int] = []
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         if let route = draggedRoute(info) {
@@ -1482,12 +1504,37 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         dragEnded()
     }
 
-    /// A drag ended, dropped, cancelled or outside the window: nothing stays marked.
+    /// A drag ended, dropped, cancelled or outside the window: nothing stays marked. The rows change once AppKit is done
+    /// with the drag session, after this call returns.
     func dragEnded() {
         dragged = []
-        refreshVisibleCells()
-        DispatchQueue.main.async { [weak self] in self?.refresh() }
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshVisibleCells()
+            self?.refresh()
+        }
     }
+
+    /// A drag whose end never comes (its source gone) holds the rows until the button has been up 3 s.
+    private func holdUntilDragEnds() {
+        guard dragWatch == nil else { return }
+        dragWatch = Task { [weak self] in
+            var upSince: Date?
+            while let self, !self.dragged.isEmpty {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard NSEvent.pressedMouseButtons & 1 == 0 else { upSince = nil; continue }
+                let since = upSince ?? .now
+                upSince = since
+                if Date.now.timeIntervalSince(since) >= 3 {
+                    AppLog.write("outline: a drag of \(self.dragged) never ended; rows move again", to: "outline.log")
+                    self.dragged = []
+                }
+            }
+            self?.dragWatch = nil
+            self?.refresh()
+        }
+    }
+
+    private var dragWatch: Task<Void, Never>?
 
     /// A file, an artifact, a PR or a task dragged from a row or a chip.
     private func draggedRoute(_ info: NSDraggingInfo) -> ModalRoute? {

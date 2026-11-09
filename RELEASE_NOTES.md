@@ -1,5 +1,22 @@
 # Release notes
 
+## v11.1 · 2026-11-09
+
+A stability release.
+
+**Fixes**
+- Dragging a task out of the outline and dropping it elsewhere in the window no longer crashes HQ. The rows now hold still until the drag has really ended.
+- Nothing moves on its own: a done task stays where it is until you move it, or a session does through `hq`. Before, done tasks left Tasks for the Backlog the next morning, and a done task you brought back to Tasks went straight back.
+- A task's row shows the face of its own session, open or folded. Before, a folded task showed its subtasks' sessions too, so opening it changed its face.
+- Closed Sessions no longer fills with empty "hq" sessions. The claude daemon behind background sessions starts spare Claudes and kills them seconds later; a session that ends with no prompt, name or link now leaves no record, and the ones already there are gone.
+- A title you edit takes the row's width at once, also when you go straight from another title or a new task.
+- The disclosure triangle shows the pointing hand, and so does a row's description toggle when it shows at rest; a check now sweeps every row control for it.
+- A session started in the background (`claude --bg`): a click on its face brings forward the Ghostty tab that shows it, else its window says it runs in the background. **Close Session** stops it (`claude stop`); its conversation stays, to resume. Before, the click opened its window and Close Session did nothing.
+- Close Session on a session HQ can't reach opens its window, which says so, instead of doing nothing.
+
+**Sessions**
+- **Fork Session**, in every session menu: a new session with this one's conversation so far, in a new Ghostty tab, as an ordinary session HQ focuses and closes like the others.
+
 ## v11 · 2026-11-09
 
 **Slack**

@@ -103,12 +103,15 @@ final class TitleField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted, let task { (delegate as? OutlineCoordinator)?.titleFocused(task) }
         if !accepted { cell?.isScrollable = false }
+        // Edited, the field takes the row's width; at rest, its text's (T-351).
+        superview?.needsLayout = true
         return accepted
     }
 
     override func textDidEndEditing(_ notification: Notification) {
         super.textDidEndEditing(notification)
         cell?.isScrollable = false
+        superview?.needsLayout = true
     }
 
     /// ⇧⌘B, ⌘I and the other chords come as key equivalents while the title is edited.
@@ -748,6 +751,8 @@ final class FacesCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
     private let grip = GripView()
     private let faces = FaceStackView()
+    /// The session whose face shows.
+    var shownSession: String? { faces.faces.first?.session }
     /// Space above the task's line.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
 
@@ -767,9 +772,9 @@ final class FacesCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func show(model: AppModel, id: Int, folded: Bool) {
-        // One face: the session that matters most; the tooltip names them all.
-        let sessions = model.byImportance(model.sessions(on: id, withSubtasks: folded, includeEnded: true))
+    func show(model: AppModel, id: Int) {
+        // One face: the session that matters most on the task itself, open or folded; the tooltip names them all.
+        let sessions = model.byImportance(model.sessions(on: id, includeEnded: true))
         faces.faces = sessions.map { session in
             FaceStackView.Face(spec: session.face, badge: session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil,
                                label: "\(session.name), \(session.isRunning ? session.status.title.lowercased() : "ended")" + (session.status.isNew ? ", new" : ""),

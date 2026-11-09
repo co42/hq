@@ -109,18 +109,3 @@ public enum NoteDate {
         return String(format: "%04d-%02d-%02dT%02d:%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
     }
 }
-
-/// A done top-level task on the overview moves to the Backlog the next morning.
-public enum DoneRule {
-    public static let hour = 5
-
-    /// The first 05:00 local after the task was done.
-    public static func moves(after done: Date, calendar: Calendar = .current) -> Date {
-        calendar.nextDate(after: done, matching: DateComponents(hour: hour, minute: 0, second: 0),
-                          matchingPolicy: .nextTime, direction: .forward) ?? done.addingTimeInterval(86_400)
-    }
-
-    public static func shouldMove(done: Date, now: Date, calendar: Calendar = .current) -> Bool {
-        now >= moves(after: done, calendar: calendar)
-    }
-}

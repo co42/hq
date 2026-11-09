@@ -551,6 +551,7 @@ struct SessionMenu: View {
         if let pullRequest {
             Button("Start Another Session on \(pullRequest.reference)…") { model.beginStart(pullRequest: pullRequest) }
         }
+        Button("Fork Session") { model.forkSession(session.id) }
         if session.isRunning, session.tty != nil {
             Divider()
             Button("Close Session") { model.closeSession(session.id) }

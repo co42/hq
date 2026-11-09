@@ -71,6 +71,7 @@ extension AppModel {
         } else {
             put(item)
         }
+        if item.status.state == .ended, forgetIfEmpty(item.id) { return }
         watchTitle(of: item)
         if item.status.needsYou, !waited { sessionBlocked(item.id) }
         if let published = event.artifact { capture(published, from: item) }
@@ -169,9 +170,25 @@ extension AppModel {
         return found.count == 1 ? found[0] : nil
     }
 
-    /// The grid, in the user's order.
+    /// The grid, in the user's order. A Claude outside Ghostty that hasn't had a prompt yet stays off it: the claude daemon
+    /// starts spares around background sessions and kills them seconds later (T-354).
     var gridSessions: [SessionItem] {
-        sessions.filter(\.onGrid).sorted { ($0.order, $0.started) < ($1.order, $1.started) }
+        sessions.filter { $0.onGrid && !($0.isRunning && !$0.inGhostty && isEmptySession($0)) }
+            .sorted { ($0.order, $0.started) < ($1.order, $1.started) }
+    }
+
+    /// A session with nothing in it: no prompt, no name or title, no link, no task. Nothing to resume either.
+    func isEmptySession(_ item: SessionItem) -> Bool {
+        item.customName == nil && (item.title ?? "").isEmpty && item.firstPrompt == nil && item.links.isEmpty && tasks(of: item.id).isEmpty
+    }
+
+    /// An empty session that ended leaves no record, in Closed Sessions or the store.
+    func forgetIfEmpty(_ id: SessionItem.ID) -> Bool {
+        guard let item = session(id), !item.isRunning, isEmptySession(item) else { return false }
+        titleWatchers.removeValue(forKey: id)?.cancel()
+        backgroundHandles.removeValue(forKey: id)
+        sessions.removeAll { $0.id == id }
+        return true
     }
 
     /// Closed in the last 14 days, newest first.
@@ -185,12 +202,10 @@ extension AppModel {
         tasks.filter { $0.sessions.contains(session) }
     }
 
-    /// Open sessions on a task, and on its subtasks while it's folded.
     /// The sessions on a task: open ones, then with `includeEnded` the ended ones, latest first.
-    func sessions(on id: Int, withSubtasks: Bool = false, includeEnded: Bool = false) -> [SessionItem] {
-        let ids = withSubtasks ? taskTree.subtree(of: id) : [id]
+    func sessions(on id: Int, includeEnded: Bool = false) -> [SessionItem] {
         var seen = Set<String>()
-        let linked = ids.compactMap { task($0) }.flatMap(\.sessions).filter { seen.insert($0).inserted }
+        let linked = (task(id)?.sessions ?? []).filter { seen.insert($0).inserted }
         return Self.openFirst(linked.compactMap { session($0) }, includeEnded: includeEnded)
     }
 
@@ -245,13 +260,21 @@ extension AppModel {
         let now = Date.now
         for var item in sessions where item.pid == pid {
             titleWatchers.removeValue(forKey: item.id)?.cancel()
+            backgroundHandles.removeValue(forKey: item.id)
             var live = item.live
             live.end(now)
             item.live = live
             item.pid = nil
             if item.closedAt == nil { item.closedAt = now }
             put(item)
+            _ = forgetIfEmpty(item.id)
         }
+    }
+
+    /// Ended sessions with nothing in them, as Claude's daemon left them before HQ forgot those: once the tasks are read,
+    /// since a task linked to a session keeps it.
+    func forgetEmptySessions() {
+        for item in sessions where item.closedAt != nil { _ = forgetIfEmpty(item.id) }
     }
 
     /// A /rename writes only the transcript: while the session runs, HQ reads its title a moment after the file changes.
@@ -397,21 +420,70 @@ extension AppModel {
         registerUndo("Move Session") { $0.restoreOrder(current) }
     }
 
-    /// Close Session: a running session gets `/exit` and Return in its terminal.
-    /// Close Session: /exit in its terminal, then the terminal closes once Claude has quit.
+    /// Close Session: /exit in its terminal, then the terminal closes once Claude has quit. A background session is
+    /// stopped (`claude stop`), its conversation kept; one HQ can reach neither way opens its modal, which says so.
     func closeSession(_ id: String) {
         guard let item = session(id), item.isRunning, let tty = item.tty else { return }
-        if let pid = item.pid { closingTerminals[pid] = tty }
+        let known = backgroundHandles[id]
+        if known == nil, let pid = item.pid { closingTerminals[pid] = tty }
         if Store.isOverridden {
-            ghosttyLog.append("type /exit in \(tty)")
+            ghosttyLog.append(known.map { "claude stop \($0)" } ?? "type /exit in \(tty)")
             return
         }
         Task {
-            let result = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
-                do throws(Ghostty.Failure) { return .success(try Ghostty.type("/exit", tty: tty)) } catch { return .failure(error) }
+            let result = await Task.detached { () -> Result<Closed, Ghostty.Failure> in
+                do throws(Ghostty.Failure) {
+                    if known == nil, try Ghostty.type("/exit", tty: tty) { return .success(.exited) }
+                    guard let handle = known ?? Self.backgroundHandle(of: id, pid: item.pid) else { return .success(.unreachable) }
+                    return .success(Self.claude(item.pid, ["stop", handle]) == nil ? .unreachable : .stopped(handle))
+                } catch {
+                    return .failure(error)
+                }
             }.value
-            ghostty { _ = try result.get() }
+            AppLog.write("close \(item.name) on \(tty): \(result)", to: "clicks.log")
+            ghostty {
+                let closed = try result.get()
+                if closed != .exited, let pid = item.pid { self.closingTerminals.removeValue(forKey: pid) }
+                switch closed {
+                case .exited: break
+                case .stopped(let handle): self.backgroundHandles[id] = handle
+                case .unreachable: if self.modal != .session(id) { self.open(.session(id)) }
+                }
+            }
         }
+    }
+
+    private enum Closed: Equatable, Sendable { case exited, stopped(String), unreachable }
+
+    /// Where a click on a running session took it: its terminal, the tab that shows a background session, its modal for a
+    /// background session no tab shows, or its modal for one HQ can't reach.
+    private enum Reached: Equatable, Sendable { case terminal, shown(handle: String, tty: String), background(handle: String), nowhere }
+
+    /// A session's handle when it runs in the background, from `claude agents`: off the main thread.
+    nonisolated static func backgroundHandle(of id: String, pid: Int32?) -> String? {
+        claude(pid, ["agents", "--json"]).flatMap { BackgroundSession.handle(of: id, agents: $0) }
+    }
+
+    /// A running session Ghostty doesn't have: whether it runs in the background, for its modal.
+    func learnBackground(_ id: SessionItem.ID) {
+        guard let item = session(id), item.isRunning, !item.inGhostty, backgroundHandles[id] == nil, !Store.isOverridden else { return }
+        Task {
+            if let handle = await Task.detached(operation: { Self.backgroundHandle(of: id, pid: item.pid) }).value { backgroundHandles[id] = handle }
+        }
+    }
+
+    /// What `claude` printed, run as the session's own Claude (else the one on the user's path); nil when it failed.
+    nonisolated private static func claude(_ pid: Int32?, _ arguments: [String]) -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pid.flatMap(ClaudeProcess.path(of:)) ?? URL.homeDirectory.appending(path: ".local/bin/claude").path)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return process.terminationStatus == 0 ? data : nil
     }
 
     // MARK: Ghostty
@@ -441,19 +513,43 @@ extension AppModel {
         }
         // Not in a terminal HQ knows, or not found in Ghostty: its modal says where it runs. Nothing starts.
         guard let tty = item.tty else { return open(.session(id)) }
+        // A background session has no terminal of its own: the Ghostty tab that shows it comes forward, the only one titled
+        // with its name that runs Claude (Claude's agent view titles it so), whichever session owns that tab. HQ never
+        // opens one: without such a tab, its modal says where it runs.
+        let known = backgroundHandles[id]
         if Store.isOverridden {
-            ghosttyLog.append("focus \(tty)")
+            ghosttyLog.append(known.map { _ in "focus the tab titled \(item.name)" } ?? "focus \(tty)")
             return
         }
         Task {
-            let result = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
-                do throws(Ghostty.Failure) { return .success(try Ghostty.focus(tty: tty)) } catch { return .failure(error) }
+            let result = await Task.detached { () -> Result<Reached, Ghostty.Failure> in
+                do throws(Ghostty.Failure) {
+                    if known == nil, try Ghostty.focus(tty: tty) { return .success(.terminal) }
+                    guard let handle = known ?? Self.backgroundHandle(of: id, pid: item.pid) else { return .success(.nowhere) }
+                    if let shown = BackgroundSession.terminal(showing: item.name, among: try Ghostty.terminals(),
+                                                              runsClaude: ClaudeProcess.runsClaude(tty:)),
+                       try Ghostty.focus(tty: shown) {
+                        return .success(.shown(handle: handle, tty: shown))
+                    }
+                    return .success(.background(handle: handle))
+                } catch {
+                    return .failure(error)
+                }
             }.value
             AppLog.write("focus \(item.name) (\(item.status.state)) on \(tty): \(result)", to: "clicks.log")
             ghostty {
-                let found = try result.get()
-                self.setInGhostty(id, found)
-                if !found, self.modal != .session(id) { self.open(.session(id)) }
+                switch try result.get() {
+                case .terminal: self.setInGhostty(id, true)
+                case .shown(let handle, _):
+                    self.backgroundHandles[id] = handle
+                    self.setInGhostty(id, false)
+                case .background(let handle):
+                    self.backgroundHandles[id] = handle
+                    fallthrough
+                case .nowhere:
+                    self.setInGhostty(id, false)
+                    if self.modal != .session(id) { self.open(.session(id)) }
+                }
             }
         }
     }
@@ -561,11 +657,7 @@ extension AppModel {
     func startSession(named name: String, in directory: String, task taskID: Int? = nil, pullRequest: String? = nil, message: String = "",
                       done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
         let id = UUID().uuidString.lowercased()
-        let git = GitInfo.describe(directory)
-        var item = SessionItem(id: id, customName: name, status: SessionStatus(state: .idle, since: .now), cwd: directory,
-                               repo: git.repo, branch: git.branch, origin: GitInfo.origin(directory), started: .now,
-                               order: nextGridOrder)
-        item.faceSalt = faceSalt(for: id)
+        var item = newSession(id, named: name, in: directory)
         // A review session shows on its PR from the start.
         if let pullRequest { item.links.append(pullRequest) }
         put(item)
@@ -580,6 +672,31 @@ extension AppModel {
             done(started)
         }
         return id
+    }
+
+    /// Fork Session: a new session with this one's conversation so far, in a new Ghostty tab in its folder, named after
+    /// it with Claude's fork mark. HQ gives it its id, so its card joins the end of the grid at once.
+    @discardableResult
+    func forkSession(_ source: SessionItem.ID) -> SessionItem.ID? {
+        guard let original = session(source) else { return nil }
+        let id = UUID().uuidString.lowercased()
+        let name = "\(original.name) ⑂"
+        put(newSession(id, named: name, in: original.cwd))
+        let command = "claude --resume \(original.id) --fork-session --session-id \(id) --name \(Self.shellQuoted(name))"
+        newTab(in: original.cwd, command: command) { [weak self] started in
+            if !started { self?.sessions.removeAll { $0.id == id } }
+        }
+        return id
+    }
+
+    /// A session HQ starts, before Claude reports it: at the end of the grid, with a face no open session shares.
+    private func newSession(_ id: SessionItem.ID, named name: String, in directory: String) -> SessionItem {
+        let git = GitInfo.describe(directory)
+        var item = SessionItem(id: id, customName: name, status: SessionStatus(state: .idle, since: .now), cwd: directory,
+                               repo: git.repo, branch: git.branch, origin: GitInfo.origin(directory), started: .now,
+                               order: nextGridOrder)
+        item.faceSalt = faceSalt(for: id)
+        return item
     }
 
     /// `~/Library/Application Support/HQ/Prompts/<id>.md`, read by the shell when Claude starts.
@@ -609,7 +726,7 @@ extension AppModel {
     }
 
     /// One shell word for fish, zsh and bash alike: single quotes, with none inside.
-    static func shellQuoted(_ text: String) -> String {
+    nonisolated static func shellQuoted(_ text: String) -> String {
         let clean = text.replacingOccurrences(of: "'", with: "’").replacingOccurrences(of: "\\", with: "/")
             .components(separatedBy: .newlines).joined(separator: " ")
         return "'\(clean)'"

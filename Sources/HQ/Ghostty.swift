@@ -1,4 +1,5 @@
 import AppKit
+import HQKit
 
 /// Ghostty through AppleScript (PLAN.md §2): focus the terminal a session runs in, or open a
 /// tab that runs a command. HQ never owns a terminal.
@@ -95,6 +96,25 @@ enum Ghostty {
             return true
         end tell
         """).booleanValue
+    }
+
+    /// Every terminal's tty and title.
+    nonisolated static func terminals() throws(Failure) -> [BackgroundSession.Terminal] {
+        guard isRunning else { return [] }
+        let list = try run("""
+        tell application id "\(bundleID)"
+            set out to {}
+            repeat with term in every terminal
+                set end of out to (tty of term) & tab & (name of term)
+            end repeat
+            return out
+        end tell
+        """)
+        guard list.numberOfItems > 0 else { return [] }
+        return (1...list.numberOfItems).compactMap { index in
+            let parts = (list.atIndex(index)?.stringValue ?? "").split(separator: "\t", maxSplits: 1).map(String.init)
+            return parts.count == 2 ? BackgroundSession.Terminal(tty: parts[0], title: parts[1]) : nil
+        }
     }
 
     /// The tty of the terminal focused in Ghostty's front window. AppleScript: call it off the main thread when you can.
