@@ -265,16 +265,32 @@ final class TaskOutlineView: NSOutlineView {
         return frame
     }
 
-    /// Tasks and the Backlog each sit on a raised card, from the row under their header to their last row.
-    override func drawBackground(inClipRect clipRect: NSRect) {
-        super.drawBackground(inClipRect: clipRect)
-        let reach = Metric.shadowFarRadius * 2
-        for card in listCards() where card.insetBy(dx: 0, dy: -reach).intersects(clipRect) {
-            // The blurred shadow shows only around a card's top and bottom: a scroll through its middle skips it.
-            let edges = clipRect.insetBy(dx: 0, dy: -reach)
-            Self.drawCard(card, shadow: edges.minY <= card.minY + reach || edges.maxY >= card.maxY - reach)
-        }
+    /// Tasks and the Backlog each sit on a raised card, from the row under their header to their last row: layers under
+    /// the rows, so a scroll redraws nothing (T-337).
+    private lazy var cards: CardsView = {
+        let view = CardsView()
+        addSubview(view, positioned: .below, relativeTo: nil)
+        return view
+    }()
+
+    override func tile() {
+        super.tile()
+        placeCards()
     }
+
+    override func layout() {
+        super.layout()
+        placeCards()
+    }
+
+    func placeCards() {
+        if cards.frame != bounds { cards.frame = bounds }
+        if subviews.first !== cards { addSubview(cards, positioned: .below, relativeTo: nil) }
+        cards.show(listCards())
+    }
+
+    /// The cards' layers, for the UI test.
+    var cardsView: CardsView { cards }
 
     /// The rows of each list under its header, as one rect each.
     private func listCards() -> [NSRect] {
@@ -294,38 +310,6 @@ final class TaskOutlineView: NSOutlineView {
         }
         close(numberOfRows - 1)
         return cards
-    }
-
-    /// A raised card in AppKit: the surface, its far and contact shadows, a hairline.
-    static func drawCard(_ rect: NSRect, shadow: Bool = true) {
-        let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: Radius.card, yRadius: Radius.card)
-        guard shadow else {
-            Ink.surfaceNS.setFill()
-            path.fill()
-            Ink.cardHairlineNS.setStroke()
-            path.lineWidth = 1
-            path.stroke()
-            return
-        }
-        NSGraphicsContext.saveGraphicsState()
-        let far = NSShadow()
-        far.shadowColor = Ink.shadowFarNS
-        far.shadowBlurRadius = Metric.shadowFarRadius
-        // The outline is flipped; shadow offsets aren't.
-        far.shadowOffset = NSSize(width: 0, height: -Metric.shadowFarY)
-        far.set()
-        Ink.surfaceNS.setFill()
-        path.fill()
-        let near = NSShadow()
-        near.shadowColor = Ink.shadowNearNS
-        near.shadowBlurRadius = Metric.shadowNearRadius
-        near.shadowOffset = NSSize(width: 0, height: -Metric.shadowNearY)
-        near.set()
-        path.fill()
-        NSGraphicsContext.restoreGraphicsState()
-        Ink.cardHairlineNS.setStroke()
-        path.lineWidth = 1
-        path.stroke()
     }
 
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {

@@ -393,6 +393,8 @@ final class AppModel {
     @ObservationIgnored var slackService: SlackService?
     /// The Slack links a test run would have opened.
     @ObservationIgnored var slackLog: [String] = []
+    /// How many times a test run asked HQ to restart.
+    @ObservationIgnored var restarts = 0
     /// While Ghostty is in front: reads the terminal the user looks at, every few seconds.
     @ObservationIgnored var focusTimer: Timer?
     @ObservationIgnored var focusChecking = false

@@ -34,12 +34,18 @@ enum SelfTest {
             let focus = barMenu.items.first { $0.title == "Focus" }?.submenu
             focus?.update()
             let first = focus?.items.first?.title ?? ""
-            check("the menu bar icon's menu: Open HQ first, then Notifications, New Task…, New Reminder…, Focus ▸, Quit HQ (T-325)",
+            check("the menu bar icon's menu: Open HQ first, then Notifications, New Task…, New Reminder…, Focus ▸, Restart HQ, Quit HQ (T-325, T-336)",
                   titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task…")
-                  && titles.contains("New Reminder…") && titles.last == "Quit HQ", "\(titles)")
+                  && titles.contains("New Reminder…") && titles.last == "Quit HQ" && titles.dropLast().last == "Restart HQ", "\(titles)")
             check("its Focus lists the sessions that wait on the user first, names cut at 30", model.blockedSessions.first.map { first == MenuBarMenu.title($0) } ?? false
                   && (focus?.items ?? []).allSatisfy { ($0.title.components(separatedBy: " · ").first ?? "").count <= MenuBarMenu.nameLimit }
                   && (focus?.items.count ?? 0) == model.menuBarSessions.count, "\(first), \(focus?.items.count ?? 0) of \(model.menuBarSessions.count)")
+            let appMenu = (NSApp.mainMenu?.items.first?.submenu?.items ?? []).filter { !$0.isSeparatorItem }.map(\.title)
+            let quit = appMenu.firstIndex { $0.hasPrefix("Quit") }
+            check("the HQ menu has Restart HQ right above Quit HQ (T-336)", quit.map { $0 > 0 && appMenu[$0 - 1] == "Restart HQ" } ?? false, "\(appMenu)")
+            let restarts = model.restarts
+            model.restart()
+            check("Restart HQ in a test run is only counted", model.restarts == restarts + 1)
             noticeChecks(model)
             faceChecks(model)
             await sessionChecks(model)
@@ -327,12 +333,28 @@ enum SelfTest {
         let stored = (try? Storage(url: Store.url))?.sessions() ?? []
         check("a session's face salt survives a relaunch",
               open.allSatisfy { session in stored.first { $0.id == session.id }?.faceSalt == session.faceSalt } && !stored.isEmpty)
-        // A session that would look like an open one gets the next salt.
+        // A new session's face is set apart from the open ones: background and headwear, skin tone, skin group (T-293).
         let id = "5eed0000-face-4000-8000-000000000001"
-        let taken = model.sessions.first { $0.closedAt == nil }!.face.signature
-        var salt = 0
-        for candidate in 0...8 where FaceSpec(id: id, salt: candidate).signature != taken { salt = candidate; break }
-        check("a face salt is the first that differs from the open sessions", model.faceSalt(for: id) >= 0 && FaceSpec(id: id, salt: salt).signature != taken)
+        let faces = open.map(\.face)
+        let new = FaceSpec(id: id, salt: model.faceSalt(for: id))
+        let groups = Dictionary(grouping: faces) { FacePalette.group(ofSkin: $0.skin) }.mapValues(\.count)
+        check("a new session's face shares no background and headwear, nor skin tone, with an open one, in the group they show least",
+              model.faceSalt(for: id) == FaceSpec.salt(for: id, among: faces) && !signatures.contains(new.signature)
+              && !faces.map(\.skin).contains(new.skin) && groups[FacePalette.group(ofSkin: new.skin), default: 0] == groups.values.min() ?? 0,
+              "skin \(new.skin + 1) among \(faces.map { $0.skin + 1 })")
+        check("the open sessions show every skin group", Set(faces.map { FacePalette.group(ofSkin: $0.skin) }).count == 3, "\(faces.map { $0.skin + 1 })")
+        // Randomize Face (T-334): another face at once, the open sessions not looked at; Undo gives the old one back.
+        if let first = open.first {
+            let menu = NSHostingMenu(rootView: SessionMenu(session: first).environment(model))
+            menu.update()
+            check("a session's menu has Randomize Face", menu.items.contains { $0.title == "Randomize Face" })
+            model.randomizeFace(first.id)
+            let changed = model.session(first.id)?.faceSalt ?? first.faceSalt
+            check("Randomize Face gives the session another face", changed != first.faceSalt && changed >= FaceSpec.tries)
+            model.undoManager?.undo()
+            check("and Undo gives the old one back", model.session(first.id)?.faceSalt == first.faceSalt || model.undoManager == nil)
+            if var back = model.session(first.id) { back.faceSalt = first.faceSalt; model.put(back) }
+        }
     }
 
     // MARK: Sessions

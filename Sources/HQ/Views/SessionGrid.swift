@@ -556,6 +556,8 @@ struct SessionMenu: View {
             Button("Close Session") { model.closeSession(session.id) }
         }
         Divider()
+        Button("Randomize Face") { model.randomizeFace(session.id) }
+        Divider()
         Button("Copy Resume Command") { Pasteboard.copy(session.resumeCommand) }
         Button("Copy Session ID") { Pasteboard.copy(session.id) }
     }

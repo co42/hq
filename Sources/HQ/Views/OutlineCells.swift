@@ -1305,7 +1305,6 @@ struct LinkMenu: View {
         case .web(let url):
             Button("Copy Link") { Pasteboard.copy(url) }
         case .slack(let url):
-            Button("Open in Browser") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
             Button("Copy Link") { Pasteboard.copy(url) }
         case .file(let id):
             Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }

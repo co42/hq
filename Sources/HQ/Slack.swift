@@ -258,15 +258,12 @@ extension AppModel {
         Task { await slackService?.setToken(token) }
     }
 
-    /// In the Slack app when it's installed, else in the browser. Test runs only note it.
+    /// As a click on the link does (T-335): Slack's page takes it to the app, at the message, the thread or the channel.
+    /// Handed to the Slack app directly, it only comes forward. Test runs only note it.
     func openInSlack(_ url: String) {
         guard let address = URL(string: url) else { return }
         guard !Store.isOverridden else { return slackLog.append(url) }
-        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.tinyspeck.slackmacgap") {
-            NSWorkspace.shared.open([address], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
-        } else {
-            NSWorkspace.shared.open(address)
-        }
+        NSWorkspace.shared.open(address)
     }
 
     /// New Task… and New Reminder…: the Slack link on the clipboard comes with them, until × drops it (T-313).

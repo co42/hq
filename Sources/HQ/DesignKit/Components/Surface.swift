@@ -289,3 +289,80 @@ struct SectionTile: View {
             .accessibilityHidden(true)
     }
 }
+
+/// Raised cards in AppKit, as Core Animation layers (DESIGN.md §12): the surface, its hairline, a contact and a far
+/// shadow, the same as `surface()`. The GPU draws them, so a view that scrolls over them redraws nothing (T-337).
+final class CardsView: NSView {
+    private var cards: [(body: CALayer, far: CALayer)] = []
+    private var rects: [CGRect] = []
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// One card per rect, in this view's coordinates.
+    func show(_ rects: [CGRect]) {
+        guard rects != self.rects || cards.count != rects.count else { return }
+        self.rects = rects
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        while cards.count < rects.count {
+            let far = CALayer(), body = CALayer()
+            layer?.addSublayer(far)
+            layer?.addSublayer(body)
+            cards.append((body, far))
+        }
+        while cards.count > rects.count {
+            let card = cards.removeLast()
+            card.body.removeFromSuperlayer()
+            card.far.removeFromSuperlayer()
+        }
+        for (card, rect) in zip(cards, rects) {
+            let path = CGPath(roundedRect: CGRect(origin: .zero, size: rect.size), cornerWidth: Radius.card, cornerHeight: Radius.card, transform: nil)
+            for part in [card.far, card.body] {
+                part.frame = rect
+                part.shadowPath = path
+                part.cornerRadius = Radius.card
+                part.cornerCurve = .continuous
+            }
+            card.far.shadowRadius = Metric.shadowFarRadius
+            card.far.shadowOffset = CGSize(width: 0, height: Metric.shadowFarY)
+            card.body.shadowRadius = Metric.shadowNearRadius
+            card.body.shadowOffset = CGSize(width: 0, height: Metric.shadowNearY)
+            card.body.borderWidth = 1
+        }
+        CATransaction.commit()
+        paint()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    /// The colors in this view's appearance.
+    private func paint() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            for card in cards {
+                card.far.shadowColor = Ink.shadowFarNS.cgColor
+                card.far.shadowOpacity = 1
+                card.body.backgroundColor = Ink.surfaceNS.cgColor
+                card.body.borderColor = Ink.cardHairlineNS.cgColor
+                card.body.shadowColor = Ink.shadowNearNS.cgColor
+                card.body.shadowOpacity = 1
+            }
+        }
+        CATransaction.commit()
+    }
+}

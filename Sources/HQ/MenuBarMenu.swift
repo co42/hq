@@ -33,6 +33,7 @@ struct MenuBarMenu: View {
         }
         .disabled(sessions.isEmpty)
         Divider()
+        Button("Restart HQ") { model.restart() }
         Button("Quit HQ") { NSApp.terminate(nil) }
     }
 
@@ -50,6 +51,18 @@ extension AppModel {
     var menuBarSessions: [SessionItem] {
         let running = gridSessions.filter(\.isRunning)
         return running.filter(\.status.needsYou) + running.filter { !$0.status.needsYou }
+    }
+
+    /// Restart HQ (T-336): it quits, and a small shell opens it again once this process is gone (giving up after a minute,
+    /// should the quit be cancelled). Test runs only count it.
+    func restart() {
+        guard !Store.isOverridden else { return restarts += 1 }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "for i in $(seq 300); do kill -0 \"$1\" 2>/dev/null || break; sleep 0.2; done; kill -0 \"$1\" 2>/dev/null || open \"$0\"",
+                             Bundle.main.bundlePath, "\(ProcessInfo.processInfo.processIdentifier)"]
+        do { try process.run() } catch { return }
+        NSApp.terminate(nil)
     }
 
     /// HQ's window in front from any app, even after ⌘W hid it (T-318). Activation alone may be refused while another

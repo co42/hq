@@ -1,9 +1,9 @@
 # Release notes
 
-## v11 · 2026-11-08
+## v11 · 2026-11-09
 
 **Slack**
-- A Slack message, thread or channel links to a task or a reminder as a pull request does: paste it in **Link…**. Under a task it's a chip with the channel at rest ("#registry"), and "Julien in #registry: its first line" under the pointer; a double-click opens it in the Slack app.
+- A Slack message, thread or channel links to a task or a reminder as a pull request does: paste it in **Link…**. Under a task it's a chip with the channel at rest ("#registry"), and "Julien in #registry: its first line" under the pointer. A double-click opens it as a click on a Slack link does: in the Slack app, at the message, the thread or the channel.
 - **Settings › Slack**: paste a user token, kept in the Keychain. HQ reads a linked message once to name it. It never writes to Slack and follows no conversation.
 - Copy a message's link in Slack, then **New Task…** or **New Reminder…**: it comes with the link, named after the message. That copy comes to each new one until you remove it with ×.
 
@@ -15,11 +15,23 @@
 **Notifications**
 - **New Reminder…** has Links too: anything Link… finds, or the Slack link you copied.
 
+**Sessions**
+- Faces come in nine skin tones, three light, three medium and three deep; before, most read brown or darker.
+- A new session's face takes a skin tone no open session wears, in the group the grid shows least, so the grid mixes light, medium and deep. Existing faces change their skin once; the rest of each face stays.
+- **Randomize Face** in a session's menu (a card's, a face's, Session in the menu bar) draws another face for it. Undo gives the old one back.
+
+**HQ**
+- **Restart HQ**, right above Quit HQ in the HQ menu and the menu bar icon's menu: HQ quits and opens again.
+
 **The hq command, and hq plugin 0.7.4**
 - `hq task link` and `hq remind --link` take a Slack message's link, and `hq task show` lists it as one. The skills say so.
 
 **Fixes**
 - The pointing hand shows over the links under a task every time, not only now and then.
+- Scrolling no longer catches on its first step: the cards behind Tasks and the Backlog are drawn by the GPU now.
+
+**For contributors**
+- The flaky 500-task scroll check passes run after run; a stall report says which step was the worst.
 
 ## v10 · 2026-11-07
 

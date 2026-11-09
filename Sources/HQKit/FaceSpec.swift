@@ -18,6 +18,12 @@ public struct RGB: Sendable, Hashable {
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
 
+    /// CIELAB L*: how light it looks, 0 to 100.
+    public var lightness: Double {
+        let y = luminance
+        return y > 0.008856 ? 116 * pow(y, 1.0 / 3) - 16 : 903.3 * y
+    }
+
     public func contrast(_ other: RGB) -> Double {
         let (a, b) = (luminance, other.luminance)
         return (max(a, b) + 0.05) / (min(a, b) + 0.05)
@@ -31,7 +37,17 @@ public enum FacePalette {
         0xE3DCB3, 0xBCE7CE, 0xB2E5F2, 0xC7DCFF, 0xE3D2F9, 0xF8CDE0,
         0x59914D, 0x00958F, 0x3188BE, 0x7377C3, 0x9E68AB, 0xB3628A,
     ].map(RGB.init)
-    public static let skins: [RGB] = [0xF7D7C1, 0xEFC3A0, 0xE0A87E, 0xC68A5E, 0xA86E46, 0x8A5535, 0x6A3F27, 0x4A2B1A].map(RGB.init)
+    /// Three light (CIELAB L* 90, 84, 78), three medium (71, 64, 60) and three deep (43, 33, 22) tones (T-293).
+    public static let skins: [RGB] = [
+        0xF9DFCB, 0xF2CBAA, 0xE8B993,
+        0xD9A472, 0xC8905F, 0xBA8556,
+        0x8B5A3A, 0x6C432B, 0x4B2D1D,
+    ].map(RGB.init)
+
+    public enum SkinGroup: Int, Sendable, CaseIterable { case light, medium, deep }
+
+    /// Three tones in each group, light to deep.
+    public static func group(ofSkin index: Int) -> SkinGroup { SkinGroup(rawValue: min(index / 3, 2)) ?? .deep }
     /// Six natural colors, then two playful ones.
     public static let hair: [RGB] = [0x2A1E19, 0x4B2E20, 0x7A4A2A, 0xC99A5B, 0xA9A4A0, 0xA8482A, 0x5B6CE0, 0xD06AB0].map(RGB.init)
     public static let clothes: [RGB] = [0x33363D, 0xEDEFF2, 0x3E6A9E, 0x2A8C88, 0x3F7F4E, 0x7546A0, 0xB0446F, 0xCDB894, 0x24324F, 0x6AA7E0].map(RGB.init)
@@ -144,6 +160,29 @@ public struct FaceSpec: Sendable, Hashable {
 
     /// The traits two open sessions must not share.
     public var signature: Int { background * 16 + headwear.rawValue }
+
+    /// How many salts a new session's face tries.
+    public static let tries = 16
+
+    /// The salt that sets a new session's face apart from the open sessions' (T-293): the first of `tries` whose background
+    /// and headwear none of them shares, with a skin tone none of them has, in the skin group they show least. When no
+    /// salt meets all three, the group goes first, then the tone.
+    public static func salt(for id: String, among open: [FaceSpec]) -> Int {
+        let signatures = Set(open.map(\.signature))
+        let tones = Set(open.map(\.skin))
+        let groups = Dictionary(grouping: open) { FacePalette.group(ofSkin: $0.skin) }.mapValues(\.count)
+        let fewest = FacePalette.SkinGroup.allCases.map { groups[$0] ?? 0 }.min() ?? 0
+        let faces = (0..<tries).map { FaceSpec(id: id, salt: $0) }
+        let rules: [(FaceSpec) -> Bool] = [
+            { !signatures.contains($0.signature) && !tones.contains($0.skin) && groups[FacePalette.group(ofSkin: $0.skin), default: 0] == fewest },
+            { !signatures.contains($0.signature) && !tones.contains($0.skin) },
+            { !signatures.contains($0.signature) },
+        ]
+        for rule in rules {
+            if let salt = faces.firstIndex(where: rule) { return salt }
+        }
+        return 0
+    }
 }
 
 /// SplitMix64: small, fast and the same on every run.

@@ -95,11 +95,24 @@ extension AppModel {
         return item
     }
 
-    /// Salt 0, then the next while the face shares background and headwear with an open session's (at most 8 tries).
+    /// A new session's face, set apart from the open sessions' (`FaceSpec.salt(for:among:)`, T-293).
     func faceSalt(for id: String) -> Int {
-        let taken = Set(sessions.filter { $0.closedAt == nil && $0.id != id }.map(\.face.signature))
-        for salt in 0...8 where !taken.contains(FaceSpec(id: id, salt: salt).signature) { return salt }
-        return 0
+        FaceSpec.salt(for: id, among: sessions.filter { $0.closedAt == nil && $0.id != id }.map(\.face))
+    }
+
+    /// Randomize Face in a session's menu (T-334): another face at random, whatever the open sessions wear. One Undo.
+    func randomizeFace(_ id: String) {
+        guard var item = session(id) else { return }
+        let old = item.faceSalt
+        var salt = old
+        while salt == old { salt = Int.random(in: FaceSpec.tries...Int(Int32.max)) }
+        item.faceSalt = salt
+        put(item)
+        registerUndo("Randomize Face") { model in
+            guard var back = model.session(id) else { return }
+            back.faceSalt = old
+            model.put(back)
+        }
     }
 
     var nextGridOrder: Double { (sessions.map(\.order).max() ?? 0) + 1 }

@@ -12,6 +12,11 @@ struct HQCommands: Commands {
 
     var body: some Commands {
 
+        // Right above Quit HQ (T-336).
+        CommandGroup(before: .appTermination) {
+            Button("Restart HQ") { model.restart() }
+        }
+
         // Closing the window hides it; Window › HQ brings it back.
         CommandGroup(before: .windowList) {
             Button("HQ") {
@@ -213,6 +218,9 @@ struct HQCommands: Commands {
             Divider()
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)
+            Divider()
+            Button("Randomize Face") { if let session { model.randomizeFace(session) } }
+                .disabled(session == nil)
             Divider()
             Button("Copy Resume Command") { if let item = model.session(session) { Pasteboard.copy(item.resumeCommand) } }
                 .disabled(session == nil)

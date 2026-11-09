@@ -2025,6 +2025,12 @@ extension UITest {
         await ui.settle(0.5)
         check("rows scrolled into view are drawn, to the last one", visibleRowsDrawn()
               && outline.rowView(atRow: outline.numberOfRows - 1, makeIfNecessary: false) != nil, "\(outline.visibleRect)")
+        // The lists' cards are layers under the rows, the GPU's to draw: a scroll redraws nothing for them (T-337).
+        let cardLayers = outline.cardsView.layer?.sublayers ?? []
+        let lists = (model.backlogOpen ? 2 : 1)
+        check("the lists' cards are layers under the rows, a body and a far shadow each", outline.subviews.first === outline.cardsView
+              && cardLayers.count == 2 * lists && cardLayers.allSatisfy { $0.shadowPath != nil },
+              "\(cardLayers.count) layers for \(lists) lists, first subview \(outline.subviews.first.map { String(describing: type(of: $0)) } ?? "none")")
         scrollPage(to: 0)
 
         print("  perf: baseline scroll of the small page \(baseline?.description ?? "-")")
@@ -2049,7 +2055,7 @@ final class Stall {
         var median: Int { steps.sorted()[steps.count / 2] }
         /// Steps that held the main thread longer than two frames.
         var hitches: Int { steps.filter { $0 > 34 }.count }
-        var description: String { "worst \(worst), median \(median), \(hitches) of \(steps.count) over 34 ms" }
+        var description: String { "worst \(worst) at step \(steps.firstIndex(of: worst).map { $0 + 1 } ?? 0), median \(median), \(hitches) of \(steps.count) over 34 ms" }
     }
 
     static func measure(_ steps: [() -> Void], gap: Double = 0.08) async -> Result {
