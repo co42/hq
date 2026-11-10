@@ -48,6 +48,8 @@ enum Snapshot {
             model.shownDescriptions = [44]
             (mainWindow?.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
             mainWindow?.makeFirstResponder(nil)
+            // A page's selected task would dim the next pages' cards.
+            if let root = mainWindow?.contentView { views(TaskOutlineView.self, in: root).first?.deselectAll(nil) }
             scroll(to: 0)
         }
         let pr = "https://github.com/acme/registry/pull/418"
@@ -90,6 +92,18 @@ enum Snapshot {
                 model.search = "zzzz"
             },
             Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
+            // Its relations, then its subtasks as the list's cards (2026-11-10).
+            Page(name: "modal-task-subtasks", capture: .sheet, settle: 1.5) { model in
+                reset(model)
+                model.open(.task(16))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    guard let sheet = mainWindow?.attachedSheet?.contentView,
+                          let scroll = views(NSScrollView.self, in: sheet).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
+                          let document = scroll.documentView else { return }
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: max(document.frame.height - scroll.contentView.bounds.height, 0)))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                }
+            },
             Page(name: "modal-task-edit", capture: .sheet, settle: 1.5) { model in
                 reset(model)
                 model.open(.task(13))

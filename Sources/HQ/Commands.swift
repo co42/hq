@@ -181,6 +181,18 @@ struct HQCommands: Commands {
                 .disabled(task == nil)
             Button("Link…") { if let task { model.showLinkPicker(task) } }
                 .disabled(task == nil || menu.inModal)
+            Button(menu.taskBlocked ? "Unblock" : "Block…") {
+                guard let task else { return }
+                if menu.taskBlocked { model.unblock(task) } else { model.showHoldPicker(task, .block) }
+            }
+                .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: []) : nil)
+                .disabled(task == nil || menu.inModal)
+            Button("Blocked By…") { if let task { model.showHoldPicker(task, .blockedBy) } }
+                .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: .shift) : nil)
+                .disabled(task == nil || menu.inModal)
+            Button("After…") { if let task { model.showHoldPicker(task, .after) } }
+                .keyboardShortcut(rows ? KeyboardShortcut("a", modifiers: []) : nil)
+                .disabled(task == nil || menu.inModal)
             Divider()
             Button(menu.tasksToBacklog ? (several ? "Move \(menu.tasks.count) to Backlog" : "Move to Backlog")
                    : (several ? "Move \(menu.tasks.count) to Tasks" : "Move to Tasks")) {

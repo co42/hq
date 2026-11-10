@@ -1,5 +1,33 @@
 # Release notes
 
+## v13 · 2026-11-10
+
+The task list, redrawn as cards: where a story stands, and what holds it, at a glance.
+
+**Tasks**
+- Each task is a card. A top-level task is a story: a big card with its title and its progress ("1 of 17 done", how many are doing, blocked and ready), its subtasks under it in a tray. A task with subtasks is a block, its subtasks indented.
+- **Blocked**, **blocked by** and **after**. B blocks a task, with a reason or not: its card takes a red edge and the reason. ⇧B picks the task it waits on: a red chip on its card, a click shows that task. A picks the task it comes after. Selecting a task lights what's related to it and fades the rest; Escape unselects.
+- A card's chevron shows all its subtasks, only the ones blocking another or doing, or none. ← and → do the same, ⌥← and ⌥→ for every task under it.
+- Every card starts with its session's face, or a plain avatar when no session works on it (a click offers Start Session…). The key always shows. Links sit at the end of the line, one family of icons, a PR with its status (Draft, Approved, Merged).
+- A button in a card's corner shows its description in the card. Space opens the task.
+- The whole card drags. Between cards it moves, a line showing where. Onto a card, a menu asks: as a subtask, above, below, or a link (blocked by, after). No grip and no buttons under the pointer: the card's menu has everything.
+- Under each list, a new task's card: click it, or ↓ on the last task, type, Return.
+- One task is selected at a time; several come back in a later version.
+
+**A task's window**
+- What it's blocked by, comes after, blocks and is linked to, with Blocked By… and After…. Then its subtasks as the list shows them, the same cards and keys, and a New Subtask card.
+
+**Pull Requests**
+- A PR shows only on the task it's linked to, not on every task its session is on. Sessions link it where it belongs.
+- HQ asks GitHub every 2 minutes, and the poll no longer times out with many linked items (PR #1).
+
+**Sessions** (plugin 0.9.0)
+- `hq task block` and `unblock`, `hq task link --blocked-by` and `--after`. `hq task show` shows a story's progress and what's ready. The skills tell sessions to block a task they can't go on with, and to link a PR to the task it's for.
+
+**Fixes**
+- A new task never takes the id of a deleted one. Before, it could inherit that task's files, artifacts and links, and become the task another one was blocked by.
+- Tooltips show after 100 ms.
+
 ## v12.1 · 2026-11-10
 
 A fix for the markdown editor.

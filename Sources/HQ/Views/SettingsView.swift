@@ -268,19 +268,21 @@ struct KeysSettings: View {
         ("Search", "⌥⌘F"),
     ]
     static let rowKeys: [(String, String)] = [
-        ("Next or previous task", "↓  ↑"),
+        ("Next or previous task; past the last, the new task", "↓  ↑"),
         ("Edit the title", "Return, or double-click"),
         ("Show or hide the description", "⇧Return"),
         ("Edit the description", "Double-click where to type"),
         ("New task below, new subtask", "N  ⇧N"),
         ("Indent, outdent", "⇧→  ⇧←"),
         ("Move up or down", "⇧↑  ⇧↓"),
-        ("Fold, unfold", "←  →"),
+        ("Fewer or more subtasks: none, blocking and doing, all", "←  →, or click the chevron"),
+        ("No subtasks or all, on every task under it", "⌥←  ⌥→"),
         ("Next status", "⌘Return, or click the status"),
         ("Status menu", "⌥-click the status"),
+        ("Unselect: nothing dimmed", "Escape"),
         ("Open the task", "Space  ⌘I, or double-click the row"),
         ("To the Backlog or to Tasks", "⇧⌘B"),
-        ("Start Session…", "⌥⌘Return, or click the empty face"),
+        ("Start Session…", "⌥⌘Return"),
         ("Delete", "⌫  ⌘⌫"),
     ]
     static let titleKeys: [(String, String)] = [

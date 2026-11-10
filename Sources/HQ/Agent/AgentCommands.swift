@@ -30,13 +30,13 @@ enum AgentCommands {
             // Open tasks in full; done ones only counted, the latest few named, so a long session's list stays short.
             let open = mine.filter { $0.status != .done }
             let done = mine.filter { $0.status == .done }.sorted { $0.modified > $1.modified }
-            text += open.map { "  \($0.key) [\($0.status.rawValue)] \($0.title) (\(model.list(of: $0.id) == .backlog ? "Backlog" : "Tasks"))" }
+            text += open.map { "  \($0.key) [\($0.status.rawValue)] \($0.title)\(model.flowText($0.id).map { " · " + $0 } ?? "") (\(model.list(of: $0.id) == .backlog ? "Backlog" : "Tasks"))" }
             if !done.isEmpty {
                 text.append("  \(done.count) done" + (done.count > 3 ? ", latest " : ": ") + done.prefix(3).map(\.key).joined(separator: ", "))
             }
             if !overview.isEmpty {
                 text.append("On the overview:")
-                text += overview.prefix(15).map { "  \($0.key) [\($0.status.rawValue)] \($0.title)" }
+                text += overview.prefix(15).map { "  \($0.key) [\($0.status.rawValue)] \($0.title)\(model.flowText($0.id).map { " · " + $0 } ?? "")" }
             }
             if !files.isEmpty {
                 text.append("Recent files:")
@@ -120,12 +120,46 @@ enum AgentCommands {
                      example: "hq task show T-12 --json", readOnly: true) { args, model in
             let task = try findTask(args, model)
             let tree = model.taskTree
+            let flow = model.taskFlow
             var json = task.agentJSON(model)
             json["body"] = task.body
             json["parents"] = tree.ancestors(of: task.id).compactMap { model.task($0) }.map(\.briefJSON)
-            json["subtasks"] = tree.children(of: task.id).compactMap { model.task($0) }.map(\.briefJSON)
+            // The whole tree under it, in the outline's order, with what holds each task.
+            let depth = tree.depth(of: task.id)
+            let subtree = tree.subtree(of: task.id).dropFirst().compactMap { model.task($0) }
+            json["subtasks"] = subtree.map { sub -> JSONObject in
+                var line = sub.briefJSON
+                line["depth"] = tree.depth(of: sub.id) - depth
+                if let parent = sub.parent { line["parent"] = "T-\(parent)" }
+                if let text = model.flowText(sub.id, ready: true) { line["flow"] = text }
+                if !tree.children(of: sub.id).isEmpty { line["progress"] = model.progressText(flow.tally(of: sub.id), short: true) }
+                return line
+            }
+            if !subtree.isEmpty {
+                let tally = flow.tally(of: task.id)
+                json["progress"] = model.progressText(tally, short: false)
+                let leaves = subtree.filter { tree.children(of: $0.id).isEmpty }
+                json["ready"] = leaves.filter { flow.state($0.id) == .ready }.map(\.key)
+                json["blockedTasks"] = leaves.filter { flow.state($0.id).isBlocked }.map { ["id": $0.key, "why": model.flowText($0.id) ?? "blocked"] }
+            }
             json["linked"] = model.outputs(ofTask: task.id).map { model.linkJSON($0) }
             return json
+        },
+        AgentCommand(name: "task block", summary: "Mark a task Blocked: you or the user can't do it now. The reason is optional; it holds until task unblock.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12"),
+                              .init(name: "reason", positional: true, help: "why, in a few words: who or what it waits for (optional)"), notMine],
+                     example: "hq task block T-12 \"Waiting on the CPU / RAM / disk decision\"") { args, model in
+            let task = try ownTask(args, model)
+            guard task.status != .done else { throw AgentError.invalid("\(task.key) is done: a done task can't be blocked") }
+            model.block(task.id, reason: args.string("reason"))
+            return model.task(task.id)?.agentJSON(model) ?? [:]
+        },
+        AgentCommand(name: "task unblock", summary: "Clear a task's Blocked. Links to the tasks it's blocked by stay: task unlink --blocked-by removes one.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12"), notMine],
+                     example: "hq task unblock T-12") { args, model in
+            let task = try ownTask(args, model)
+            model.unblock(task.id)
+            return model.task(task.id)?.agentJSON(model) ?? [:]
         },
         AgentCommand(name: "task add", summary: "Create a task, at the end of Tasks; at the top of the Backlog with --backlog, only when the user asks for the Backlog; under a task with --parent.",
                      params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status or a project they name, else become tags"),
@@ -281,19 +315,35 @@ enum AgentCommands {
             model.revert(edit)
             return ["reverted": keys, "text": "Undid \(what):\n" + lines.joined(separator: "\n")]
         },
-        AgentCommand(name: "task link", summary: "Link a task to a PR or issue URL, any web page, another task, a session, a file or an artifact. It shows under the task's row.",
+        AgentCommand(name: "task link", summary: "Link a task to a PR or issue URL, any web page, another task, a session, a file or an artifact. It shows under the task's row. "
+                        + "--blocked-by T-34: it can't go on until T-34 is done. --after T-34: it comes after T-34, the order you mean; nothing moves.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path"), notMine],
-                     example: "hq task link T-12 https://github.com/acme/registry/pull/418") { args, model in
+                              .init(name: "item", positional: true, help: "a URL, T-34, a session id, or a file path"),
+                              .init(name: "blocked-by", help: "T-34: blocked until T-34 is done"),
+                              .init(name: "after", help: "T-34: comes after T-34"), notMine],
+                     example: "hq task link T-12 --blocked-by T-34") { args, model in
             let task = try ownTask(args, model)
-            try linkItem(try args.required("item"), to: task.id, model)
+            if let (link, other) = try flowLink(args, model) {
+                if let refusal = model.addLink(task.id, link, other) { throw AgentError.invalid(refusalText(refusal, task.key, link, "T-\(other)")) }
+            } else {
+                try linkItem(try args.required("item"), to: task.id, model)
+            }
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
-        AgentCommand(name: "task unlink", summary: "Unlink what task link linked: a PR or issue URL, a task, a session, a file or an artifact.",
+        AgentCommand(name: "task unlink", summary: "Unlink what task link linked: a PR or issue URL, a task, a session, a file or an artifact; or --blocked-by T-34, --after T-34.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "item", required: true, positional: true, help: "a URL, T-34, a session id, or a file path"), notMine],
+                              .init(name: "item", positional: true, help: "a URL, T-34, a session id, or a file path"),
+                              .init(name: "blocked-by", help: "T-34: no longer blocked by T-34"),
+                              .init(name: "after", help: "T-34: no longer after T-34"), notMine],
                      example: "hq task unlink T-12 T-34") { args, model in
             let task = try ownTask(args, model)
+            if let (link, other) = try flowLink(args, model) {
+                guard (link == .blockedBy ? task.blockedBy : task.after).contains(other) else {
+                    throw AgentError.notFound("\(task.key) isn't \(link == .blockedBy ? "blocked by" : "after") T-\(other). `hq task show \(task.key)` shows its links")
+                }
+                model.removeLink(task.id, link, other)
+                return model.task(task.id)?.agentJSON(model) ?? [:]
+            }
             let ref = try args.required("item")
             let route = try item(ref, model)
             guard model.isLinked(route, to: task.id) else { throw AgentError.notFound("\(task.key) doesn't link \(ref). `hq task show \(task.key)` lists its links") }
@@ -561,6 +611,28 @@ enum AgentCommands {
         return row
     }
 
+    /// `--blocked-by T-34` or `--after T-34`, with nothing else to link: the kind and the task.
+    private static func flowLink(_ args: Args, _ model: AppModel) throws -> (TaskFlow.Link, Int)? {
+        let blockedBy = args.string("blocked-by"), after = args.string("after")
+        guard blockedBy != nil || after != nil else { return nil }
+        guard blockedBy == nil || after == nil, args.string("item") == nil else {
+            throw AgentError.usage("one link at a time: an item, --blocked-by T-34 or --after T-34")
+        }
+        let ref = blockedBy ?? after ?? ""
+        guard let other = TaskItem.key(ref), model.task(other) != nil else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
+        return (blockedBy != nil ? .blockedBy : .after, other)
+    }
+
+    private static func refusalText(_ refusal: TaskFlow.Refusal, _ task: String, _ link: TaskFlow.Link, _ other: String) -> String {
+        switch refusal {
+        case .itself: "a task can't wait for itself"
+        case .done: "\(task) is done"
+        case .already: "\(task) is already \(link == .blockedBy ? "blocked by" : "after") \(other)"
+        case .partOf: "\(other) is part of \(task): a task already needs its subtasks"
+        case .circle: "that would go in a circle: \(other) already needs \(task)"
+        }
+    }
+
     /// A URL, a session id or a file, linked to a task.
     private static func linkItem(_ ref: String, to id: Int, _ model: AppModel) throws {
         let route = try item(ref, model)
@@ -641,6 +713,12 @@ extension TaskItem {
         if let parent { json["parent"] = "T-\(parent)" }
         if !links.isEmpty { json["links"] = links.map(\.absoluteString) }
         if !related.isEmpty { json["related"] = related.map { "T-\($0)" } }
+        if blocked { json["blocked"] = true }
+        if blocked, let blockedReason { json["blockedReason"] = blockedReason }
+        if !blockedBy.isEmpty { json["blockedBy"] = blockedBy.map { "T-\($0)" } }
+        if !after.isEmpty { json["after"] = after.map { "T-\($0)" } }
+        json["state"] = model.taskFlow.state(id).rawValue
+        if let flow = model.flowText(id) { json["flow"] = flow }
         if let path { json["path"] = path }
         return json
     }
@@ -668,6 +746,28 @@ extension TaskItem {
 }
 
 extension AppModel {
+    /// What holds a task, for hq's lines: "Blocked: why", "blocked by T-285", "after T-283", and "ready" when asked.
+    func flowText(_ id: Int, ready: Bool = false) -> String? {
+        guard let task = task(id), task.status != .done else { return nil }
+        let flow = taskFlow
+        var parts: [String] = []
+        if task.blocked { parts.append(task.blockedReason.map { "Blocked: \($0)" } ?? "Blocked") }
+        let by = flow.openBlockers(id), before = flow.openBefore(id)
+        if !by.isEmpty { parts.append("blocked by " + by.map { "T-\($0)" }.joined(separator: ", ")) }
+        if !before.isEmpty { parts.append("after " + before.map { "T-\($0)" }.joined(separator: ", ")) }
+        if ready, flow.state(id) == .ready, taskTree.children(of: id).isEmpty { parts.append("ready") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "1 of 17 done · 5 doing · 5 blocked · 1 ready", or "1/17 · 5 blocked" for a subtask's line.
+    func progressText(_ tally: TaskFlow.Tally, short: Bool) -> String {
+        let blocked = tally.blocked > 0 ? " · \(tally.blocked) blocked" : ""
+        if short { return "\(tally.done)/\(tally.total)\(blocked)" }
+        let doing = tally.doing > 0 ? " · \(tally.doing) doing" : ""
+        let ready = tally.ready > 0 ? " · \(tally.ready) ready" : ""
+        return "\(tally.done) of \(tally.total) done\(doing)\(blocked)\(ready)"
+    }
+
     /// What `task show` lists as linked: the files, artifacts, PRs, issues and tasks under the task's row.
     func linkJSON(_ route: ModalRoute) -> JSONObject {
         switch route {

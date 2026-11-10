@@ -21,6 +21,7 @@ struct TaskEdit: Codable {
         guard let before else { return ["created"] }
         guard let after else { return ["deleted"] }
         func text<T>(_ value: T?) -> String { value.map { "\($0)" } ?? "none" }
+        func keys(_ ids: [Int]) -> String { ids.isEmpty ? "none" : ids.map { "T-\($0)" }.joined(separator: ",") }
         var lines: [String] = []
         func add(_ name: String, _ old: String, _ new: String) { if old != new { lines.append("\(name) \(old) → \(new)") } }
         add("title", "“\(before.title)”", "“\(after.title)”")
@@ -34,6 +35,9 @@ struct TaskEdit: Codable {
         add("review", text(before.review), text(after.review))
         if before.body != after.body { lines.append("description") }
         if before.links != after.links || before.related != after.related { lines.append("links") }
+        add("blocked", before.blocked ? before.blockedReason ?? "yes" : "no", after.blocked ? after.blockedReason ?? "yes" : "no")
+        add("blocked by", keys(before.blockedBy), keys(after.blockedBy))
+        add("after", keys(before.after), keys(after.after))
         if before.sessions != after.sessions { lines.append("sessions") }
         return lines
     }

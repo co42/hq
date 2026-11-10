@@ -57,11 +57,13 @@ enum UITest {
             await ui.settle(0.5)
             check("HQ opens on the cockpit", ui.window.contentView != nil)
             // UITEST_ONLY=a,b runs those groups alone.
+            // A drop on a task picks what it did before its menu: the grip's move a subtask, a carried task a link.
+            OutlineCoordinator.pickDropChoice = { menu, moved in menu.items.first { $0.title.hasPrefix(moved ? "Add as Subtask" : "Link to") } }
             let only = ProcessInfo.processInfo.environment["UITEST_ONLY"].flatMap { $0.isEmpty ? nil : Set($0.split(separator: ",").map(String.init)) }
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("storyFlow", storyFlow),
                 ("slackLinks", slackLinks),
             ]
             for (name, run) in groups where only?.contains(name) ?? true {
@@ -264,7 +266,7 @@ struct Driver {
         return true
     }
 
-    private func find<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
+    func find<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
         guard let view else { return nil }
         if let match = view as? T { return match }
         for child in view.subviews { if let match = find(type, in: child) { return match } }

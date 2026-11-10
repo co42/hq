@@ -235,13 +235,20 @@ extension AppModel {
         }
     }
 
+    /// A new task's id: above every id a task, file or artifact still names (a link, Blocked By, After), so a deleted
+    /// task's links never pass to a new one.
+    var nextTaskID: Int {
+        let named = tasks.flatMap { [$0.id] + $0.related + $0.blockedBy + $0.after } + files.flatMap(\.tasks) + artifacts.flatMap(\.tasks)
+        return (named.max() ?? 0) + 1
+    }
+
     /// A new task note, placed by the tree. Undo moves the note to the Trash.
     @discardableResult
     func addTask(title: String, placement: TaskTree.Placement, status: TaskStatus = .todo,
                  project: String? = nil, tags: [String] = [], body: String = "", session: String? = nil, links: [URL] = [],
                  renumber: [Int: TaskTree.Placement] = [:]) -> TaskItem? {
         let split = TitleTags.split(title)
-        var item = TaskItem(id: (tasks.map(\.id).max() ?? 0) + 1, title: split.title, status: status,
+        var item = TaskItem(id: nextTaskID, title: split.title, status: status,
                             project: project, tags: tags,
                             parent: placement.parent, list: placement.list, order: placement.order,
                             done: status == .done ? .now : nil,
@@ -268,9 +275,9 @@ extension AppModel {
     @discardableResult
     func addTask(after id: Int, title: String = "") -> TaskItem? {
         let tree = taskTree
-        let open = !tree.children(of: id).isEmpty && !collapsed.contains(id)
+        let open = !tree.children(of: id).isEmpty && fold[id] != .hidden
         guard let (placement, renumber) = tree.placeNew(after: id, asFirstChild: open) else { return nil }
-        if open { setCollapsed(id, false) }
+        if open { showSubtasks(id) } else if let parent = tree.parent(of: id) { showSubtasks(parent) }
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
@@ -287,7 +294,7 @@ extension AppModel {
     @discardableResult
     func addSubtask(to id: Int, title: String = "") -> TaskItem? {
         guard let (placement, renumber) = taskTree.placeNew(in: .task(id)) else { return nil }
-        setCollapsed(id, false)
+        showSubtasks(id)
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
@@ -319,6 +326,10 @@ extension AppModel {
             guard task.status != status else { return }
             task.status = status
             task.done = status == .done ? (task.done ?? .now) : nil
+            if status == .done {
+                task.blocked = false
+                task.blockedReason = nil
+            }
         }
     }
 
@@ -357,14 +368,32 @@ extension AppModel {
     func indent(_ id: Int) {
         let tree = taskTree
         if let index = tree.index(of: id), index > 0, let container = tree.container(of: id) {
-            setCollapsed(tree.children(of: container)[index - 1], false)
+            showSubtasks(tree.children(of: container)[index - 1])
         }
         place(tree.indent(id), "Indent")
     }
 
-    func outdent(_ id: Int) { place(taskTree.outdent(id), "Outdent") }
+    func outdent(_ id: Int) {
+        guard !keptInWindow(id) else { return }
+        place(taskTree.outdent(id), "Outdent")
+        keepShown(id)
+    }
 
-    func shift(_ id: Int, by offset: Int) { place(taskTree.shift(id, by: offset), offset < 0 ? "Move Up" : "Move Down") }
+    func shift(_ id: Int, by offset: Int) {
+        place(taskTree.shift(id, by: offset), offset < 0 ? "Move Up" : "Move Down")
+        keepShown(id)
+    }
+
+    /// A subtask of the task whose window is open: moves keep it in that window (2026-11-10).
+    func keptInWindow(_ id: Int) -> Bool {
+        if case .task(let root) = modal, taskTree.parent(of: id) == root { return true }
+        return false
+    }
+
+    /// A task just moved or added stays on screen: its parent shows all its subtasks when a mode would hide it.
+    func keepShown(_ id: Int) {
+        if let parent = taskTree.parent(of: id) { showSubtasks(parent) }
+    }
 
     /// ⇧⌘B and the row button: to the top of the Backlog, or the end of Tasks.
     func toggleList(_ id: Int) {
@@ -381,14 +410,16 @@ extension AppModel {
     func drop(_ ids: [Int], into container: TaskTree.Container, at index: Int) -> Bool {
         guard let changes = taskTree.move(ids, to: container, at: index) else { return false }
         place(changes, ids.count == 1 ? "Move Task" : "Move Tasks")
-        if case .task(let parent) = container { setCollapsed(parent, false) }
+        if case .task(let parent) = container { showSubtasks(parent) }
         return true
     }
 
     /// Delete, ⌘⌫, Backspace on an empty title: the task and its subtasks go to the Trash; Undo brings them back.
     func deleteTasks(_ ids: [Int], action: String = "Delete Task") {
         let tree = taskTree
-        let all = ids.flatMap { tree.subtree(of: $0) }
+        // Each once: a task and its own subtask both asked for are one subtree.
+        var seen = Set<Int>()
+        let all = ids.flatMap { tree.subtree(of: $0) }.filter { seen.insert($0).inserted }
         let items = all.compactMap { task($0) }
         guard !items.isEmpty else { return }
         var trashed: [Int: URL] = [:]
@@ -457,6 +488,52 @@ extension AppModel {
         changeTask(id, "Unlink Task") { $0.related.removeAll { $0 == other } }
     }
 
+    // MARK: Blocked, blocked by, after
+
+    /// Each task's place in its story, worked out once per change to the tasks.
+    var taskFlow: TaskFlow {
+        _ = tasks.count
+        if let cached = flowCache, cached.version == tasksVersion { return cached.flow }
+        let flow = TaskFlow(tasks.map {
+            TaskFlow.Node(id: $0.id, parent: $0.parent, done: $0.status == .done, doing: $0.status == .doing,
+                          blocked: $0.blocked, blockedBy: $0.blockedBy, after: $0.after)
+        })
+        flowCache = (tasksVersion, flow)
+        return flow
+    }
+
+    /// Blocked: it can't be done now. The reason is optional.
+    func block(_ id: Int, reason: String? = nil) {
+        let reason = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        changeTask(id, "Block") { task in
+            task.blocked = true
+            task.blockedReason = reason?.isEmpty == false ? reason : nil
+        }
+    }
+
+    func unblock(_ id: Int) {
+        changeTask(id, "Unblock") { task in
+            task.blocked = false
+            task.blockedReason = nil
+        }
+    }
+
+    /// `id` is blocked by `other`, or comes after it. Nil once it's linked, else why it can't be.
+    @discardableResult
+    func addLink(_ id: Int, _ link: TaskFlow.Link, _ other: Int) -> TaskFlow.Refusal? {
+        if let refusal = taskFlow.refusal(id, link, other) { return refusal }
+        changeTask(id, link == .blockedBy ? "Blocked By" : "After") { task in
+            if link == .blockedBy { task.blockedBy.append(other) } else { task.after.append(other) }
+        }
+        return nil
+    }
+
+    func removeLink(_ id: Int, _ link: TaskFlow.Link, _ other: Int) {
+        changeTask(id, link == .blockedBy ? "Not Blocked By" : "Not After") { task in
+            if link == .blockedBy { task.blockedBy.removeAll { $0 == other } } else { task.after.removeAll { $0 == other } }
+        }
+    }
+
     func unlink(task id: Int, url: URL) {
         changeTask(id, "Unlink") { $0.links.removeAll { $0 == url } }
     }
@@ -519,8 +596,14 @@ extension AppModel {
 
     // MARK: Outline state
 
-    func setCollapsed(_ id: Int, _ value: Bool) {
-        if value { collapsed.insert(id) } else { collapsed.remove(id) }
+    func setFold(_ id: Int, _ mode: FoldMode?) {
+        if fold[id] != mode { fold[id] = mode }
+    }
+
+    /// All of a task's subtasks show: one was just added, indented or dropped under it.
+    func showSubtasks(_ id: Int) {
+        guard fold[id] != .all else { return }
+        if fold[id] != nil || taskTree.ancestors(of: id).contains(where: { fold[$0] == .important }) { setFold(id, .all) }
     }
 
     // MARK: Files

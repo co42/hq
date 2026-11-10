@@ -290,11 +290,30 @@ struct SectionTile: View {
     }
 }
 
+/// One shape behind the outline's rows: a raised card, a done task's flat card, or a block's tray.
+struct CardShape: Equatable {
+    /// `newTask`: the card a new task is typed in, its edge dashed until it is one (2026-11-10).
+    enum Kind: Equatable { case card, flat, tray, newTask }
+    /// A Blocked card's red edge; a selected card's accent ring, as a session card's; the card a dragged task would drop
+    /// onto (2026-11-10).
+    enum Ring: Equatable { case blocked, selected, drop }
+
+    var rect: CGRect
+    var radius: CGFloat
+    var kind: Kind = .card
+    var ring: Ring?
+    /// What its layers are kept by: a card that moves keeps its own and slides, no other card takes them.
+    var key = ""
+    /// Unrelated to the selected tasks: faded (2026-11-10).
+    var dimmed = false
+}
+
 /// Raised cards in AppKit, as Core Animation layers (DESIGN.md §12): the surface, its hairline, a contact and a far
-/// shadow, the same as `surface()`. The GPU draws them, so a view that scrolls over them redraws nothing (T-337).
+/// shadow, the same as `surface()`; and the outline's trays and flat cards. The GPU draws them, so a view that scrolls
+/// over them redraws nothing (T-337).
 final class CardsView: NSView {
-    private var cards: [(body: CALayer, far: CALayer)] = []
-    private var rects: [CGRect] = []
+    private var cards: [String: (body: CALayer, far: CALayer)] = [:]
+    private(set) var shapes: [CardShape] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -309,39 +328,126 @@ final class CardsView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// One card per rect, in this view's coordinates.
+    /// One raised card per rect, in this view's coordinates.
     func show(_ rects: [CGRect]) {
-        guard rects != self.rects || cards.count != rects.count else { return }
-        self.rects = rects
+        show(rects.map { CardShape(rect: $0, radius: Radius.card) })
+    }
+
+    /// The shapes, each on the layers it had: `animated`, they slide and fade with the rows around them; new ones fade in.
+    func show(_ shapes: [CardShape], animated: Bool = false) {
+        let keyed = shapes.enumerated().map { index, shape in shape.key.isEmpty ? "#\(index)" : shape.key }
+        guard shapes != self.shapes || Set(keyed) != Set(cards.keys) else { return }
+        self.shapes = shapes
         CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        while cards.count < rects.count {
-            let far = CALayer(), body = CALayer()
-            layer?.addSublayer(far)
-            layer?.addSublayer(body)
-            cards.append((body, far))
+        if animated {
+            CATransaction.setAnimationDuration(Motion.rowsSeconds)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        } else {
+            CATransaction.setDisableActions(true)
         }
-        while cards.count > rects.count {
-            let card = cards.removeLast()
-            card.body.removeFromSuperlayer()
-            card.far.removeFromSuperlayer()
-        }
-        for (card, rect) in zip(cards, rects) {
-            let path = CGPath(roundedRect: CGRect(origin: .zero, size: rect.size), cornerWidth: Radius.card, cornerHeight: Radius.card, transform: nil)
-            for part in [card.far, card.body] {
-                part.frame = rect
+        for (index, (key, shape)) in zip(keyed, shapes).enumerated() {
+            let fresh = cards[key] == nil
+            let card = cards[key] ?? (body: CALayer(), far: CALayer())
+            if fresh {
+                cards[key] = card
+                layer?.addSublayer(card.far)
+                layer?.addSublayer(card.body)
+            }
+            let path = CGPath(roundedRect: CGRect(origin: .zero, size: shape.rect.size), cornerWidth: shape.radius, cornerHeight: shape.radius, transform: nil)
+            CATransaction.begin()
+            // A new card starts where it lands; only its fade shows.
+            if fresh { CATransaction.setDisableActions(true) }
+            for (offset, part) in [card.far, card.body].enumerated() {
+                part.zPosition = CGFloat(index * 2 + offset)
+                part.frame = shape.rect
                 part.shadowPath = path
-                part.cornerRadius = Radius.card
+                part.cornerRadius = shape.radius
                 part.cornerCurve = .continuous
+                if fresh, animated { part.opacity = 0 }
             }
             card.far.shadowRadius = Metric.shadowFarRadius
             card.far.shadowOffset = CGSize(width: 0, height: Metric.shadowFarY)
             card.body.shadowRadius = Metric.shadowNearRadius
             card.body.shadowOffset = CGSize(width: 0, height: Metric.shadowNearY)
-            card.body.borderWidth = 1
+            card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .blocked ? 1.5 : shape.kind == .newTask ? 0 : 1
+            dash(card.body, shape, key)
+            CATransaction.commit()
+            let opacity: Float = shape.dimmed ? Float(Motion.dimmedOpacity) : 1
+            if card.body.opacity != opacity || fresh {
+                // Dimming fades on its own, also when the rows don't move.
+                CATransaction.begin()
+                // A card that just came in without the rows moving shows at once.
+                CATransaction.setDisableActions(fresh && !animated)
+                if !animated { CATransaction.setAnimationDuration(Motion.appearSeconds) }
+                card.body.opacity = opacity
+                card.far.opacity = opacity
+                CATransaction.commit()
+            }
+        }
+        for (key, card) in cards where !keyed.contains(key) {
+            dashes[key]?.removeFromSuperlayer()
+            dashes[key] = nil
+            card.body.removeFromSuperlayer()
+            card.far.removeFromSuperlayer()
+            cards[key] = nil
         }
         CATransaction.commit()
         paint()
+    }
+
+    /// The dashed edges of new-task cards, by key.
+    private var dashes: [String: CAShapeLayer] = [:]
+
+    /// A new-task card's dashed edge, inside its body; gone once it has a ring or is another kind.
+    private func dash(_ body: CALayer, _ shape: CardShape, _ key: String) {
+        guard shape.kind == .newTask, shape.ring == nil else {
+            dashes[key]?.removeFromSuperlayer()
+            dashes[key] = nil
+            return
+        }
+        let line = dashes[key] ?? CAShapeLayer()
+        if dashes[key] == nil {
+            dashes[key] = line
+            body.addSublayer(line)
+        }
+        line.frame = CGRect(origin: .zero, size: shape.rect.size)
+        line.path = CGPath(roundedRect: line.frame.insetBy(dx: 0.5, dy: 0.5), cornerWidth: shape.radius, cornerHeight: shape.radius, transform: nil)
+        line.lineWidth = 1
+        line.lineDashPattern = Metric.newCardDash.map { NSNumber(value: Double($0)) }
+        line.fillColor = nil
+    }
+
+    /// Where a dragged task would land between cards: an accent line with a ring at its start, over the cards
+    /// (2026-11-10: the cards hold still under a drag). Nil hides it.
+    private(set) var dropLine: CGRect?
+    private lazy var dropLayer: CAShapeLayer = {
+        let line = CAShapeLayer()
+        line.zPosition = 1_000_000
+        line.lineWidth = Metric.selectionRing
+        line.lineCap = .round
+        layer?.addSublayer(line)
+        return line
+    }()
+
+    func showDropLine(_ rect: CGRect?) {
+        guard rect != dropLine else { return }
+        dropLine = rect
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dropLayer.isHidden = rect == nil
+        if let rect {
+            let ring = Space.sm
+            let path = CGMutablePath()
+            path.addEllipse(in: CGRect(x: rect.minX, y: rect.midY - ring / 2, width: ring, height: ring))
+            path.move(to: CGPoint(x: rect.minX + ring, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            dropLayer.path = path
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                dropLayer.strokeColor = Ink.accentNS.cgColor
+                dropLayer.fillColor = Ink.surfaceNS.cgColor
+            }
+        }
+        CATransaction.commit()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -354,13 +460,16 @@ final class CardsView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            for card in cards {
+            for (index, shape) in shapes.enumerated() {
+                guard let card = cards[shape.key.isEmpty ? "#\(index)" : shape.key] else { continue }
+                let raised = shape.kind == .card
                 card.far.shadowColor = Ink.shadowFarNS.cgColor
-                card.far.shadowOpacity = 1
-                card.body.backgroundColor = Ink.surfaceNS.cgColor
-                card.body.borderColor = Ink.cardHairlineNS.cgColor
+                card.far.shadowOpacity = raised ? 1 : 0
+                card.body.backgroundColor = (shape.ring == .drop ? Ink.dropCardNS : shape.kind == .tray ? Ink.trayNS : shape.kind == .flat ? Ink.doneCardNS : shape.kind == .newTask && shape.ring == nil ? .clear : Ink.surfaceNS).cgColor
+                dashes[shape.key.isEmpty ? "#\(index)" : shape.key]?.strokeColor = Ink.newCardLineNS.cgColor
+                card.body.borderColor = (shape.ring == .selected || shape.ring == .drop ? Ink.accentNS : shape.ring == .blocked ? Ink.blockedRingNS : Ink.cardHairlineNS).cgColor
                 card.body.shadowColor = Ink.shadowNearNS.cgColor
-                card.body.shadowOpacity = 1
+                card.body.shadowOpacity = raised ? 1 : 0
             }
         }
         CATransaction.commit()

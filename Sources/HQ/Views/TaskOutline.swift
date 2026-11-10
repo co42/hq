@@ -6,10 +6,12 @@ import SwiftUI
 /// own: it sits in the page's. Edited like a markdown todo file; rows drag between and into each other.
 struct TaskOutline: NSViewRepresentable {
     let width: CGFloat
+    /// In a task's window: that task's subtasks, as the list shows them (2026-11-10). Nil: Tasks and the Backlog.
+    var root: Int?
     @Environment(AppModel.self) private var model
     @State private var height: CGFloat = Metric.outlineHeader * 2
 
-    func makeCoordinator() -> OutlineCoordinator { OutlineCoordinator(model: model) }
+    func makeCoordinator() -> OutlineCoordinator { OutlineCoordinator(model: model, root: root) }
 
     func makeNSView(context: Context) -> OutlineContainer {
         let container = OutlineContainer(coordinator: context.coordinator)
@@ -23,13 +25,18 @@ struct TaskOutline: NSViewRepresentable {
 
     func updateNSView(_ container: OutlineContainer, context: Context) {
         context.coordinator.model = model
-        model.showLinkPicker = { [weak coordinator = context.coordinator] id in coordinator?.showLinkPicker(id) }
+        // A row's menu acts through the outline that shows it: the task's window's over the page's.
+        model.showLinkPicker = { id in OutlineCoordinator.owner(of: id)?.showLinkPicker(id) }
+        model.showHoldPicker = { id, kind in OutlineCoordinator.owner(of: id)?.showHoldPicker(id, kind) }
+        model.foldTasks = { [weak model] ids, mode in
+            if let coordinator = ids.first.flatMap(OutlineCoordinator.owner(of:)) { coordinator.fold(ids, mode) } else { for id in ids { model?.setFold(id, mode) } }
+        }
         context.coordinator.onHeight = { [binding = $height] value in
             if binding.wrappedValue != value { binding.wrappedValue = value }
         }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
-             model.backlogOpen, model.folded, model.backlogFilter, model.collapsed, model.editingDescription, model.descriptionEditorHeight, model.seen,
+             model.backlogOpen, model.folded, model.backlogFilter, model.fold, model.editingDescription, model.descriptionEditorHeight, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
              model.pendingTaskLink, model.slackMessages)
@@ -57,6 +64,12 @@ enum OutlineFocus: Equatable {
     case title(Int, by: Int)
     /// The keyboard left the task's description for elsewhere.
     case left(Int)
+
+    var task: Int {
+        switch self {
+        case .row(let id), .title(let id, _), .left(let id): id
+        }
+    }
 }
 
 /// One row of the outline. Classes, so the outline keeps their identity across updates.
@@ -88,8 +101,25 @@ final class OutlineNode: NSObject {
 /// What the outline shows: children per parent, after search, Hide Done and the Backlog's filter.
 struct OutlineSnapshot: Equatable {
     var children: [OutlineNode.Kind?: [OutlineNode.Kind]] = [:]
-    /// Tasks with subtasks to show, so their disclosure applies.
+    /// Tasks with subtasks shown: the outline keeps them open.
     var expandable: Set<Int> = []
+    /// Tasks with subtasks, shown or folded: their chevron shows.
+    var foldable: Set<Int> = []
+    /// What each task with subtasks shows of them: the user's choice, else what its parent leaves on screen.
+    var modes: [Int: FoldMode] = [:]
+
+    /// Showing only what matters, a task shows its first doing subtasks, up to this many.
+    static let foldedDoing = 5
+
+    /// The modes that show a task something different, fewest subtasks first: only blocking and doing is left out
+    /// when it would show nothing or everything.
+    static func modes(_ model: AppModel, _ id: Int) -> [FoldMode] {
+        let tree = model.taskTree
+        let hiding = model.hideDone.contains(model.list(of: id))
+        let all = tree.subtree(of: id).dropFirst().filter { !(hiding && model.task($0)?.status == .done) }
+        let important = model.taskFlow.important(under: id, in: tree, doing: foldedDoing)
+        return important.isEmpty || important.count >= all.count ? [.hidden, .all] : FoldMode.opening
+    }
 
     /// What a list's searches look for: the toolbar's and the list's own.
     static func searchWords(_ model: AppModel, _ list: TaskList) -> [String] {
@@ -130,24 +160,45 @@ struct OutlineSnapshot: Equatable {
         return top.filter { id in tree.subtree(of: id).contains { model.task($0).map(filter.matches) ?? false } }
     }
 
-    static func make(_ model: AppModel) -> OutlineSnapshot {
+    /// `root`: that task's subtasks only, all of them, for its window.
+    static func make(_ model: AppModel, root: Int? = nil) -> OutlineSnapshot {
         var snapshot = OutlineSnapshot()
         let tree = model.taskTree
-        /// A task's shown subtasks: Hide Done of its list hides the done ones, a search the ones it didn't find.
-        func add(_ id: Int, hiding: Bool, found: Set<Int>?) {
-            let children = tree.children(of: id).filter { child in
+        let flow = model.taskFlow
+        /// A task's shown subtasks: Hide Done of its list hides the done ones, a search the ones it didn't find. Then what
+        /// the user chose for it: none, only the blocking and doing ones, or all (2026-11-10); with no choice, what its
+        /// parent's choice leaves. A search shows all it found.
+        func add(_ id: Int, hiding: Bool, found: Set<Int>?, only: Set<Int>?) {
+            var only = only
+            let all = tree.children(of: id).filter { child in
                 !(hiding && model.task(child)?.status == .done) && (found?.contains(child) ?? true)
             }
-            if !children.isEmpty {
-                snapshot.expandable.insert(id)
-                snapshot.children[.task(id)] = children.map { .task($0) }
-                children.forEach { add($0, hiding: hiding, found: found) }
+            guard !all.isEmpty else { return }
+            snapshot.foldable.insert(id)
+            let mode = found == nil ? model.fold[id] : .all
+            switch mode {
+            case .hidden?: only = []
+            case .important?: only = flow.important(under: id, in: tree, doing: foldedDoing)
+            case .all?: only = nil
+            case nil: break
             }
+            let children = only.map { only in all.filter(only.contains) } ?? all
+            snapshot.modes[id] = mode ?? (children.isEmpty ? .hidden : children.count < all.count ? .important : .all)
+            guard !children.isEmpty else { return }
+            snapshot.expandable.insert(id)
+            snapshot.children[.task(id)] = children.map { .task($0) }
+            children.forEach { add($0, hiding: hiding, found: found, only: only) }
+        }
+        if let root {
+            let kids = tree.children(of: root)
+            kids.forEach { add($0, hiding: false, found: nil, only: nil) }
+            snapshot.children[nil] = kids.map { .task($0) }
+            return snapshot
         }
         snapshot.children[nil] = [.header(.overview), .header(.backlog)]
         let foundTasks = found(model, in: .overview)
         let tasks = model.folded.contains(.tasks) ? [] : matches(model, in: .overview, found: foundTasks)
-        tasks.forEach { add($0, hiding: model.hideDone.contains(.overview), found: foundTasks) }
+        tasks.forEach { add($0, hiding: model.hideDone.contains(.overview), found: foundTasks, only: nil) }
         var overview = tasks.map { OutlineNode.Kind.task($0) }
         if !model.folded.contains(.tasks) {
             if tasks.isEmpty { overview.append(.empty(.overview)) }
@@ -157,7 +208,7 @@ struct OutlineSnapshot: Equatable {
         if model.backlogOpen {
             let foundLater = found(model, in: .backlog)
             let backlog = matches(model, in: .backlog, found: foundLater)
-            backlog.forEach { add($0, hiding: model.hideDone.contains(.backlog), found: foundLater) }
+            backlog.forEach { add($0, hiding: model.hideDone.contains(.backlog), found: foundLater, only: nil) }
             snapshot.children[.header(.backlog)] = backlog.map { .task($0) } + [.quickAdd(.backlog)]
         } else {
             snapshot.children[.header(.backlog)] = []
@@ -166,6 +217,71 @@ struct OutlineSnapshot: Equatable {
     }
 
     func children(of parent: OutlineNode.Kind?) -> [OutlineNode.Kind] { children[parent] ?? [] }
+}
+
+/// Where each task's card sits: a top-level task's big card, a block's tray when its subtasks show, and the space above
+/// each card: from the card before, the trays that close above it, and its own tray's padding. A subtask's card sits a
+/// level in from its parent's, but a story's own subtasks, under its big card (2026-11-10).
+struct OutlinePlan: Equatable {
+    /// A card's or a tray's edges: in from the outline's left, and in from the cards' right.
+    struct Edges: Equatable {
+        var left: CGFloat = 0
+        var right: CGFloat = 0
+    }
+
+    var gaps: [Int: CGFloat] = [:]
+    /// 0 for a top-level task.
+    var depth: [Int: Int] = [:]
+    /// Tasks whose subtasks show: each heads a tray.
+    var blocks: Set<Int> = []
+    var cards: [Int: Edges] = [:]
+    var trays: [Int: Edges] = [:]
+    /// After a list's last task, the trays that close.
+    var trailing: [TaskList: CGFloat] = [:]
+
+    init() {}
+
+    init(_ snapshot: OutlineSnapshot) {
+        // A task's window: its subtasks at the top, as subtask cards; else each list's tasks, as stories.
+        func tasks(_ kinds: [OutlineNode.Kind]) -> [Int] { kinds.compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } } }
+        let scoped = tasks(snapshot.children(of: nil))
+        let scopes: [(list: TaskList, tops: [Int], depth: Int)] = scoped.isEmpty
+            ? TaskList.allCases.map { ($0, tasks(snapshot.children(of: .header($0))), 0) } : [(.overview, scoped, 1)]
+        for (list, tops, top) in scopes {
+            var pending: CGFloat = 0
+            var first = true
+            func visit(_ id: Int, depth: Int, slot: Edges) {
+                let kids = snapshot.children(of: .task(id)).compactMap { kind -> Int? in if case .task(let kid) = kind { kid } else { nil } }
+                let block = !kids.isEmpty
+                let pad = depth == 0 ? Metric.storyTrayPadding : Metric.trayPadding
+                var gap = first ? 0 : depth == 0 ? Metric.storyGap : Metric.taskGap
+                first = false
+                gap += pending
+                pending = 0
+                if block { gap += pad }
+                gaps[id] = gap
+                self.depth[id] = depth
+                guard block else {
+                    cards[id] = slot
+                    return
+                }
+                blocks.insert(id)
+                trays[id] = slot
+                cards[id] = Edges(left: slot.left + pad, right: slot.right + pad)
+                let indent = depth == 0 ? 0 : Metric.subtaskIndent
+                for kid in kids { visit(kid, depth: depth + 1, slot: Edges(left: slot.left + pad + indent, right: slot.right + pad)) }
+                pending += pad
+            }
+            for id in tops { visit(id, depth: top, slot: Edges()) }
+            trailing[list] = pending
+        }
+    }
+
+    /// A task's card edges.
+    func card(of id: Int) -> Edges { cards[id] ?? Edges() }
+
+    /// A block's tray edges.
+    func tray(of id: Int) -> Edges { trays[id] ?? Edges() }
 }
 
 // MARK: Container
@@ -177,7 +293,7 @@ final class OutlineContainer: NSView {
     init(coordinator: OutlineCoordinator) {
         super.init(frame: .zero)
         let faces = NSTableColumn(identifier: OutlineCoordinator.facesColumn)
-        faces.width = OutlineCoordinator.facesWidth
+        faces.width = Metric.facesColumn
         faces.minWidth = faces.width
         faces.maxWidth = faces.width
         faces.resizingMask = []
@@ -191,11 +307,12 @@ final class OutlineContainer: NSView {
         outline.style = .plain
         outline.backgroundColor = .clear
         outline.intercellSpacing = .zero
-        outline.indentationPerLevel = Metric.outlineIndent
+        outline.indentationPerLevel = Metric.subtaskIndent
         outline.indentationMarkerFollowsCell = true
         outline.autoresizesOutlineColumn = false
         outline.floatsGroupRows = false
-        outline.allowsMultipleSelection = true
+        // One task at a time for now (2026-11-10): moving several at once is for a later version.
+        outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
         outline.selectionHighlightStyle = .regular
         outline.focusRingType = .none
@@ -203,7 +320,8 @@ final class OutlineContainer: NSView {
         outline.registerForDraggedTypes([DragItem.taskType, DragItem.itemType])
         outline.setDraggingSourceOperationMask([.move, .link], forLocal: true)
         outline.setDraggingSourceOperationMask(.copy, forLocal: false)
-        outline.draggingDestinationFeedbackStyle = .gap
+        // The cards hold still under a drag: a line shows where it lands, a ring the card it drops onto (2026-11-10).
+        outline.draggingDestinationFeedbackStyle = .none
         outline.setAccessibilityLabel("Tasks and Backlog")
         outline.dataSource = coordinator
         outline.delegate = coordinator
@@ -246,30 +364,69 @@ final class TaskOutlineView: NSOutlineView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// AppKit's disclosure triangle takes the pointing hand, as every control on a row does (T-350).
-    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
-        let view = super.makeView(withIdentifier: identifier, owner: owner)
-        if identifier == NSOutlineView.disclosureButtonIdentifier { view?.trackHandCursor(for: HandCursorOwner.shared) }
-        return view
-    }
-
     /// How far a list's rows sit inside its card.
     static var cardInset: CGFloat { Space.sm }
 
-    /// Tasks are children of a header: one level less indentation than the outline gives them.
-    /// Their cells sit `cardInset` inside the list's card.
+    /// Where a list's cards end: at the section's edge, as the other sections' cards (no lines, 2026-11-10).
+    var cardsRight: CGFloat { bounds.width }
+
+    /// A task's card, in the outline's coordinates: under the row's gap, its edges from the plan.
+    func cardFrame(ofRow row: Int) -> NSRect? {
+        guard let id = (item(atRow: row) as? OutlineNode)?.task, let coordinator else { return nil }
+        let rect = rect(ofRow: row)
+        let edges = coordinator.plan.card(of: id)
+        let top = rect.minY + coordinator.gap(of: id)
+        return NSRect(x: edges.left, y: top, width: max(cardsRight - edges.left - edges.right, 0), height: max(rect.maxY - top, 0))
+    }
+
+    /// The new task's card, at the bottom of its line: where a top-level task's card would be, one line tall.
+    func newTaskCard(ofRow row: Int) -> NSRect? {
+        guard let node = item(atRow: row) as? OutlineNode, case .quickAdd = node.kind else { return nil }
+        let rect = rect(ofRow: row)
+        return NSRect(x: 0, y: rect.maxY - Metric.outlineQuick, width: max(cardsRight, 0), height: Metric.outlineQuick)
+    }
+
+    /// The padding left and right inside a task's card.
+    func cardPadding(ofRow row: Int) -> CGFloat {
+        guard let id = (item(atRow: row) as? OutlineNode)?.task, let coordinator else { return Metric.cardPadding }
+        return coordinator.padding(of: id)
+    }
+
+    /// Where a card's first line sits, from its top.
+    func lineTop(ofRow row: Int) -> CGFloat {
+        guard let id = (item(atRow: row) as? OutlineNode)?.task, let coordinator else { return 0 }
+        return TaskCell.lineTop(big: coordinator.isBig(id))
+    }
+
+    /// The fold chevron, at the card's top right, on its first line: the card's own (TaskCell.fold).
+    func chevronFrame(ofRow row: Int) -> NSRect? {
+        guard let card = cardFrame(ofRow: row) else { return nil }
+        let side = Metric.cardEndControl
+        let pad = cardPadding(ofRow: row)
+        return NSRect(x: card.maxX - pad - side, y: card.minY + lineTop(ofRow: row), width: side, height: Metric.cardLine)
+    }
+
+    /// The face, in its slot at the card's left, before the status glyph (2026-11-10).
+    func faceFrame(ofRow row: Int) -> NSRect? {
+        guard let card = cardFrame(ofRow: row) else { return nil }
+        return NSRect(x: card.minX + cardPadding(ofRow: row), y: card.minY, width: Metric.faceRow, height: card.height)
+    }
+
+    /// A task's cells sit in its card: the title's cell over all of it, the face's in its slot at the left.
+    /// Headers, the filter bar and empty lines span the row, flush with the page.
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
-        var frame = super.frameOfCell(atColumn: column, row: row)
+        let frame = super.frameOfCell(atColumn: column, row: row)
         guard let node = item(atRow: row) as? OutlineNode else { return frame }
-        // Headers, the filter bar and empty lines span the row, flush with the page.
         if node.spans { return NSRect(x: 0, y: frame.minY, width: bounds.width, height: frame.height) }
-        guard column == 1 else {
-            frame.origin.x += Self.cardInset
-            return frame
+        guard let card = cardFrame(ofRow: row) else {
+            // The new task's card: its plus where a top-level task's glyph sits, its field where the title does.
+            if column == 0 { return .zero }
+            let x = Metric.storyTrayPadding + Metric.cardPadding
+            return NSRect(x: x, y: frame.minY, width: max(cardsRight - 2 * x, 0), height: frame.height)
         }
-        frame.origin.x += Self.cardInset - indentationPerLevel
-        frame.size.width += indentationPerLevel - Self.cardInset * 2
-        return frame
+        if column == 0, let face = faceFrame(ofRow: row) { return NSRect(x: face.minX, y: frame.minY, width: face.width, height: frame.height) }
+        let pad = cardPadding(ofRow: row)
+        return NSRect(x: card.minX + pad, y: frame.minY, width: max(card.width - 2 * pad, 0), height: frame.height)
     }
 
     /// Tasks and the Backlog each sit on a raised card, from the row under their header to their last row: layers under
@@ -290,43 +447,132 @@ final class TaskOutlineView: NSOutlineView {
         placeCards()
     }
 
-    func placeCards() {
+    /// A task starts to fold or unfold: for as long as AppKit slides the rows, the cards and trays slide with them.
+    func slideCards() { slidingUntil = .now.addingTimeInterval(Motion.rowsSeconds) }
+    private var slidingUntil = Date.distantPast
+
+    /// The cards and trays where the rows are; `animated` as a task folds or unfolds, so they slide with the rows.
+    func placeCards(animated: Bool = false) {
+        let animated = animated || Date.now < slidingUntil
         if cards.frame != bounds { cards.frame = bounds }
         if subviews.first !== cards { addSubview(cards, positioned: .below, relativeTo: nil) }
-        cards.show(listCards())
+        let lit = coordinator?.lit()
+        self.lit = lit
+        cards.show(storyShapes(lit: lit), animated: animated)
+        // Each row's highlight fills its card; unrelated rows fade with their cards.
+        // A row's cells come from its row view: asking the outline for a row mid-move throws (T-372, a task moved by keys).
+        enumerateAvailableRowViews { rowView, row in
+            guard let rowView = rowView as? OutlineRowView else { return }
+            guard row >= 0, row < numberOfRows else {
+                if !Self.staleRowLogged { AppLog.write("outline: row \(row) of \(numberOfRows) placed while the rows change; skipped", to: "outline.log") }
+                Self.staleRowLogged = true
+                return
+            }
+            let task = (item(atRow: row) as? OutlineNode)?.task
+            let alpha: CGFloat = task.map { lit?.contains($0) == false } == true ? Motion.dimmedOpacity : 1
+            if rowView.alphaValue != alpha {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Motion.appearSeconds
+                    rowView.animator().alphaValue = alpha
+                }
+            }
+            let card = cardFrame(ofRow: row).map { rowView.convert($0, from: self) }
+            if rowView.card != card { rowView.card = card }
+            // The face's column keeps its width as the outline resizes, so AppKit leaves its cell where it was.
+            if let faces = rowView.view(atColumn: 0) as? FacesCell {
+                let frame = rowView.convert(frameOfCell(atColumn: 0, row: row), from: self)
+                if faces.frame != frame { faces.frame = frame }
+            }
+            // The card's own cell too: once, at full screen, a card's line sat in its middle (not reproduced): put back, logged.
+            if let cell = rowView.view(atColumn: 1) as? TaskCell {
+                let frame = rowView.convert(frameOfCell(atColumn: 1, row: row), from: self)
+                if abs(cell.frame.minX - frame.minX) > 1 || abs(cell.frame.width - frame.width) > 1 {
+                    Self.misplaced += 1
+                    if Self.misplaced <= 20 {
+                        AppLog.write("outline: T-\(task.map(String.init) ?? "?") cell at x \(Int(cell.frame.minX)) w \(Int(cell.frame.width)), card's \(Int(frame.minX)) w \(Int(frame.width)), outline w \(Int(bounds.width)); put back",
+                                     to: "outline.log")
+                    }
+                }
+                if cell.frame != frame { cell.frame = frame }
+            }
+        }
     }
 
     /// The cards' layers, for the UI test.
     var cardsView: CardsView { cards }
+    /// Cells found off their card and put back, for the UI test and the log.
+    static var misplaced = 0
+    /// A row placed while the rows change was logged once.
+    static var staleRowLogged = false
+    /// The tasks the selection lights, as the cards were last placed: a row made while scrolling fades as its card.
+    private(set) var lit: Set<Int>?
 
-    /// The rows of each list under its header, as one rect each.
-    private func listCards() -> [NSRect] {
-        var cards: [NSRect] = []
-        var start: Int?
-        func close(_ end: Int) {
-            if let first = start, end >= first {
-                let rows = rect(ofRow: first).union(rect(ofRow: end))
-                cards.append(NSRect(x: 0, y: rows.minY, width: bounds.width, height: rows.height))
-            }
-            start = nil
-        }
-        for row in 0..<numberOfRows {
-            guard let node = item(atRow: row) as? OutlineNode else { continue }
-            if case .header = node.kind { close(row - 1); continue }
-            if start == nil { start = row }
-        }
-        close(numberOfRows - 1)
-        return cards
+    /// The rows have the keyboard: a selected card's ring is the accent.
+    var hasKeyboard: Bool { (window?.firstResponder as? NSView).map { $0 === self || $0.isDescendant(of: self) } ?? false }
+
+    /// The last row under a task's: its open subtasks', at any depth.
+    func lastRow(under row: Int) -> Int {
+        let level = level(forRow: row)
+        var last = row
+        while last + 1 < numberOfRows, self.level(forRow: last + 1) > level { last += 1 }
+        return last
     }
 
-    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
-        var frame = super.frameOfOutlineCell(atRow: row)
-        guard let node = item(atRow: row) as? OutlineNode, case .task = node.kind else { return .zero }
-        frame.origin.x += Self.cardInset - indentationPerLevel
-        // On the title's line, also when a description makes the row taller; OutlineRowView keeps it there.
-        frame.origin.y = rect(ofRow: row).minY + (coordinator?.gap(ofRow: row) ?? 0)
-        frame.size.height = Metric.outlineRow
-        return frame
+    /// A block's tray, then a card for each task: the top-level ones big, a block's header on its tray alone.
+    /// `lit`: the tasks related to the selected ones; the others fade (nil: nothing selected).
+    private func storyShapes(lit: Set<Int>?) -> [CardShape] {
+        guard let coordinator else { return [] }
+        let flow = coordinator.model.taskFlow
+        let selected = Set(selectedRowIndexes)
+        let keyboard = hasKeyboard
+        var trays: [CardShape] = []
+        var cards: [CardShape] = []
+        for row in 0..<numberOfRows {
+            // The new task's line is a card too: dashed until typed in, then a raised card with its ring; never dimmed (2026-11-10).
+            if let node = item(atRow: row) as? OutlineNode, case .quickAdd(let list) = node.kind, let card = newTaskCard(ofRow: row) {
+                let typing = ((window?.firstResponder as? NSTextView)?.delegate as? QuickAddField)?.list == list
+                cards.append(CardShape(rect: card, radius: Radius.row + 4, kind: typing ? .card : .newTask, ring: typing ? .selected : nil,
+                                       key: "new:\(list)"))
+                continue
+            }
+            guard let id = (item(atRow: row) as? OutlineNode)?.task, let card = cardFrame(ofRow: row) else { continue }
+            // A Blocked card's red edge, a selected one's accent ring; no yellow edge for doing (2026-11-10).
+            let ring: CardShape.Ring? = dropOnto == id ? .drop : selected.contains(row) && keyboard ? .selected : flow.state(id) == .blocked ? .blocked : nil
+            let dimmed = lit.map { !$0.contains(id) } ?? false
+            let top = coordinator.plan.depth[id] == 0
+            if coordinator.plan.blocks.contains(id) {
+                let pad = top ? Metric.storyTrayPadding : Metric.trayPadding
+                let edges = coordinator.plan.tray(of: id)
+                // Under its last row, the trays that close there inside it, then its own padding.
+                let last = lastRow(under: row)
+                var bottom = rect(ofRow: last).maxY + pad
+                var inner = (item(atRow: last) as? OutlineNode)?.task.flatMap(coordinator.model.taskTree.parent(of:))
+                while let block = inner, block != id {
+                    if coordinator.plan.blocks.contains(block) { bottom += coordinator.plan.depth[block] == 0 ? Metric.storyTrayPadding : Metric.trayPadding }
+                    inner = coordinator.model.taskTree.parent(of: block)
+                }
+                let tray = NSRect(x: edges.left, y: card.minY - pad, width: max(cardsRight - edges.left - edges.right, 0), height: bottom - card.minY + pad)
+                trays.append(CardShape(rect: tray, radius: top ? Radius.card : Radius.row + 2, kind: .tray, key: "tray:\(id)", dimmed: dimmed))
+                // A block's header sits on its tray, but a story's big card; selected, its header gets the ring too.
+                guard top || ring == .selected || ring == .drop else { continue }
+                cards.append(CardShape(rect: card, radius: top ? Radius.row + 4 : Radius.row, kind: top ? .card : .flat, ring: ring, key: "card:\(id)", dimmed: dimmed))
+            } else {
+                cards.append(CardShape(rect: card, radius: top ? Radius.row + 4 : Radius.row, kind: flow.state(id) == .done ? .flat : .card, ring: ring,
+                                       key: "card:\(id)", dimmed: dimmed))
+            }
+        }
+        return trays + cards
+    }
+
+    /// No AppKit disclosure: a task with subtasks stays open, its card's chevron folds it to the subtasks that matter.
+    override func frameOfOutlineCell(atRow row: Int) -> NSRect { .zero }
+
+    /// One row at a time (2026-11-10): AppKit takes several from code even so, so a selection made anywhere keeps its first.
+    override func selectRowIndexes(_ indexes: IndexSet, byExtendingSelection extend: Bool) {
+        guard !allowsMultipleSelection, indexes.count > 1 || (extend && !indexes.isEmpty) else {
+            return super.selectRowIndexes(indexes, byExtendingSelection: extend)
+        }
+        super.selectRowIndexes(indexes.first.map { IndexSet(integer: $0) } ?? [], byExtendingSelection: false)
     }
 
     /// A click on a title selects its row; a double-click edits it.
@@ -339,14 +585,12 @@ final class TaskOutlineView: NSOutlineView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        // The press a drag starts from, also when AppKit doesn't ask canDragRows.
-        dragsFromGrip = onGrip(point)
-        if dragsFromGrip, event.clickCount == 1 { NSCursor.closedHand.set() }
-        defer {
-            // Released without a drag: the open hand again over the grip. A drag shows its own pointer.
-            if dragsFromGrip, let up = NSApp.currentEvent, up.type == .leftMouseUp { pointGrip(at: up.locationInWindow) }
-        }
         let row = self.row(at: point)
+        // Anywhere on the new task's card types in it.
+        if row >= 0, newTaskCard(ofRow: row)?.contains(point) == true, let cell = view(atColumn: 1, row: row, makeIfNecessary: false) as? QuickAddCell {
+            window?.makeFirstResponder(cell.field)
+            return takeRelease()
+        }
         // The status glyph, the type icon and the faces take their clicks: the table would only select the row.
         // ⌥ goes through too: ⌥-click on the status picks one.
         if row >= 0, event.modifierFlags.intersection([.shift, .control, .command]).isEmpty {
@@ -355,6 +599,32 @@ final class TaskOutlineView: NSOutlineView {
                 return
             }
             if let faces = view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, faces.click(event) { return takeRelease() }
+            // A task it's blocked by: a click shows it, selected; behind "+2", a menu to pick one.
+            if event.clickCount == 1, let ids = (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.blockers(at: event.locationInWindow),
+               let coordinator {
+                if ids.count == 1, let id = ids.first {
+                    coordinator.reveal(id)
+                } else {
+                    let menu = NSMenu()
+                    for id in ids {
+                        let item = NSMenuItem(title: "T-\(id) " + (coordinator.model.task(id)?.title ?? ""), action: #selector(pickLink(_:)), keyEquivalent: "")
+                        item.target = self
+                        item.representedObject = DropChoice { [weak coordinator] in coordinator?.reveal(id) }
+                        menu.addItem(item)
+                    }
+                    FaceMenu.show(menu, "blockers:\(ids.map(String.init).joined(separator: ","))", NSPoint(x: point.x, y: point.y + Space.md), self)
+                }
+                return takeRelease()
+            }
+            // A link on the card opens on the press; several of a kind, a menu to pick one.
+            if event.clickCount == 1, let (routes, task) = links(at: event), let model = coordinator?.model {
+                if routes.count == 1, let route = routes.first {
+                    model.open(route)
+                } else {
+                    FaceMenu.show(pickMenu(routes), Self.linksKey(routes, task: task), NSPoint(x: point.x, y: point.y + Space.md), self)
+                }
+                return takeRelease()
+            }
         }
         let title = row >= 0 ? (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.title : nil
         let onIdleTitle = title.map { $0.currentEditor() == nil && $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) } ?? false
@@ -364,77 +634,6 @@ final class TaskOutlineView: NSOutlineView {
             return takeRelease()
         }
         super.mouseDown(with: event)
-    }
-
-    /// The drag starting now came from a grip: it moves the rows. From anywhere else it carries the tasks, to link them
-    /// where they land and to give other apps their lines (T-348, T-359).
-    private(set) var dragsFromGrip = false
-
-    override func canDragRows(with rowIndexes: IndexSet, at mouseDownPoint: NSPoint) -> Bool {
-        dragsFromGrip = onGrip(mouseDownPoint)
-        return super.canDragRows(with: rowIndexes, at: mouseDownPoint)
-    }
-
-    /// A point in the outline on a row's grip.
-    private func onGrip(_ point: NSPoint) -> Bool {
-        let row = row(at: point)
-        let faces = row >= 0 ? view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell : nil
-        return faces?.onGrip(convert(point, to: nil)) == true
-    }
-
-    // MARK: The grip's pointer
-
-    /// The open hand over a row's grip, wherever a press moves the row; the closed hand while it's pressed; the drag's own
-    /// pointer once it moves (DESIGN.md §12). One area for the whole outline: it follows the pointer from row to row and
-    /// shows the hand as the grip appears under it.
-    private var gripArea: NSTrackingArea?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        trackGrip()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackGrip()
-    }
-
-    /// From the moment the outline is in a window: AppKit asks `updateTrackingAreas` only once something scrolls or resizes.
-    private func trackGrip() {
-        guard window != nil, gripArea.map({ trackingAreas.contains($0) }) != true else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self)
-        addTrackingArea(area)
-        gripArea = area
-    }
-
-    /// The hand for the pointer at a window point: open over a grip; off it, the arrow back only if the hand was the grip's,
-    /// so a face or a chip next to it keeps its own.
-    func pointGrip(at windowPoint: NSPoint) {
-        if onGrip(convert(windowPoint, from: nil)) {
-            NSCursor.openHand.set()
-        } else if NSCursor.current == NSCursor.openHand || NSCursor.current == NSCursor.closedHand {
-            NSCursor.arrow.set()
-        }
-    }
-
-    // The grip's events stop here: up the responder chain, the page's SwiftUI would set its own pointer.
-    override func mouseMoved(with event: NSEvent) {
-        guard event.trackingArea === gripArea else { return super.mouseMoved(with: event) }
-        pointGrip(at: event.locationInWindow)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        if onGrip(convert(event.locationInWindow, from: nil)) { NSCursor.openHand.set() } else { super.cursorUpdate(with: event) }
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        guard event.trackingArea === gripArea else { return super.mouseEntered(with: event) }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        guard event.trackingArea === gripArea else { return super.mouseExited(with: event) }
-        if NSCursor.current == NSCursor.openHand { NSCursor.arrow.set() }
     }
 
     /// ⌘C, Edit › Copy: the selected tasks' lines (T-358).
@@ -455,26 +654,48 @@ final class TaskOutlineView: NSOutlineView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
-        if let (route, task) = link(at: event), let model = coordinator?.model {
-            model.selectedItem = route.chipKey(task: task)
-            return model.linkMenu(route, task: task)
-        }
+        if let menu = linkMenu(at: event) { return menu }
         return coordinator?.menu(forRow: row)
     }
 
-    /// A right-click on a link chip under a task: the link's menu, where the click was.
+    /// A right-click on a link on a card: its menu, where the click was.
     override func rightMouseDown(with event: NSEvent) {
-        guard let (route, task) = link(at: event), let model = coordinator?.model else { return super.rightMouseDown(with: event) }
-        model.selectedItem = route.chipKey(task: task)
-        FaceMenu.show(model.linkMenu(route, task: task), route.chipKey(task: task), convert(event.locationInWindow, from: nil), self)
+        guard let menu = linkMenu(at: event), let (routes, task) = links(at: event) else { return super.rightMouseDown(with: event) }
+        FaceMenu.show(menu, Self.linksKey(routes, task: task), convert(event.locationInWindow, from: nil), self)
     }
 
-    /// The link chip under the event, and its task.
-    private func link(at event: NSEvent) -> (route: ModalRoute, task: Int)? {
+    /// What a link's menu is shown for: the link on its task, or the kind's links.
+    static func linksKey(_ routes: [ModalRoute], task: Int) -> String {
+        routes.count == 1 ? routes[0].chipKey(task: task) : "links:\(task):" + routes.map(\.selectionKey).joined(separator: ",")
+    }
+
+    /// The menu of the link under the event: one link's own, or several to pick from.
+    private func linkMenu(at event: NSEvent) -> NSMenu? {
+        guard let (routes, task) = links(at: event), let model = coordinator?.model, let first = routes.first else { return nil }
+        return routes.count == 1 ? model.linkMenu(first, task: task) : pickMenu(routes)
+    }
+
+    /// The links under the event on a card, and their task.
+    private func links(at event: NSEvent) -> (routes: [ModalRoute], task: Int)? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0 else { return nil }
-        return (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.link(at: event.locationInWindow)
+        return (view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.links(at: event.locationInWindow)
     }
+
+    /// Several links of a kind on a card: a menu of them; a pick opens it.
+    private func pickMenu(_ routes: [ModalRoute]) -> NSMenu {
+        let menu = NSMenu()
+        guard let model = coordinator?.model else { return menu }
+        for route in routes {
+            let item = NSMenuItem(title: model.title(of: route), action: #selector(pickLink(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = DropChoice { model.open(route) }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func pickLink(_ item: NSMenuItem) { (item.representedObject as? DropChoice)?.run() }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
@@ -488,10 +709,49 @@ final class TaskOutlineView: NSOutlineView {
         return resigned
     }
 
-    /// Drag images: the row as it looks.
-    override func dragImageForRows(with dragRows: IndexSet, tableColumns: [NSTableColumn], event dragEvent: NSEvent,
-                                   offset dragImageOffset: NSPointPointer) -> NSImage {
-        super.dragImageForRows(with: dragRows, tableColumns: tableColumns, event: dragEvent, offset: dragImageOffset)
+    /// A dragged task's image: its card alone, as it looks (2026-11-10), not its row with the gap and tray around it.
+    func cardImage(ofRow row: Int) -> NSImage? {
+        guard let card = cardFrame(ofRow: row), card.width > 0, card.height > 0 else { return nil }
+        let cells = [view(atColumn: 0, row: row, makeIfNecessary: false), view(atColumn: 1, row: row, makeIfNecessary: false)].compactMap { $0 }
+        let shots = cells.compactMap { cell -> (NSRect, NSBitmapImageRep)? in
+            guard let rep = cell.bitmapImageRepForCachingDisplay(in: cell.bounds) else { return nil }
+            cell.cacheDisplay(in: cell.bounds, to: rep)
+            return (convert(cell.bounds, from: cell), rep)
+        }
+        let id = (item(atRow: row) as? OutlineNode)?.task
+        let radius = id.flatMap { coordinator?.plan.depth[$0] } == 0 ? Radius.row + 4 : Radius.row
+        let appearance = effectiveAppearance
+        return NSImage(size: card.size, flipped: true) { bounds in
+            appearance.performAsCurrentDrawingAppearance {
+                let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
+                Ink.surfaceNS.setFill()
+                shape.fill()
+                Ink.cardHairlineNS.setStroke()
+                shape.stroke()
+                shape.addClip()
+                for (frame, rep) in shots {
+                    rep.draw(in: frame.offsetBy(dx: -card.minX, dy: -card.minY), from: .zero, operation: .sourceOver, fraction: 1,
+                             respectFlipped: true, hints: nil)
+                }
+            }
+            return true
+        }
+    }
+
+    /// While a task is dragged over the rows: the card it would drop onto, ringed; the cards hold still (2026-11-10).
+    var dropOnto: Int? { didSet { if dropOnto != oldValue { placeCards() } } }
+
+    /// The line where a dragged task would land between cards; nil hides it.
+    func showDropLine(_ rect: NSRect?) { cards.showDropLine(rect) }
+
+    func clearDrop() {
+        dropOnto = nil
+        cards.showDropLine(nil)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        super.draggingExited(sender)
+        clearDrop()
     }
 }
 
@@ -502,20 +762,63 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     static let mainColumn = NSUserInterfaceItemIdentifier("main")
     /// One face per row (2026-11-05).
     static let faces = 1
-    /// Grip, attention dot and the face, with room between each.
-    static var facesWidth: CGFloat { Space.md + Space.sm + Space.sm + FaceStackView.width(faces, limit: faces, more: false) }
-    private var facesWidth: CGFloat { Self.facesWidth }
 
     var model: AppModel
+    /// In a task's window: that task, whose subtasks it shows. Nil: the page's Tasks and Backlog.
+    let root: Int?
     weak var container: OutlineContainer?
+
+    struct Live { weak var coordinator: OutlineCoordinator? }
+    /// The outlines on screen: a row's menu and keys act through the one that shows it.
+    static var live: [Live] = []
+
+    /// The outline the user works in: a task window's while it's the window open, the page's when no window is over it.
+    var inFront: Bool {
+        if let root { return model.modal == .task(root) }
+        return model.modal == nil
+    }
+
+    /// The outline that shows a task: a task's window's, while open, over the page's.
+    static func owner(of id: Int) -> OutlineCoordinator? {
+        live.removeAll { $0.coordinator == nil }
+        let shown = live.compactMap(\.coordinator).filter { $0.outline?.window != nil }
+        return shown.first { $0.root != nil && $0.row(of: id) >= 0 } ?? shown.first { $0.root == nil }
+    }
     var onHeight: (CGFloat) -> Void = { _ in }
     var width: CGFloat = 0 { didSet { if width != oldValue { heights.removeAll(); remeasure = true } } }
     private var outline: TaskOutlineView? { container?.outline }
-    private var snapshot = OutlineSnapshot() { didSet { gapped = Self.gapped(snapshot) } }
-    /// Top-level tasks that follow another task in their list: a gap above them.
-    private var gapped: [Int: CGFloat] = [:]
-    /// Tasks with links: a line of chips under their title.
-    private var withLinks: Set<Int> = []
+    private(set) var snapshot = OutlineSnapshot() { didSet { replan() } }
+    /// Where each task's card sits: made again when the rows or what's open change.
+    private(set) var plan = OutlinePlan()
+
+    /// A top-level task: its big card.
+    func isBig(_ id: Int) -> Bool { plan.depth[id] == 0 }
+
+    /// The padding left and right inside a task's card: one for every card; a top-level task with no tray of its own
+    /// takes a story's tray too, so every story's glyph, title and end line up (2026-11-10).
+    func padding(of id: Int) -> CGFloat {
+        Metric.cardPadding + (plan.depth[id] == 0 && !plan.blocks.contains(id) ? Metric.storyTrayPadding : 0)
+    }
+
+    /// While tasks are selected: them, their parents and subtasks, what blocks them and what they block, what they come
+    /// after and what comes after them. The rest fades (2026-11-10). Nil with nothing selected.
+    func lit() -> Set<Int>? {
+        let selected = selectedIDs
+        guard !selected.isEmpty else { return nil }
+        let tree = model.taskTree
+        let flow = model.taskFlow
+        var lit = Set<Int>()
+        for id in selected {
+            lit.formUnion(tree.subtree(of: id))
+            lit.formUnion(tree.ancestors(of: id))
+            guard let task = model.task(id) else { continue }
+            lit.formUnion(task.blockedBy)
+            lit.formUnion(task.after)
+            lit.formUnion(flow.dependents(of: id, .blockedBy))
+            lit.formUnion(flow.dependents(of: id, .after))
+        }
+        return lit
+    }
     private var nodes: [OutlineNode.Kind: OutlineNode] = [:]
     /// Headers, the filter bar and empty lines: kept, so scrolling back to them doesn't rebuild their SwiftUI views.
     private var hostCells: [OutlineNode.Kind: HostCell] = [:]
@@ -537,9 +840,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private var completing = false
     private var deleting = false
 
-    init(model: AppModel) {
+    init(model: AppModel, root: Int? = nil) {
         self.model = model
+        self.root = root
         super.init()
+        Self.live.append(Live(coordinator: self))
         mermaidObserver = NotificationCenter.default.addObserver(forName: .mermaidDidRender, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.descriptionsChanged() }
         }
@@ -551,23 +856,37 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     isolated deinit {
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        if let mermaidObserver { NotificationCenter.default.removeObserver(mermaidObserver) }
     }
 
     /// Link… on a row: the link picker in a popover under the task's title, the row selected.
     func showLinkPicker(_ id: Int) {
+        showPicker(id) { [model] popover in AnyView(LinkPicker(task: id) { [weak popover] in popover?.close() }.environment(model).handCursors()) }
+    }
+
+    /// Block…, Blocked By… or After… on a row: their picker in a popover under the task's title, the row selected.
+    func showHoldPicker(_ id: Int, _ kind: HoldPicker.Kind) {
+        showPicker(id) { [model] popover in
+            AnyView(HoldPicker(task: id, kind: kind) { [weak popover] in popover?.close() }.environment(model).handCursors())
+        }
+    }
+
+    /// A picker in a popover under a task's title, its row selected and brought into view.
+    private func showPicker(_ id: Int, _ content: @escaping (NSPopover) -> AnyView) {
         guard let outline else { return }
         let row = outline.row(forItem: node(.task(id)))
         guard row >= 0 else { return }
         outline.selectRowIndexes([row], byExtendingSelection: false)
         // The page scrolls, not the outline: the row comes into view clear of the toolbar, or the popover has nothing to show under.
         outline.scrollToVisible(outline.rect(ofRow: row).insetBy(dx: 0, dy: -Metric.outlineRow * 3))
-        // Shown once the page has laid the row out where it scrolled.
+        // Shown once the page has laid the row out where it scrolled, under the row the task has then.
         DispatchQueue.main.async { [weak self] in
             guard let self, let outline = self.outline else { return }
+            let row = outline.row(forItem: self.node(.task(id)))
+            guard row >= 0 else { return }
             let popover = NSPopover()
             popover.behavior = .transient
-            popover.contentViewController = NSHostingController(rootView: LinkPicker(task: id) { [weak popover] in popover?.close() }
-                .environment(self.model).handCursors())
+            popover.contentViewController = NSHostingController(rootView: content(popover))
             if let anchor = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.title, anchor.window != nil {
                 popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
             } else {
@@ -596,12 +915,13 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         refreshing = true
         defer { refreshing = false }
         // Another section took the page's selection: the rows unselect, kept aside for when Tab comes back.
-        if model.selectedSection != .tasks, !outline.selectedRowIndexes.isEmpty {
+        if root == nil, model.selectedSection != .tasks, !outline.selectedRowIndexes.isEmpty {
             parked = selectedIDs
             outline.deselectAll(nil)
         }
-        withLinks = model.tasksWithOutputs
-        let next = OutlineSnapshot.make(model)
+
+        let next = OutlineSnapshot.make(model, root: root)
+        replan()
         if outline.numberOfRows == 0 {
             snapshot = next
             outline.reloadData()
@@ -616,15 +936,18 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         } else {
             noteDescriptionHeights()
         }
-        if let focus = model.quickAddFocus {
+        // The page's requests are the page's outline's, not a task window's.
+        if root == nil, let focus = model.quickAddFocus {
             model.quickAddFocus = nil
             DispatchQueue.main.async { [weak self] in self?.focusQuickAdd(focus) }
         }
-        if let focus = model.outlineFocus {
+        // A row or title to take the keyboard: the task window's outline while it's open and shows that task, else the page's
+        // once no window is over it.
+        if let focus = model.outlineFocus, inFront, root == nil || row(of: focus.task) >= 0 {
             model.outlineFocus = nil
             DispatchQueue.main.async { [weak self] in self?.take(focus) }
         }
-        if model.sectionFocus == .tasks {
+        if root == nil, model.sectionFocus == .tasks {
             model.sectionFocus = nil
             let first = snapshot.children(of: .header(.overview)).lazy.compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } }.first
             let back = parked.filter { row(of: $0) >= 0 }
@@ -642,7 +965,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             DispatchQueue.main.async { [weak self] in self?.beginEditing(edit.id, caretAtEnd: edit.caretAtEnd, caret: caret, retry: false) }
         }
         verifyRows()
-        if !model.tasks.isEmpty { LaunchLog.mark("tasks") }
+        outline.placeCards()
+        if root == nil, !model.tasks.isEmpty { LaunchLog.mark("tasks") }
         reportHeight()
     }
 
@@ -652,12 +976,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// The outline shows every row of the snapshot: if AppKit lost one of the changes, a reload puts them back, logged.
     private func verifyRows() {
         guard let outline else { return }
-        // A shown task whose links don't show under its row (T-352, not reproduced): its row again, logged.
+        // A shown task whose links don't show on its card (T-352, not reproduced): its row again, logged.
         var linkless: [Int] = []
-        outline.enumerateAvailableRowViews { _, row in
-            guard let id = (outline.item(atRow: row) as? OutlineNode)?.task, withLinks.contains(id),
-                  let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return }
-            if cell.linksHost == nil || outline.rect(ofRow: row).height < gap(of: id) + Metric.outlineRow + Metric.linksLine - 0.5 { linkless.append(row) }
+        outline.enumerateAvailableRowViews { rowView, row in
+            guard row < outline.numberOfRows, let id = (outline.item(atRow: row) as? OutlineNode)?.task,
+                  let cell = rowView.view(atColumn: 1) as? TaskCell else { return }
+            if cell.links.tokens.isEmpty, model.outputs(ofTask: id).contains(where: { $0.taskID == nil }) { linkless.append(row) }
         }
         if !linkless.isEmpty {
             Self.repairs += 1
@@ -674,10 +998,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             }
         }
         count(nil)
-        // A task the user left open that AppKit shows closed, without its subtasks: opened again, logged.
-        let shut = snapshot.expandable.filter { id in
-            (!model.collapsed.contains(id) || !model.search.isEmpty) && row(of: id) >= 0 && !outline.isItemExpanded(node(.task(id)))
-        }
+        // A task with subtasks to show that AppKit shows closed, without them: opened again, logged.
+        let shut = snapshot.expandable.filter { id in row(of: id) >= 0 && !outline.isItemExpanded(node(.task(id))) }
         if !shut.isEmpty {
             Self.repairs += 1
             AppLog.write("outline: \(shut.sorted().map { "T-\($0)" }.joined(separator: ", ")) open in the model, shut in the outline; reloaded", to: "outline.log")
@@ -706,7 +1028,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         var keyboard: Bool
     }
 
-    private func row(of id: Int) -> Int { outline?.row(forItem: node(.task(id))) ?? -1 }
+    func row(of id: Int) -> Int { outline?.row(forItem: node(.task(id))) ?? -1 }
 
     private func task(atRow row: Int) -> Int? { (outline?.item(atRow: row) as? OutlineNode)?.task }
 
@@ -762,7 +1084,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     }
 
     /// Selects tasks' rows, with the keyboard.
-    private func select(_ ids: [Int]) {
+    func select(_ ids: [Int]) {
         guard let outline else { return }
         let rows = IndexSet(ids.map(row(of:)).filter { $0 >= 0 })
         guard let first = rows.first else { return }
@@ -772,6 +1094,22 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     }
 
     /// Selects a task's row; with the keyboard, the outline takes it.
+    /// A task anywhere in the lists, brought into view and selected: its parents unfold, its list shows.
+    func reveal(_ id: Int) {
+        // In a task's window: one of its subtasks selected there, any other task's window opened over it.
+        if root != nil {
+            if row(of: id) >= 0 { select(id) } else { model.open(.task(id), push: true) }
+            return
+        }
+        if model.list(of: id) == .backlog { model.backlogOpen = true } else { model.folded.remove(.tasks) }
+        // Hidden under a task that shows none or only some of its subtasks: those show all.
+        if !OutlineSnapshot.make(model).children.values.contains(where: { $0.contains(.task(id)) }) {
+            for ancestor in model.taskTree.ancestors(of: id) where model.fold[ancestor] != nil || snapshot.modes[ancestor] != .all { model.setFold(ancestor, .all) }
+        }
+        refresh()
+        DispatchQueue.main.async { [weak self] in self?.select(id) }
+    }
+
     func select(_ id: Int, keyboard: Bool = true) {
         guard let outline else { return }
         let row = row(of: id)
@@ -827,7 +1165,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let shown = Set(current.values.flatMap { $0 })
         let incoming = Set(next.children.filter { loaded($0.key) }.values.flatMap { $0 })
         let changed = shown.symmetricDifference(incoming).count
-        let still = changed > 24
+        let still = changed > 24 || landing
+        landing = false
         let effect: NSTableView.AnimationOptions = still ? [] : .effectFade
         let selection = captureSelection()
         // Most rows at once (a search keystroke over hundreds of tasks): one reload costs less than each row in turn.
@@ -905,22 +1244,20 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// Opens what the user left open; folds what they folded.
     private func expandAll() {
         guard let outline else { return }
+        if root != nil { return expandOpen(snapshot.children(of: nil)) }
         outline.expandItem(node(.header(.overview)))
         outline.expandItem(node(.header(.backlog)))
         expandOpen(snapshot.children(of: .header(.overview)) + snapshot.children(of: .header(.backlog)))
     }
 
-    /// These tasks and their subtasks, open or folded as the user left them.
+    /// These tasks and their subtasks, open: a folded task's snapshot holds only the subtasks it still shows.
     private func expandOpen(_ kinds: [OutlineNode.Kind]) {
         guard let outline else { return }
         var queue = kinds
         while let kind = queue.popLast() {
             guard case .task(let id) = kind, snapshot.expandable.contains(id) else { continue }
-            let open = !model.collapsed.contains(id) || !model.search.isEmpty
-            if open != outline.isItemExpanded(node(kind)) {
-                if open { outline.expandItem(node(kind)) } else { outline.collapseItem(node(kind)) }
-            }
-            if open { queue.append(contentsOf: snapshot.children(of: kind)) }
+            if !outline.isItemExpanded(node(kind)) { outline.expandItem(node(kind)) }
+            queue.append(contentsOf: snapshot.children(of: kind))
         }
     }
 
@@ -937,17 +1274,31 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let gap = node.task.map(gap(of:)) ?? 0
         (outline.rowView(atRow: row, makeIfNecessary: false) as? OutlineRowView)?.gap = gap
         if let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell, let id = node.task {
-            cell.gap = gap
-            cell.show(model: model, id: id, coordinator: self, hovered: (outline.rowView(atRow: row, makeIfNecessary: false) as? OutlineRowView)?.hovered ?? false)
+            dress(cell, id)
         } else if let cell = outline.view(atColumn: node.spans ? 0 : 1, row: row, makeIfNecessary: false) as? HostCell {
             cell.show(hosted(node))
         } else if let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? QuickAddCell, case .quickAdd(let list) = node.kind {
             cell.configure(list: list, coordinator: self)
         }
         if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, let id = node.task {
-            faces.gap = gap
-            faces.show(model: model, id: id)
+            dress(faces, id)
         }
+    }
+
+    /// A task's card: under its gap, its end left for its face and its chevron.
+    private func dress(_ cell: TaskCell, _ id: Int) {
+        cell.gap = gap(of: id)
+        cell.expandable = snapshot.foldable.contains(id)
+        cell.foldMode = snapshot.modes[id] ?? .all
+        cell.foldNext = cell.expandable ? nextFold(id) : .all
+        cell.show(model: model, id: id, coordinator: self, hovered: false)
+    }
+
+    /// A task's face, on its card's first line.
+    private func dress(_ faces: FacesCell, _ id: Int) {
+        faces.gap = gap(of: id)
+        faces.lineTop = TaskCell.lineTop(big: isBig(id))
+        faces.show(model: model, id: id)
     }
 
     /// The rows' height goes to SwiftUI now, and again once row animations end.
@@ -979,24 +1330,15 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         model.descriptionShownInOutline(id) || model.editingDescription == id
     }
 
-    /// Space above a task's line: top-level tasks that follow another task in their list.
-    func gap(of id: Int) -> CGFloat { gapped[id] ?? 0 }
+    /// Space above a task's card: from the row before, the trays that close and its own tray's padding.
+    func gap(of id: Int) -> CGFloat { plan.gaps[id] ?? 0 }
 
-    /// The space above each top-level task: the list card's top padding above the first, a group gap between tasks.
-    private static func gapped(_ snapshot: OutlineSnapshot) -> [Int: CGFloat] {
-        var ids: [Int: CGFloat] = [:]
-        for list in TaskList.allCases {
-            var previousIsTask = false
-            for (index, kind) in snapshot.children(of: .header(list)).enumerated() {
-                if case .task(let id) = kind {
-                    if previousIsTask { ids[id] = Metric.outlineGroupGap } else if index == 0 { ids[id] = Metric.listCardPadding }
-                    previousIsTask = true
-                } else {
-                    previousIsTask = false
-                }
-            }
-        }
-        return ids
+    /// The plan again, after the rows or what's open changed; rows whose height changed are measured again.
+    func replan() {
+        let next = OutlinePlan(snapshot)
+        guard next != plan else { return }
+        plan = next
+        remeasure = true
     }
 
     /// The gap above the task on a row, if it's a task's.
@@ -1004,21 +1346,25 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         (outline?.item(atRow: row) as? OutlineNode)?.task.map(gap(of:)) ?? 0
     }
 
-    /// The task row's height under its gap: its line, its links, and its description when shown.
+    /// The task card's height under its gap: what TaskCell stacks in it (its first line, a big card's title, description
+    /// line and story, a Blocked reason), and its description when shown.
     private func height(of id: Int) -> CGFloat {
-        let line = Metric.outlineRow + (withLinks.contains(id) ? Metric.linksLine : 0)
-        guard descriptionShown(id), let outline else { return line }
+        let big = isBig(id)
+        let shown = descriptionShown(id)
+        let line = TaskCell.stack(model, id, big: big, description: shown).height
+        guard shown else { return line }
         let task = model.task(id)
         let editing = model.editingDescription == id
         var hasher = Hasher()
         hasher.combine(task?.body)
         hasher.combine(editing)
         hasher.combine(model.outputs(ofTask: id))
+        hasher.combine(width)
         let key = hasher.finalize()
         if let cached = heights[id], cached.key == key { return line + cached.height }
-        // The task cell's width at its level, less the glyphs before the title.
-        let level = CGFloat(max(outline.level(forItem: node(.task(id))), 1))
-        let available = width - facesWidth - level * outline.indentationPerLevel - TaskCell.titleX
+        // The card's width, less its padding and, but on a big card, the glyph before the lines under the first.
+        let edges = plan.card(of: id)
+        let available = width - edges.left - edges.right - 2 * padding(of: id) - (big ? 0 : TaskCell.titleX)
         // Editing, the box grows with its text: never cached.
         if editing { return line + model.descriptionEditorBox + Space.xs + Space.md }
         let height = DescriptionBlock.measure(model: model, id: id, width: max(available, Metric.titleMinimum))
@@ -1077,7 +1423,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         switch kind(item) {
         // The Backlog's header sits a section's space under the Tasks card.
         case .header(let list): list == .backlog ? Metric.outlineHeader + Metric.backlogHeaderGap : Metric.outlineHeader
-        case .quickAdd: Metric.outlineQuick + Metric.listCardPadding
+        case .quickAdd(let list): (plan.trailing[list] ?? 0) + Metric.taskGap + Metric.outlineQuick
         case .empty: Metric.outlineEmpty
         case .task(let id): gap(of: id) + height(of: id)
         case nil: Metric.outlineRow
@@ -1091,12 +1437,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         row.identifier = OutlineRowView.id
         row.isTask = (item as? OutlineNode)?.task != nil
         row.gap = (item as? OutlineNode)?.task.map(gap(of:)) ?? 0
-        row.onHover = { [weak self, weak row] hovered in
-            guard let self, let row, let outline = self.outline else { return }
-            let index = outline.row(for: row)
-            if index >= 0, let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: false) as? TaskCell { cell.setHovered(hovered) }
-            if index >= 0, let cell = outline.view(atColumn: 0, row: index, makeIfNecessary: false) as? FacesCell { cell.setHovered(hovered) }
-        }
+        let task = (item as? OutlineNode)?.task
+        row.alphaValue = task.map { outline?.lit?.contains($0) == false } == true ? Motion.dimmedOpacity : 1
         return row
     }
 
@@ -1111,13 +1453,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         switch (tableColumn?.identifier, node.kind) {
         case (Self.facesColumn, .task(let id)):
             let cell = outlineView.makeView(withIdentifier: FacesCell.id, owner: nil) as? FacesCell ?? FacesCell()
-            cell.gap = gap(of: id)
-            cell.show(model: model, id: id)
+            dress(cell, id)
             return cell
         case (Self.mainColumn, .task(let id)):
             let cell = outlineView.makeView(withIdentifier: TaskCell.id, owner: nil) as? TaskCell ?? TaskCell()
-            cell.gap = gap(of: id)
-            cell.show(model: model, id: id, coordinator: self, hovered: false)
+            dress(cell, id)
             return cell
         case (Self.mainColumn, .quickAdd(let list)):
             let cell = outlineView.makeView(withIdentifier: QuickAddCell.id, owner: nil) as? QuickAddCell ?? QuickAddCell()
@@ -1134,7 +1474,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case .empty: AnyView(Text(model.search.isEmpty ? "Nothing on the overview. Add from the Backlog or type a task." : "No task matches “\(model.search)”.")
             .kitType(.callout).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.leading, facesWidth + TaskOutlineView.cardInset + TaskCell.titleX))
+            .padding(.leading, Metric.bigCardPadding + TaskCell.titleX))
         default: AnyView(EmptyView())
         }
     }
@@ -1145,6 +1485,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard let outline else { return }
+        // A task's window: the selection is its own, the page's stays.
+        if root != nil {
+            outline.placeCards()
+            return
+        }
         let row = outline.selectedRow
         let id = row >= 0 ? (outline.item(atRow: row) as? OutlineNode)?.task : nil
         if model.focusedTask != id { model.focusedTask = id }
@@ -1153,22 +1498,42 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         // A chip under a row unselects when the rows change; a click on a chip selects it again after.
         if model.modal == nil, model.selectedItem.flatMap(AppModel.section(ofItem:)) == .tasks { model.selectedItem = nil }
         if !selected.isEmpty { model.selectSection(.tasks) }
+        // The selected cards take their ring; what isn't related to them fades.
+        outline.placeCards()
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
         guard !refreshing, let id = ((notification.userInfo?["NSObject"]) as? OutlineNode)?.task else { return }
-        model.setCollapsed(id, false)
+        // Not the outline's own (VoiceOver's expand): all its subtasks.
+        model.setFold(id, .all)
         // AppKit loads its subtasks folded: the ones the user left open open again.
         refreshing = true
         defer { refreshing = false }
         expandOpen(snapshot.children(of: .task(id)))
+        replanRows()
+    }
+
+    /// A task opened or folded: its tray comes or goes, the gaps around it change.
+    private func replanRows() {
+        replan()
+        guard remeasure, let outline else { return }
+        remeasure = false
+        outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows))
+        // The cards and trays slide with the rows AppKit animates.
+        outline.placeCards(animated: true)
+        reportHeight()
     }
 
     /// Folding a task whose subtask is selected selects the task.
     private var foldingSelection = false
 
+    func outlineViewItemWillExpand(_ notification: Notification) {
+        if !refreshing { outline?.slideCards() }
+    }
+
     func outlineViewItemWillCollapse(_ notification: Notification) {
         guard let outline, let item = notification.userInfo?["NSObject"] as? OutlineNode else { return }
+        if !refreshing { outline.slideCards() }
         foldingSelection = outline.selectedRowIndexes.contains { row in
             var parent = outline.parent(forItem: outline.item(atRow: row))
             while let node = parent as? OutlineNode {
@@ -1186,14 +1551,15 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             select(id, keyboard: outlineHasResponder)
         }
         guard !refreshing else { return }
-        model.setCollapsed(id, true)
+        model.setFold(id, .hidden)
+        replanRows()
     }
 
     // MARK: Clicks and keys
 
     @objc func doubleClicked(_ sender: NSOutlineView) {
         guard let id = (sender.item(atRow: sender.clickedRow) as? OutlineNode)?.task else { return }
-        model.open(.task(id))
+        model.open(.task(id), push: root != nil)
     }
 
     func keyboardChanged() {
@@ -1203,7 +1569,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let keyboard: OutlineKeyboard = if responder === outline { .rows }
             else if (responder as? NSTextView)?.editedTitle != nil { .title }
             else { .none }
-        if model.outlineKeyboard != keyboard { model.outlineKeyboard = keyboard }
+        // A task's window keeps the page's keyboard state.
+        if root == nil, model.outlineKeyboard != keyboard { model.outlineKeyboard = keyboard }
+        // A selected card's ring is the accent only while the rows have the keyboard.
+        outline.placeCards()
     }
 
     /// Keys on selected rows, DESIGN.md §7. Return and Tab never reach the table, which would edit a title.
@@ -1213,6 +1582,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let letter = event.charactersIgnoringModifiers?.lowercased()
         let newTask = letter == "n" && flags.subtracting(.shift).isEmpty
         guard let first = ids.first, let last = ids.last else {
+            guard root == nil else { return false }
             if newTask { model.focusQuickAdd(.overview) }
             return newTask
         }
@@ -1222,15 +1592,29 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (36, .command), (76, .command): model.nextStatus(ids)
         case (36, [.command, .option]), (76, [.command, .option]): model.beginStart(task: first)
         case (36, _), (76, _): break
+        case (48, []) where root != nil, (48, .shift) where root != nil: return false
         case (48, []), (48, .shift): leaveSection(by: flags.contains(.shift) ? -1 : 1)
         case (48, _): break
         // A held key moves among siblings only: it never indents, outdents or leaves the parent.
-        case (124, .shift): if !event.isARepeat { model.indentTasks(ids) }
+        case (124, .shift): if !event.isARepeat { model.indentTasks(ids.filter(indentsInView)) }
         case (123, .shift): if !event.isARepeat { model.outdentTasks(ids) }
         case (126, .shift): model.shiftTasks(ids, by: -1, leavingParent: !event.isARepeat)
         case (125, .shift): model.shiftTasks(ids, by: 1, leavingParent: !event.isARepeat)
-        case (49, []): model.open(.task(first))
+        // ↓ on a list's last task: its new task's card; on a task window's last subtask, its new subtask's.
+        case (125, []) where newTaskBelow(last):
+            outline?.deselectAll(nil)
+            if let root { model.newSubtaskFocus = root } else if let list = quickAddBelow(last) { focusQuickAdd(list) }
+        case (123, []), (123, .option): foldLeft(ids, deep: flags == .option)
+        case (124, []), (124, .option): foldRight(ids, deep: flags == .option)
+        case (49, []): model.open(.task(first), push: root != nil)
+        // Escape unselects: nothing stays dimmed.
+        case (53, []): outline?.deselectAll(nil)
         case (51, []), (117, []), (51, .command): model.deleteTasks(ids)
+        // B blocks or unblocks, ⇧B asks what blocks it, A what it comes after: by the letter, whatever the layout.
+        case (_, []) where letter == "b":
+            if model.task(first)?.blocked == true { model.unblock(first) } else if model.task(first)?.status != .done { showHoldPicker(first, .block) }
+        case (_, .shift) where letter == "b": if model.task(first)?.status != .done { showHoldPicker(first, .blockedBy) }
+        case (_, []) where letter == "a": if model.task(first)?.status != .done { showHoldPicker(first, .after) }
         default:
             guard newTask else { return false }
             let added = flags.contains(.shift) ? model.addSubtask(to: first) : model.addTask(after: last)
@@ -1239,6 +1623,79 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             refresh()
         }
         return true
+    }
+
+    // MARK: Folding
+
+    /// Sets what tasks show of their subtasks (2026-11-10); `deep`, every task under them too. A selected subtask that
+    /// goes gives the selection to the task that hid it.
+    func fold(_ ids: [Int], _ mode: FoldMode, deep: Bool = false) {
+        let tree = model.taskTree
+        let targets = deep ? ids.flatMap { tree.subtree(of: $0) }.filter { !tree.children(of: $0).isEmpty } : ids.filter(snapshot.foldable.contains)
+        let change = targets.filter { model.fold[$0] != mode || snapshot.modes[$0] != mode }
+        guard !change.isEmpty else { return }
+        let selected = selectedIDs
+        let keyboard = outlineHasResponder
+        outline?.slideCards()
+        for id in change { model.setFold(id, mode) }
+        refresh()
+        guard let hidden = selected.first(where: { row(of: $0) < 0 }),
+              let folder = tree.ancestors(of: hidden).first(where: change.contains) else { return }
+        select(folder, keyboard: keyboard)
+    }
+
+    /// The chevron: from all subtasks to only the blocking and doing ones, to none, back to all; a mode that would show
+    /// the same is passed.
+    func stepFold(_ id: Int) {
+        let modes = OutlineSnapshot.modes(model, id)
+        let current = snapshot.modes[id] ?? .all
+        let order: [FoldMode] = [.all, .important, .hidden]
+        let start = order.firstIndex(of: current) ?? 0
+        guard let next = (1...order.count).lazy.map({ order[(start + $0) % order.count] }).first(where: modes.contains) else { return }
+        fold([id], next)
+    }
+
+    /// What a click on a task's chevron does next, for its tooltip.
+    func nextFold(_ id: Int) -> FoldMode {
+        let modes = OutlineSnapshot.modes(model, id)
+        let order: [FoldMode] = [.all, .important, .hidden]
+        let start = order.firstIndex(of: snapshot.modes[id] ?? .all) ?? 0
+        return (1...order.count).lazy.map { order[(start + $0) % order.count] }.first(where: modes.contains) ?? .all
+    }
+
+    /// ←: fewer subtasks on the selected tasks; on one that shows none, or has none, its parent takes the selection.
+    private func foldLeft(_ ids: [Int], deep: Bool) {
+        if deep { return fold(ids, .hidden, deep: true) }
+        var stepped = false
+        for id in ids where snapshot.foldable.contains(id) {
+            guard let fewer = step(id, by: -1) else { continue }
+            fold([id], fewer)
+            stepped = true
+        }
+        guard !stepped, ids.count == 1, let parent = model.taskTree.parent(of: ids[0]), row(of: parent) >= 0 else { return }
+        select(parent)
+    }
+
+    /// →: more subtasks on the selected tasks; on one that shows them all, its first subtask takes the selection.
+    private func foldRight(_ ids: [Int], deep: Bool) {
+        if deep { return fold(ids, .all, deep: true) }
+        var stepped = false
+        for id in ids where snapshot.foldable.contains(id) {
+            guard let more = step(id, by: 1) else { continue }
+            fold([id], more)
+            stepped = true
+        }
+        guard !stepped, ids.count == 1, case .task(let first)? = snapshot.children(of: .task(ids[0])).first else { return }
+        select(first)
+    }
+
+    /// The next mode with more subtasks (1) or fewer (-1) that shows something different; nil at the end.
+    private func step(_ id: Int, by offset: Int) -> FoldMode? {
+        let modes = OutlineSnapshot.modes(model, id)
+        let current = FoldMode.opening.firstIndex(of: snapshot.modes[id] ?? .all) ?? 2
+        let candidates = offset > 0 ? Array(modes.filter { FoldMode.opening.firstIndex(of: $0)! > current })
+            : Array(modes.filter { FoldMode.opening.firstIndex(of: $0)! < current }.reversed())
+        return candidates.first
     }
 
     /// Tab and ⇧Tab on rows: the next section takes the keyboard; the rows unselect, kept aside for when Tab comes back.
@@ -1367,7 +1824,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let parent = model.taskTree.parent(of: id)
             // Moving the row ends its edit for a moment: an empty task stays until its title is edited again.
             reEditing = id
-            if left { model.outdent(id) } else { model.indent(id) }
+            if left { model.outdent(id) } else if indentsInView(id) { model.indent(id) }
             guard model.taskTree.parent(of: id) != parent else {
                 reEditing = nil
                 return true
@@ -1432,7 +1889,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// The previous or next task row, across both lists.
     private func neighbor(of id: Int, by offset: Int) -> Int? {
         guard let outline else { return nil }
-        var row = outline.row(forItem: node(.task(id))) + offset
+        let start = outline.row(forItem: node(.task(id)))
+        // A task this outline doesn't show has no neighbor here.
+        guard start >= 0 else { return nil }
+        var row = start + offset
         while row >= 0 && row < outline.numberOfRows {
             if let next = (outline.item(atRow: row) as? OutlineNode)?.task { return next }
             row += offset
@@ -1529,6 +1989,39 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         }
     }
 
+    /// ⇧→ goes under the sibling above only when it shows: not a done one Hide Done hides, where the task would vanish.
+    private func indentsInView(_ id: Int) -> Bool {
+        let tree = model.taskTree
+        guard let index = tree.index(of: id), index > 0, let container = tree.container(of: id) else { return false }
+        return row(of: tree.children(of: container)[index - 1]) >= 0
+    }
+
+    /// The list whose new task's card comes right under a task's row.
+    private func quickAddBelow(_ id: Int) -> TaskList? {
+        guard let outline else { return nil }
+        let row = outline.row(forItem: node(.task(id)))
+        guard row >= 0, row + 1 < outline.numberOfRows, case .quickAdd(let list)? = (outline.item(atRow: row + 1) as? OutlineNode)?.kind else { return nil }
+        return list
+    }
+
+    /// A new task's card comes under this task's row: its list's, or in a task's window the new subtask's, under the last row.
+    private func newTaskBelow(_ id: Int) -> Bool {
+        guard let outline else { return false }
+        if root != nil { return outline.row(forItem: node(.task(id))) == outline.numberOfRows - 1 }
+        return quickAddBelow(id) != nil
+    }
+
+    /// ↑ from a task window's new subtask: its last subtask, selected.
+    func selectLast() {
+        guard let outline, let id = (stride(from: outline.numberOfRows - 1, through: 0, by: -1).lazy.compactMap { self.task(atRow: $0) }).first else { return }
+        select(id)
+    }
+
+    /// The task window's outline that shows a task's subtasks.
+    static func scoped(_ root: Int) -> OutlineCoordinator? {
+        live.compactMap(\.coordinator).first { $0.root == root && $0.outline?.window != nil }
+    }
+
     func focusQuickAdd(_ list: TaskList) {
         guard let outline else { return }
         let row = outline.row(forItem: node(.quickAdd(list)))
@@ -1545,40 +2038,143 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         guard let id = (item as? OutlineNode)?.task, let task = model.task(id) else { return nil }
         // Never while its title is being edited: the field editor keeps its text drags.
         if (outlineView.window?.firstResponder as? NSTextView)?.editedTitle?.task == id { return nil }
+        // The whole card drags (2026-11-10): between cards it moves, onto a task the drop menu asks, onto a session card it
+        // links, in another app it's the task's line.
         let pasteboard = NSPasteboardItem()
-        if (outlineView as? TaskOutlineView)?.dragsFromGrip == true {
-            pasteboard.setString("\(id)", forType: DragItem.taskType)
-        } else {
-            pasteboard.setData(Data(ModalRoute.task(task.id).selectionKey.utf8), forType: DragItem.itemType)
-        }
+        pasteboard.setString("\(id)", forType: DragItem.taskType)
         pasteboard.setString(model.line(of: .task(task.id)), forType: .string)
         return pasteboard
     }
 
     func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
         session.draggingFormation = .list
+        // Each dragged task as its card alone.
+        if let outline = outlineView as? TaskOutlineView {
+            let rows = draggedItems.map { outline.row(forItem: $0) }
+            session.enumerateDraggingItems(options: [], for: outline, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, index, _ in
+                guard index < rows.count, rows[index] >= 0, let card = outline.cardFrame(ofRow: rows[index]),
+                      let image = outline.cardImage(ofRow: rows[index]) else { return }
+                item.setDraggingFrame(card, contents: image)
+            }
+        }
         dragBegan(draggedItems.compactMap { ($0 as? OutlineNode)?.task })
     }
 
     func dragBegan(_ ids: [Int]) { dragged = ids }
 
     private(set) var dragged: [Int] = []
+    /// The card the last dragged task over the middle of was proposed onto, for the UI test.
+    private(set) var proposedOnto: Int?
+    /// A drop moved rows: the next update puts them in place without animating the move.
+    private var landing = false
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+        let outline = outlineView as? TaskOutlineView
+        let operation = proposeDrop(info, item: item, index: index, outline: outlineView)
+        // The cards hold still (2026-11-10): the card it drops onto takes a ring, a move between cards shows its line.
+        if operation.isEmpty {
+            outline?.clearDrop()
+        } else if let onto = proposedOnto {
+            outline?.dropOnto = onto
+            outline?.showDropLine(nil)
+        } else {
+            outline?.dropOnto = nil
+            outline?.showDropLine(outline.flatMap { outline in proposedBetween.flatMap { dropLine(item: $0.item, index: $0.index, in: outline) } })
+        }
+        return operation
+    }
+
+    /// Where the last move between cards was proposed: its parent and index.
+    private var proposedBetween: (item: Any?, index: Int)?
+
+    private func proposeDrop(_ info: NSDraggingInfo, item: Any?, index: Int, outline outlineView: NSOutlineView) -> NSDragOperation {
+        proposedOnto = nil
+        proposedBetween = nil
+        var item = item
+        var index = index
         let carried = DragItem.routes(on: info.draggingPasteboard)
         if !carried.isEmpty {
-            // Onto the task under the pointer, its row highlighted: they link there.
-            guard let id = linkTarget(info, item: item, index: index, outline: outlineView), !linkable(carried, to: id).isEmpty else { return [] }
+            // Onto the task under the pointer: they link there, or tasks ask what to do.
+            guard let id = linkTarget(info, item: item, index: index, outline: outlineView),
+                  !linkable(carried, to: id).isEmpty || carried.contains(where: { $0.taskID.map { $0 != id } ?? false }) else { return [] }
             outlineView.setDropItem(node(.task(id)), dropChildIndex: NSOutlineViewDropOnItemIndex)
+            proposedOnto = id
             return .link
+        }
+        // The middle of a card takes the drop (its menu asks); its top and bottom quarters, and the space between cards,
+        // move the task there.
+        if let ids = draggedIDs(info), let outline = outlineView as? TaskOutlineView {
+            let point = outline.convert(info.draggingLocation, from: nil)
+            let row = outline.row(at: point)
+            if row >= 0, let target = (outline.item(atRow: row) as? OutlineNode)?.task, let card = outline.cardFrame(ofRow: row),
+               !ids.contains(where: { model.taskTree.subtree(of: $0).contains(target) }) {
+                let edge = min(Metric.dropEdge, card.height / 4)
+                if point.y > card.minY + edge, point.y < card.maxY - edge {
+                    outline.setDropItem(node(.task(target)), dropChildIndex: NSOutlineViewDropOnItemIndex)
+                    proposedOnto = target
+                    return .move
+                }
+            }
+        }
+        // Onto a row outside its card's middle: above the card or below it, by the half the pointer is in.
+        if index == NSOutlineViewDropOnItemIndex, let id = (item as? OutlineNode)?.task {
+            // On its own card, or one under it: nothing.
+            if let ids = draggedIDs(info), ids.contains(where: { model.taskTree.subtree(of: $0).contains(id) }) { return [] }
+            let parent = outlineView.parent(forItem: item)
+            let row = outlineView.row(forItem: item)
+            guard var position = snapshot.children(of: kind(parent)).firstIndex(of: .task(id)), row >= 0,
+                  let card = (outlineView as? TaskOutlineView)?.cardFrame(ofRow: row) else { return [] }
+            if outlineView.convert(info.draggingLocation, from: nil).y > card.midY { position += 1 }
+            outlineView.setDropItem(parent, dropChildIndex: position)
+            item = parent
+            index = position
         }
         guard let ids = draggedIDs(info), !ids.isEmpty, let target = dropTarget(item: item, index: index, outline: outlineView) else { return [] }
         guard model.taskTree.canMove(ids, to: target.container) else { return [] }
+        proposedBetween = (item, index)
         return .move
     }
 
+    /// Where a move between cards lands, as a line: in the gap above the card it goes before, else under its new
+    /// parent's last subtask, at that card's left; in a task with no subtasks shown, a level in under its card.
+    private func dropLine(item: Any?, index: Int, in outline: TaskOutlineView) -> NSRect? {
+        let parent = kind(item)
+        let kids = snapshot.children(of: parent).filter { if case .task = $0 { true } else { false } }
+        let thickness = Space.sm
+        func line(_ card: NSRect, x: CGFloat, y: CGFloat) -> NSRect {
+            NSRect(x: x, y: y - thickness / 2, width: max(card.maxX - x, 0), height: thickness)
+        }
+        if index >= 0, index < kids.count {
+            let row = outline.row(forItem: node(kids[index]))
+            guard row >= 0, let card = outline.cardFrame(ofRow: row) else { return nil }
+            return line(card, x: card.minX, y: card.minY - Metric.taskGap / 2)
+        }
+        if let last = kids.last {
+            let row = outline.row(forItem: node(last))
+            guard row >= 0, let card = outline.cardFrame(ofRow: row) else { return nil }
+            return line(card, x: card.minX, y: outline.rect(ofRow: outline.lastRow(under: row)).maxY + Metric.taskGap / 2)
+        }
+        guard case .task(let id)? = parent else { return nil }
+        let row = outline.row(forItem: node(.task(id)))
+        guard row >= 0, let card = outline.cardFrame(ofRow: row) else { return nil }
+        return line(card, x: card.minX + Metric.subtaskIndent, y: card.maxY + Metric.taskGap / 2)
+    }
+
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
+        (outlineView as? TaskOutlineView)?.clearDrop()
         let carried = DragItem.routes(on: info.draggingPasteboard)
+        // Tasks onto a task: a menu asks where they go or how they link, once the drag is over.
+        if index == NSOutlineViewDropOnItemIndex, let target = (item as? OutlineNode)?.task {
+            let moved = draggedIDs(info) != nil
+            let tasks = (draggedIDs(info) ?? carried.compactMap(\.taskID)).filter { $0 != target }
+            if !tasks.isEmpty {
+                let others = linkable(carried.filter { $0.taskID == nil }, to: target)
+                if !others.isEmpty { model.link(others, to: target) }
+                let point = outlineView.convert(info.draggingLocation, from: nil)
+                DispatchQueue.main.async { [weak self] in self?.showDropMenu(tasks, onto: target, at: point, moved: moved) }
+                return true
+            }
+        }
         if !carried.isEmpty {
             guard let id = (item as? OutlineNode)?.task, case let routes = linkable(carried, to: id), !routes.isEmpty else { return false }
             model.link(routes, to: id)
@@ -1591,9 +2187,65 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         return true
     }
 
+    /// Tasks dropped onto a task: add them as its subtasks, above or below it, or link them to it. One Undo step each.
+    func showDropMenu(_ ids: [Int], onto target: Int, at point: NSPoint, moved: Bool) {
+        guard let outline, !ids.isEmpty, model.task(target) != nil else { return }
+        let tree = model.taskTree
+        let flow = model.taskFlow
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let key = "T-\(target)"
+        let one = ids.count == 1
+        let these = one ? "T-\(ids[0])" : "These \(ids.count)"
+        func add(_ title: String, _ enabled: Bool, _ run: @escaping () -> Void) {
+            let item = NSMenuItem(title: title, action: #selector(runDropChoice(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = DropChoice(run)
+            item.isEnabled = enabled
+            menu.addItem(item)
+        }
+        if let container = tree.container(of: target), let index = tree.index(of: target) {
+            add(one ? "Add as Subtask of \(key)" : "Add as Subtasks of \(key)", tree.canMove(ids, to: .task(target))) { [weak self] in
+                self?.drop(ids, into: .task(target), at: tree.children(of: target).count)
+            }
+            add("Add Above \(key)", tree.canMove(ids, to: container)) { [weak self] in self?.drop(ids, into: container, at: index) }
+            add("Add Below \(key)", tree.canMove(ids, to: container)) { [weak self] in self?.drop(ids, into: container, at: index + 1) }
+            menu.addItem(.separator())
+        }
+        let model = model
+        add("Link to \(key)", true) { model.link(ids.map { ModalRoute.task($0) }, to: target) }
+        add("\(key) Is Blocked by \(these)", ids.allSatisfy { flow.refusal(target, .blockedBy, $0) == nil }) {
+            for id in ids { model.addLink(target, .blockedBy, id) }
+        }
+        add("\(these) \(one ? "Is" : "Are") Blocked by \(key)", ids.allSatisfy { flow.refusal($0, .blockedBy, target) == nil }) {
+            for id in ids { model.addLink(id, .blockedBy, target) }
+        }
+        add("\(key) Comes After \(these)", ids.allSatisfy { flow.refusal(target, .after, $0) == nil }) {
+            for id in ids { model.addLink(target, .after, id) }
+        }
+        add("\(these) \(one ? "Comes" : "Come") After \(key)", ids.allSatisfy { flow.refusal($0, .after, target) == nil }) {
+            for id in ids { model.addLink(id, .after, target) }
+        }
+        lastDropMenu = menu.items.map { $0.isEnabled ? $0.title : "(\($0.title))" }.filter { !$0.isEmpty && $0 != "()" }
+        if let pick = Self.pickDropChoice {
+            if let item = pick(menu, moved) { runDropChoice(item) }
+            return
+        }
+        menu.popUp(positioning: nil, at: point, in: outline)
+    }
+
+    /// The UI test picks from the drop menu instead of opening it: the grip's move or the carried task's, and what it chose.
+    static var pickDropChoice: ((NSMenu, Bool) -> NSMenuItem?)?
+    /// The drop menu's items the last time it opened, dimmed ones in brackets, for the UI test.
+    private(set) var lastDropMenu: [String] = []
+
+    @objc private func runDropChoice(_ item: NSMenuItem) { (item.representedObject as? DropChoice)?.run() }
+
     /// The dropped rows stay selected where they landed.
     private func drop(_ ids: [Int], into container: TaskTree.Container, at index: Int) {
         guard model.drop(ids, into: container, at: index) else { return }
+        // The rows land where they were dropped: no slide from where they were (2026-11-10).
+        landing = true
         refresh()
         let rows = IndexSet(ids.map(row(of:)).filter { $0 >= 0 })
         if !rows.isEmpty { outline?.selectRowIndexes(rows, byExtendingSelection: false) }
@@ -1608,6 +2260,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// with the drag session, after this call returns.
     func dragEnded() {
         dragged = []
+        outline?.clearDrop()
         DispatchQueue.main.async { [weak self] in
             self?.refreshVisibleCells()
             self?.refresh()
@@ -1661,6 +2314,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private func dropTarget(item: Any?, index: Int, outline: NSOutlineView) -> (container: TaskTree.Container, index: Int)? {
         let tree = model.taskTree
         switch kind(item) {
+        case nil where root != nil:
+            // A task's window: among its subtasks.
+            guard let root else { return nil }
+            let shown = snapshot.children(of: nil).compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } }
+            if index == NSOutlineViewDropOnItemIndex { return (.task(root), tree.children(of: root).count) }
+            return (.task(root), treeIndex(before: index, of: shown, in: tree.children(of: root)))
         case nil:
             // Between the lists: the end of Tasks.
             let header = node(.header(.overview))
@@ -1707,6 +2366,13 @@ struct TaskMenu: View {
             Button("Open") { model.open(.task(id)) }
             Button("Start Session…") { model.beginStart(task: id) }
             Button("Link…") { model.showLinkPicker(id) }
+            if task.status != .done {
+                if task.blocked { Button("Unblock") { model.unblock(id) } } else { Button("Block…") { model.showHoldPicker(id, .block) } }
+                Button("Blocked By…") { model.showHoldPicker(id, .blockedBy) }
+                Button("After…") { model.showHoldPicker(id, .after) }
+            }
+            ForEach(task.blockedBy, id: \.self) { other in Button("Not Blocked by T-\(other)") { model.removeLink(id, .blockedBy, other) } }
+            ForEach(task.after, id: \.self) { other in Button("Not After T-\(other)") { model.removeLink(id, .after, other) } }
             Menu("Link to Session") {
                 ForEach(model.gridSessions) { session in
                     Button(session.name) { model.link(task: id, session: session.id) }
@@ -1723,6 +2389,13 @@ struct TaskMenu: View {
             }
             Divider()
             Button(model.descriptionShownInOutline(id) ? "Hide Description" : "Show Description") { model.toggleDescription(id) }
+            if !model.taskTree.children(of: id).isEmpty {
+                Menu("Show Subtasks") {
+                    ForEach(FoldMode.opening, id: \.self) { mode in
+                        Toggle(mode.title, isOn: Binding(get: { (model.fold[id] ?? .all) == mode }, set: { _ in model.foldTasks([id], mode) }))
+                    }
+                }
+            }
             Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }
             Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
             Button("Remind Me…") { model.beginReminder(about: .task(id)) }
@@ -1796,7 +2469,7 @@ extension AppModel {
             let siblings = tree.children(of: container)
             let target = index + offset
             let atTop: Bool = if case .list = container { true } else { false }
-            let blocked = siblings.indices.contains(target) ? stuck.contains(siblings[target]) : atTop || !leavingParent
+            let blocked = siblings.indices.contains(target) ? stuck.contains(siblings[target]) : atTop || !leavingParent || keptInWindow(id)
             guard !blocked else {
                 stuck.insert(id)
                 continue

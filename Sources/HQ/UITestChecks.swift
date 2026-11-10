@@ -232,16 +232,26 @@ extension UITest {
         var shownMenu: NSMenu?
         let showMenu = FaceMenu.show
         FaceMenu.show = { menu, id, _, _ in shown = id; shownMenu = menu }
-        // The links' SwiftUI view hands a right-click on to the outline, which shows the link's menu.
-        if let outline = ui.find(TaskOutlineView.self), let point = ui.anchor(chip),
+        // A right-click on the file's link on the card shows the link's menu.
+        func linkPoint() -> NSPoint? {
+            guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
+                  let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(target.id))), makeIfNecessary: false) as? TaskCell else { return nil }
+            return cell.links.windowPoint(of: .file(file.id))
+        }
+        if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator {
+            outline.scrollRowToVisible(outline.row(forItem: coordinator.node(.task(target.id))))
+            await ui.settle(0.3)
+        }
+        if let outline = ui.find(TaskOutlineView.self), let point = linkPoint(),
            let down = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
                                          windowNumber: ui.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
             outline.rightMouseDown(with: down)
         }
         shownMenu?.update()
-        check("a right-click on a link's chip under its task shows the link's menu", shown == chip
-                   && shownMenu?.items.contains { $0.title == "Unlink from T-\(target.id)" } == true, shown ?? "no menu")
-        // A Control-click on the chip gives the link's menu too; on the title, the task's.
+        check("a right-click on a link on its task's card shows the link's menu", shown == chip
+                   && shownMenu?.items.contains { $0.title == "Unlink from T-\(target.id)" } == true,
+              shown ?? "no menu at \(String(describing: linkPoint()))")
+        // A Control-click on the link gives the link's menu too; on the title, the task's.
         if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
            let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(target.id))), makeIfNecessary: false) as? TaskCell {
             func menu(at point: NSPoint?) -> [String] {
@@ -251,17 +261,14 @@ extension UITest {
                 menu.update()
                 return menu.items.map(\.title)
             }
-            check("a Control-click on a link's chip gives the link's menu", menu(at: ui.anchor(chip)).contains("Unlink from T-\(target.id)"))
+            check("a Control-click on a link gives the link's menu", menu(at: linkPoint()).contains("Unlink from T-\(target.id)"))
             let title = menu(at: cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: nil))
             check("on the task's title, the task's menu", !title.isEmpty && !title.contains("Unlink from T-\(target.id)"), title.joined(separator: ", "))
         }
         FaceMenu.show = showMenu
-        // A click selects the chip; a double-click opens it.
-        model.selectedItem = nil
-        await ui.click(ui.anchor(chip))
-        tableCheck(ui, "a click on a link's chip selects it", model.selectedItem == chip, model.selectedItem ?? "-")
-        await ui.click(ui.anchor(chip), count: 2)
-        tableCheck(ui, "a double-click on a link's chip opens it", model.modal == .file(file.id), String(describing: model.modal))
+        // A click opens it, on the press (2026-11-10).
+        await ui.click(linkPoint())
+        tableCheck(ui, "a click on a link on the card opens it", model.modal == .file(file.id), String(describing: model.modal))
         model.closeModal()
         await ui.settle(0.5)
         // Deleted while the task's modal lists it, the file leaves the list.
@@ -297,7 +304,7 @@ extension UITest {
         await ui.settle(0.3)
     }
 
-    /// Last, as they move the page and the keyboard: a task whose last subtask goes loses its disclosure; Tab scrolls into view.
+    /// Last, as they move the page and the keyboard: a task whose last subtask goes loses its chevron; Tab scrolls into view.
     static func lateChecks(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
         // Every section folds to its header: Tab passes a folded one, Tasks keeps only its header.
@@ -325,9 +332,30 @@ extension UITest {
             model.deleteTasks([child.id])
             await endUndoGroup(model)
             await ui.settle(0.5)
-            check("a task whose last subtask is deleted loses its disclosure", had && !outline.isExpandable(coordinator.node(.task(parent.id))))
+            check("a task whose last subtask is deleted loses its chevron", had && !outline.isExpandable(coordinator.node(.task(parent.id))) && coordinator.snapshot.foldable.contains(parent.id) == false)
             model.deleteTasks([parent.id])
             await endUndoGroup(model)
+        }
+        // As wide as the screen and back: every card's line stays at its card's left (once seen in its middle at full screen).
+        func offCards() -> [String] {
+            var off: [String] = []
+            outline.enumerateAvailableRowViews { _, row in
+                guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell, let superview = cell.superview else { return }
+                let shown = outline.convert(cell.frame, from: superview), wanted = outline.frameOfCell(atColumn: 1, row: row)
+                if abs(shown.minX - wanted.minX) > 1 || abs(shown.width - wanted.width) > 1 { off.append("row \(row): \(Int(shown.minX)) for \(Int(wanted.minX))") }
+            }
+            return off
+        }
+        let original = ui.window.frame
+        if let screen = ui.window.screen?.visibleFrame {
+            ui.window.setFrame(NSRect(x: screen.minX, y: original.minY, width: screen.width, height: original.height), display: true, animate: true)
+            await ui.settle(0.8)
+            let wide = offCards()
+            ui.window.setFrame(original, display: true, animate: true)
+            await ui.settle(0.8)
+            let back = offCards()
+            check("as wide as the screen and back, every card's line stays at its card's left", wide.isEmpty && back.isEmpty,
+                  (wide + back).prefix(4).joined(separator: "; "))
         }
         // Tab to Pull Requests from the bottom of the page brings the selected row into view.
         if let scroll = outline.enclosingScrollView {
@@ -350,8 +378,7 @@ extension UITest {
         }
     }
 
-    /// A task folded when the rows load opens from its disclosure with its subtasks and the rows below in the
-    /// outline's frame and clickable; so does a task above it.
+    /// A task's fold chevron sits on its first line as it gets subtasks, moves in and out of a parent and between lists.
     static func disclosures(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
         model.folded = []
@@ -361,72 +388,74 @@ extension UITest {
         }
         await endUndoGroup(model)
         await ui.settle(0.5)
-        /// The task's disclosure shows, on its title's line, just before its status glyph.
+        /// The task's fold chevron shows, on its first line, at its card's top right (2026-11-10).
         func caret(_ id: Int) async -> (ok: Bool, detail: String) {
             let row = outline.row(forItem: coordinator.node(.task(id)))
             if row >= 0 { outline.scrollRowToVisible(row) }
             await ui.settle(0.2)
-            guard row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false),
-                  let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return (false, "no row") }
-            func buttons(_ view: NSView) -> [NSButton] {
-                view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? [] + buttons($0) }
-            }
-            guard let button = buttons(rowView).first(where: { $0.identifier?.rawValue.contains("Disclosure") == true }) else { return (false, "no disclosure") }
-            let disclosure = button.convert(button.bounds, to: nil)
+            guard row >= 0, let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return (false, "no row") }
+            let button = cell.fold
+            let chevron = button.convert(button.bounds, to: nil)
             let glyph = cell.glyph.convert(cell.glyph.bounds, to: nil)
-            let ok = !button.isHidden && button.alphaValue > 0 && abs(disclosure.midY - glyph.midY) < 1.5
-                && disclosure.maxX <= glyph.minX + 1 && glyph.minX - disclosure.maxX < Space.md
-            return (ok, "disclosure \(disclosure.integral) glyph \(glyph.integral)")
+            let card = cell.convert(cell.bounds, to: nil)
+            let ok = !button.isHidden && button.alphaValue > 0 && abs(chevron.midY - glyph.midY) < 1.5
+                && chevron.minX > card.maxX - Metric.cardEndControl - Space.sm && chevron.maxX <= card.maxX + 0.5
+            return (ok, "chevron \(chevron.integral) glyph \(glyph.integral) hidden \(button.isHidden)")
         }
         guard let child = model.addSubtask(to: parent.id, title: "Caret child") else { return check("a subtask", false) }
         await endUndoGroup(model)
         await ui.settle(0.6)
         var result = await caret(parent.id)
-        check("a task's first subtask brings its disclosure, on its line", result.ok, result.detail)
-        // The pointing hand over the disclosure, as the window would hit it, and over every AppKit button a task row
-        // shows (T-350).
+        check("a task's first subtask brings its chevron, on its line", result.ok, result.detail)
+        // No AppKit disclosure on a row: the card's own chevron folds (2026-11-10).
         let parentRow = outline.row(forItem: coordinator.node(.task(parent.id)))
-        if parentRow >= 0, let rowView = outline.rowView(atRow: parentRow, makeIfNecessary: false),
-           let button = rowView.subviews.first(where: { $0.identifier == NSOutlineView.disclosureButtonIdentifier }) {
+        let disclosures = parentRow < 0 ? [] : (outline.rowView(atRow: parentRow, makeIfNecessary: false)?.subviews ?? [])
+            .filter { $0.identifier == NSOutlineView.disclosureButtonIdentifier && !$0.isHidden && !$0.frame.isEmpty }
+        check("no AppKit disclosure on a task's row", parentRow >= 0 && disclosures.isEmpty, "\(disclosures.count)")
+        // The pointing hand over the chevron, as the window would hit it, and over every AppKit button a task row
+        // shows (T-350).
+        if parentRow >= 0, let button = (outline.view(atColumn: 1, row: parentRow, makeIfNecessary: false) as? TaskCell)?.fold {
             let hit = ui.hitView(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil))
-            check("the pointing hand over a task's disclosure", hit === button && button.tracksHandCursor,
+            check("the pointing hand over a task's chevron", hit === button && button.tracksHandCursor,
                   "hit \(hit.map { String(describing: type(of: $0)) } ?? "none"), tracks \(button.tracksHandCursor)")
         } else {
-            check("the pointing hand over a task's disclosure", false, "no disclosure")
+            check("the pointing hand over a task's chevron", false, "no chevron")
         }
         var bare: [String] = []
         for row in 0..<outline.numberOfRows {
             guard outline.item(atRow: row) is OutlineNode, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) else { continue }
-            // AppKit's views only: SwiftUI's give the hand themselves (clickable()).
-            func shown(_ view: NSView) -> [NSButton] {
+            // AppKit's views only: SwiftUI's give the hand themselves (clickable()). Buttons, and every other view a click acts on.
+            func shown(_ view: NSView) -> [NSView] {
                 let name = String(reflecting: type(of: view))
                 guard !view.isHidden, !name.hasPrefix("_"), !name.hasPrefix("SwiftUI."), !name.contains("HostingView") else { return [] }
-                return ((view as? NSButton).map { [$0] } ?? []) + view.subviews.flatMap(shown)
+                let acts = (view as? NSButton)?.isEnabled == true || view is NoSessionFace || view is GlyphButton || view is ProjectButton
+                    || (view as? FaceStackView)?.clickable == true || view is KeyField
+                return (acts ? [view] : []) + view.subviews.flatMap(shown)
             }
-            for button in shown(rowView) where button.isEnabled && !button.tracksHandCursor {
-                bare.append("row \(row): \(type(of: button)) \(button.identifier?.rawValue ?? button.toolTip ?? "-")")
+            for view in shown(rowView) where !view.tracksHandCursor {
+                bare.append("row \(row): \(type(of: view)) \(view.identifier?.rawValue ?? view.toolTip ?? "-")")
             }
         }
-        check("every AppKit button on a row shows the pointing hand", bare.isEmpty, bare.prefix(5).joined(separator: "; "))
+        check("every AppKit view a click acts on in a row shows the pointing hand", bare.isEmpty, bare.prefix(5).joined(separator: "; "))
         model.indentTasks([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
         result = await caret(parent.id)
-        check("indented with its subtasks, its disclosure stays on its line", result.ok, result.detail)
+        check("indented with its subtasks, its chevron stays on its line", result.ok, result.detail)
         result = await caret(above.id)
         check("and its new parent gets one on its line", result.ok, result.detail)
         model.outdentTasks([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
         result = await caret(parent.id)
-        check("outdented, its disclosure stays on its line", result.ok, result.detail)
+        check("outdented, its chevron stays on its line", result.ok, result.detail)
         model.toggleList(parent.id)
         await endUndoGroup(model)
         await ui.settle(0.6)
         model.backlogOpen = true
         await ui.settle(0.4)
         result = await caret(parent.id)
-        check("moved to the Backlog, it keeps its disclosure on its line", result.ok, result.detail)
+        check("moved to the Backlog, it keeps its chevron on its line", result.ok, result.detail)
         model.toggleList(parent.id)
         await endUndoGroup(model)
         await ui.settle(0.6)
@@ -435,7 +464,7 @@ extension UITest {
         // Shut in the outline while the model has it open: the outline opens it again, its subtask back.
         let repairs = OutlineCoordinator.repairs
         outline.collapseItem(coordinator.node(.task(parent.id)))
-        model.setCollapsed(parent.id, false)
+        model.setFold(parent.id, .all)
         await ui.settle(0.6)
         check("a task open in the model but shut in the outline opens again with its subtasks",
               OutlineCoordinator.repairs > repairs && outline.isItemExpanded(coordinator.node(.task(parent.id)))
@@ -711,50 +740,49 @@ extension UITest {
             return (row, cell, faces)
         }
         guard let quiet = await row(plain.id), let full = await row(noted.id) else { return check("the rows are on the page", false) }
-        check("a task with a description shows its toggle at rest", !full.cell.note.isHidden && full.cell.note.toolTip?.hasPrefix("Show") == true)
-        check("a task without one doesn't", quiet.cell.note.isHidden)
-        quiet.cell.setHovered(true)
-        quiet.faces.setHovered(true)
+        // Nothing under the pointer (2026-11-10); a card with a description has its button in the corner (after the fourth preview).
+        func shown(_ cell: TaskCell) -> [String] {
+            cell.subviews.filter { !$0.isHidden && $0.frame.width > 0 }.map { "\(type(of: $0))" }.sorted()
+        }
+        func buttons(_ cell: TaskCell) -> [NSButton] { cell.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden } }
+        check("a card's only button at rest is its description button, when it has a description",
+              buttons(full.cell).map { $0 === full.cell.note } == [true] && buttons(quiet.cell).isEmpty,
+              (buttons(full.cell) + buttons(quiet.cell)).compactMap(\.toolTip).joined(separator: ", "))
+        let atRest = shown(quiet.cell)
+        let facesAtRest = quiet.faces.subviews.filter { !$0.isHidden }.count
+        quiet.row.onHover(true)
         quiet.cell.layoutSubtreeIfNeeded()
         quiet.faces.layoutSubtreeIfNeeded()
-        let hoverActions = quiet.cell.subviews.compactMap { $0 as? NSButton }.filter { !$0.isHidden && $0 !== quiet.cell.note }
-        check("under the pointer it shows, to write one", !quiet.cell.note.isHidden && quiet.cell.note.toolTip?.hasPrefix("Write") == true)
-        check("the hover actions don't repeat it", !hoverActions.contains { $0.toolTip?.contains("description") == true },
-              hoverActions.compactMap(\.toolTip).joined(separator: ", "))
-        quiet.cell.setHovered(false)
-        quiet.faces.setHovered(false)
-        // A click on the toggle shows the description; it turns accent and hides it again.
-        full.cell.note.performClick(nil)
+        check("nothing shows under the pointer", shown(quiet.cell) == atRest && quiet.faces.subviews.filter { !$0.isHidden }.count == facesAtRest,
+              "\(atRest) → \(shown(quiet.cell))")
+        quiet.row.onHover(false)
+        model.toggleDescription(noted.id)
         await ui.settle(0.4)
-        check("its toggle shows the description", model.descriptionShownInOutline(noted.id))
-        if let again = await row(noted.id) {
-            check("shown, its toggle stays, to hide it", !again.cell.note.isHidden && again.cell.note.toolTip?.hasPrefix("Hide") == true)
-            again.cell.note.performClick(nil)
-            await ui.settle(0.4)
-            check("and hides it", !model.descriptionShownInOutline(noted.id))
-        }
-        // Shown by the list's Descriptions, the toggle hides that one.
+        let described = await row(noted.id)
+        check("Show Description shows it in the card", model.descriptionShownInOutline(noted.id) && described?.cell.descriptionHost != nil)
+        model.toggleDescription(noted.id)
+        await ui.settle(0.4)
+        check("and hides it", !model.descriptionShownInOutline(noted.id))
+        // Shown by the list's Descriptions, Hide Description hides that one.
         model.allDescriptions = [.overview]
         await ui.settle(0.4)
-        if let listed = await row(noted.id) {
-            listed.cell.note.performClick(nil)
-            await ui.settle(0.4)
-            check("with Descriptions on, the toggle hides that one", !model.descriptionShownInOutline(noted.id))
-            model.toggleDescription(noted.id)
-            check("and shows it again", model.descriptionShownInOutline(noted.id))
-        }
+        model.toggleDescription(noted.id)
+        await ui.settle(0.4)
+        check("with Descriptions on, Hide Description hides that one", !model.descriptionShownInOutline(noted.id))
+        model.toggleDescription(noted.id)
+        check("and shows it again", model.descriptionShownInOutline(noted.id))
         model.allDescriptions = []
         // One face per row, the same open or folded: the task's own session, never a subtask's (T-346).
         let ranked = model.byImportance(model.gridSessions)
         if let top = ranked.first, let low = ranked.last, top.id != low.id, let sub = model.addSubtask(to: plain.id, title: "Under it") {
             model.link(task: plain.id, session: low.id)
             model.link(task: sub.id, session: top.id)
-            model.setCollapsed(plain.id, false)
+            model.setFold(plain.id, .all)
             await endUndoGroup(model)
             await ui.settle(0.5)
             let openRow = await row(plain.id)
             let open = openRow?.faces.shownSession
-            model.setCollapsed(plain.id, true)
+            model.setFold(plain.id, .hidden)
             await ui.settle(0.5)
             let foldedRow = await row(plain.id)
             let folded = foldedRow?.faces.shownSession
@@ -821,8 +849,12 @@ extension UITest {
         }
         if let listed = await row(plain.id) {
             let mark = listed.cell.reminderMark
-            check("a reminder that links a task shows before its title", !mark.isHidden && listed.cell.title.frame.minX >= mark.frame.maxX
-                  && (mark.toolTip ?? "").contains("Look at it again"), "\(mark.isHidden) \(mark.frame) \(listed.cell.title.frame)")
+            // After the key, on the first line: before the title on a card, before the project on a big card.
+            let cell = listed.cell
+            let placed = cell.stack.big ? abs(mark.frame.midY - cell.glyph.frame.midY) < 1 && (cell.project.isHidden || cell.project.frame.minX >= mark.frame.maxX)
+                : cell.title.frame.minX >= mark.frame.maxX
+            check("a reminder that links a task shows after its key, on its first line", !mark.isHidden && mark.frame.minX >= cell.key.frame.maxX && placed
+                  && (mark.toolTip ?? "").contains("Look at it again"), "\(mark.isHidden) \(mark.frame) key \(cell.key.frame) title \(cell.title.frame)")
         } else {
             check("the task's row for its reminder", false)
         }
@@ -851,8 +883,8 @@ extension UITest {
         await endUndoGroup(model)
         await ui.settle(0.6)
         // As at launch: the rows load again with both parents folded.
-        model.setCollapsed(above.id, true)
-        model.setCollapsed(parent.id, true)
+        model.setFold(above.id, .hidden)
+        model.setFold(parent.id, .hidden)
         model.folded = [.tasks]
         await ui.settle(0.6)
         model.folded = []
@@ -876,25 +908,22 @@ extension UITest {
             }
         }
         await fits("loaded folded")
+        check("a task that hides its subtasks shows none", subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) < 0 })
         func disclose(_ id: Int) async {
             let row = outline.row(forItem: coordinator.node(.task(id)))
             guard row >= 0 else { return problems.append("T-\(id) has no row") }
-            let item = coordinator.node(.task(id))
-            if ui.canClickTables {
-                let rect = outline.frameOfOutlineCell(atRow: row)
-                outline.scrollToVisible(rect)
-                let frame = outline.convert(rect, to: nil)
-                await ui.click(NSPoint(x: frame.midX, y: frame.midY))
+            outline.scrollRowToVisible(row)
+            await ui.settle(0.2)
+            if ui.canClickTables, let fold = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.fold {
+                await ui.click(fold.convert(NSPoint(x: fold.bounds.midX, y: fold.bounds.midY), to: nil))
             } else {
-                NSAnimationContext.runAnimationGroup({ context in
-                    context.allowsImplicitAnimation = true
-                    if outline.isItemExpanded(item) { outline.animator().collapseItem(item) } else { outline.animator().expandItem(item) }
-                }, completionHandler: nil)
+                coordinator.fold([id], model.fold[id] == .hidden ? .all : .hidden)
             }
             await ui.settle(0.8)
         }
         await disclose(parent.id)
-        check("a folded task opens from its disclosure", outline.isItemExpanded(coordinator.node(.task(parent.id))) && !model.collapsed.contains(parent.id))
+        check("a folded task opens from its chevron", outline.isItemExpanded(coordinator.node(.task(parent.id))) && model.fold[parent.id] == .all
+              && subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 })
         await fits("opened")
         await disclose(above.id)
         await fits("above opened")
@@ -903,23 +932,74 @@ extension UITest {
         await disclose(parent.id)
         await fits("opened again")
         check("opening folded tasks keeps every row in the outline and clickable", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
+        // Only what matters: the subtasks blocking another, at any depth, and the first five doing ones, with the tasks
+        // on the way; not the Blocked ones, nor the ones waiting on a blocker.
+        if subtasks.count > 12, let deep = model.taskTree.children(of: subtasks[4]).first {
+            problems = []
+            for id in subtasks.prefix(7) { model.setStatus(id, .doing) }
+            model.addLink(subtasks[10], .blockedBy, subtasks[9])
+            model.addLink(subtasks[11], .blockedBy, deep)
+            model.block(subtasks[12])
+            await endUndoGroup(model)
+            coordinator.fold([parent.id], .important)
+            await ui.settle(0.8)
+            let shown = Set((subtasks + [deep]).filter { outline.row(forItem: coordinator.node(.task($0))) >= 0 })
+            let expected = Set(subtasks.prefix(6) + [subtasks[9], deep])
+            check("showing what matters, a task shows the subtasks blocking another at any depth and its first five doing ones", shown == expected,
+                  "shown \(shown.sorted()) expected \(expected.sorted())")
+            await fits("showing what matters")
+            let parentRow = outline.row(forItem: coordinator.node(.task(parent.id)))
+            if parentRow >= 0 { outline.scrollRowToVisible(parentRow) }
+            await ui.settle(0.3)
+            let cell = parentRow < 0 ? nil : outline.view(atColumn: 1, row: parentRow, makeIfNecessary: false) as? TaskCell
+            check("its chevron says so", cell?.foldMode == .important && cell?.fold.isHidden == false && cell?.fold.toolTip?.hasPrefix("Only blocking") == true,
+                  "row \(parentRow), \(String(describing: cell?.foldMode)), hidden \(String(describing: cell?.fold.isHidden)), \(cell?.fold.toolTip ?? "-")")
+            // The chevron steps: what matters, none, all.
+            coordinator.stepFold(parent.id)
+            await ui.settle(0.6)
+            let none = subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) < 0 }
+            coordinator.stepFold(parent.id)
+            await ui.settle(0.6)
+            let all = subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 }
+            coordinator.stepFold(parent.id)
+            await ui.settle(0.6)
+            check("its chevron steps from what matters to none, to all, back to what matters", none && all && model.fold[parent.id] == .important,
+                  "none \(none) all \(all) \(String(describing: model.fold[parent.id]))")
+            // A subtask under it with subtasks of its own, all hidden by its parent's choice: its chevron says hidden, and shows them.
+            if let inner = model.addSubtask(to: subtasks[0], title: "Inner, not doing") {
+                // Adding it chose All for its parent: back to no choice, as a subtask the user never touched.
+                model.setFold(subtasks[0], nil)
+                await endUndoGroup(model)
+                await ui.settle(0.6)
+                let innerShown = outline.row(forItem: coordinator.node(.task(inner.id))) >= 0
+                let mode = coordinator.snapshot.modes[subtasks[0]]
+                coordinator.stepFold(subtasks[0])
+                await ui.settle(0.6)
+                check("under a task showing what matters, a subtask's chevron says what shows and its click shows the rest",
+                      !innerShown && mode == .hidden && outline.row(forItem: coordinator.node(.task(inner.id))) >= 0,
+                      "shown before \(innerShown), mode \(String(describing: mode))")
+                model.deleteTasks([inner.id])
+                await endUndoGroup(model)
+                model.setFold(subtasks[0], nil)
+            }
+            coordinator.fold([parent.id], .all)
+            await ui.settle(0.8)
+            check("unfolded, all its subtasks show", subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 })
+            check("and every row stays in the outline and clickable", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
+        }
         // The Backlog folded, the last tasks of Tasks opened one after the other: its header stays on the page.
         problems = []
         model.backlogOpen = false
         for id in below.suffix(2) { for index in 0..<6 { _ = model.addSubtask(to: id, title: "Late \(index)") } }
         await endUndoGroup(model)
         await ui.settle(0.6)
-        for id in below.suffix(2) { model.setCollapsed(id, true) }
+        for id in below.suffix(2) { model.setFold(id, .hidden) }
         model.folded = [.tasks]
         await ui.settle(0.6)
         model.folded = []
         await ui.settle(0.8)
         for id in below.suffix(2) {
-            let item = coordinator.node(.task(id))
-            NSAnimationContext.runAnimationGroup({ context in
-                context.allowsImplicitAnimation = true
-                outline.animator().expandItem(item)
-            }, completionHandler: nil)
+            coordinator.fold([id], .all)
             await ui.settle(0.1)
         }
         await ui.settle(0.8)
@@ -1121,29 +1201,28 @@ extension UITest {
               && added?.links == [URL(string: url)!] && model.list(of: added?.id ?? 0) == .overview && model.selectedTasks == [added?.id ?? 0],
               "\(added?.title ?? "none") \(added?.links ?? []) selected \(model.selectedTasks)")
 
-        // The chips under its row: the hand from AppKit's tracking over each chip, the arrow between (T-331).
+        // The links on its card: the hand over each, the arrow beside; a click opens it (2026-11-10).
         model.selectSection(nil)
         await ui.settle(0.5)
         if let added, let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
            let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(added.id))), makeIfNecessary: false) as? TaskCell,
-           let hand = cell.chipHand, let chip = await ui.steadyAnchor(route.chipKey(task: added.id)) {
-            let past = NSPoint(x: hand.convert(NSPoint(x: hand.bounds.maxX - 2, y: hand.bounds.midY), to: nil).x, y: chip.y)
-            check("the hand over a chip under a task's row, from AppKit, and the arrow past the chips", hand.cursor(at: chip) == .pointingHand
-                  && hand.cursor(at: past) == .arrow && hand.hitTest(chip) == nil)
+           let token = cell.links.windowPoint(of: route) {
+            let past = cell.links.convert(NSPoint(x: -Space.sm, y: cell.links.bounds.midY), to: nil)
+            check("the hand over a link on a task's card, the arrow beside", cell.links.cursor(at: token) == .pointingHand && cell.links.cursor(at: past) == nil)
             let opened = model.slackLog.count
-            await ui.click(chip, count: 2)
+            await ui.click(token)
             await ui.settle(0.4)
-            tableCheck(ui, "a double-click on the Slack chip opens it in Slack", model.slackLog.count == opened + 1 && model.slackLog.last == url
+            tableCheck(ui, "a click on the Slack link opens it in Slack", model.slackLog.count == opened + 1 && model.slackLog.last == url
                        && model.modal == nil, "\(model.slackLog)")
         } else {
-            check("the hand over a chip under a task's row, from AppKit, and the arrow past the chips", false, "no chip line")
+            check("the hand over a link on a task's card, the arrow beside", false, "no link on the card")
         }
 
         // A link added from the CLI shows under the task's row at once, every kind (T-352): through the socket, as `hq` does it.
         if let parent = model.addTask(to: .overview, title: "Parent of linked ones"), let other = model.addTask(to: .overview, title: "Related"),
            let target = model.addSubtask(to: parent.id, title: "Linked from the CLI"),
            let shut = model.addSubtask(to: parent.id, title: "Linked while folded") {
-            model.setCollapsed(parent.id, false)
+            model.setFold(parent.id, .all)
             await endUndoGroup(model)
             await ui.settle(0.4)
             let routes: [(String, ModalRoute)] = [(url, route), ("https://example.com/notes", .web("https://example.com/notes")),
@@ -1152,19 +1231,39 @@ extension UITest {
             func link(_ id: Int, _ key: String, _ item: String) -> String {
                 String(decoding: AgentRouter.handle(JSON.data(["command": "task link", "args": ["task": key, "item": item, "not-mine": "true"]])), as: UTF8.self)
             }
+            /// The link on the task's card, once the card shows it.
+            func onCard(_ id: Int, _ route: ModalRoute) async -> Bool {
+                // The card on screen, as the user would look at it.
+                func shown() -> Bool {
+                    guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return false }
+                    let row = outline.row(forItem: coordinator.node(.task(id)))
+                    guard row >= 0 else { return false }
+                    outline.scrollRowToVisible(row)
+                    guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return false }
+                    return cell.links.tokens.contains { $0.routes.contains(route) }
+                }
+                await ui.until(2) { shown() }
+                return shown()
+            }
             var missing: [String] = []
             for (item, shown) in routes {
                 let reply = link(target.id, target.key, item)
-                if await ui.steadyAnchor(shown.chipKey(task: target.id)) == nil { missing.append("\(item): \(reply.prefix(80))") }
+                // A linked task isn't drawn on the card: the task's window lists it (2026-11-10).
+                if case .task = shown {
+                    if await onCard(target.id, shown) || !model.outputs(ofTask: target.id).contains(shown) { missing.append("\(item): drawn, or not linked") }
+                } else if await !onCard(target.id, shown) {
+                    missing.append("\(item): \(reply.prefix(80))")
+                }
             }
-            check("a link added from the CLI shows under a subtask's row at once, every kind", missing.isEmpty, missing.joined(separator: "; "))
+            check("a link added from the CLI shows on a subtask's card at once, every kind but a task", missing.isEmpty, missing.joined(separator: "; "))
             // Linked while its parent is folded: there when the parent opens.
-            model.setCollapsed(parent.id, true)
+            model.setFold(parent.id, .hidden)
             await ui.settle(0.4)
             _ = link(shut.id, shut.key, url)
-            model.setCollapsed(parent.id, false)
+            model.setFold(parent.id, .all)
             await ui.settle(0.5)
-            check("a link added while its parent is folded shows once it opens", await ui.steadyAnchor(route.chipKey(task: shut.id)) != nil)
+            let shows = await onCard(shut.id, route)
+            check("a link added while its parent is folded shows once it opens", shows)
             model.deleteTasks([parent.id, target.id, shut.id, other.id])
             await endUndoGroup(model)
             await ui.settle(0.3)
@@ -1453,41 +1552,32 @@ extension UITest {
         faces.layoutSubtreeIfNeeded()
         let line = "Task \(carried.key): Carry me"
         func writer() -> NSPasteboardItem? { coordinator.outlineView(outline, pasteboardWriterForItem: coordinator.node(.task(carried.id))) as? NSPasteboardItem }
-        _ = outline.canDragRows(with: IndexSet(integer: index), at: faces.convert(NSPoint(x: Space.xs, y: faces.gap + Metric.outlineRow / 2), to: outline))
-        let moved = writer()
-        check("a drag from the grip moves the row (T-348)", outline.dragsFromGrip && moved?.string(forType: DragItem.taskType) == "\(carried.id)"
-              && moved?.data(forType: DragItem.itemType) == nil)
-        // The grip's pointer: the open hand wherever a press moves the row, the arrow back off it.
-        let onGripPoint = faces.convert(NSPoint(x: Space.xs, y: faces.gap + Metric.outlineRow / 2), to: nil)
-        let onTitlePoint = cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: nil)
-        NSCursor.arrow.set()
-        outline.pointGrip(at: onGripPoint)
-        let open = NSCursor.current == NSCursor.openHand
-        outline.pointGrip(at: onTitlePoint)
-        check("the grip shows the open hand, the title the arrow, from one area over the outline", open && NSCursor.current == NSCursor.arrow
-              && outline.trackingAreas.contains { $0.owner === outline && $0.options.isSuperset(of: [.mouseMoved, .cursorUpdate]) }, "open \(open)")
+        // The whole card drags (2026-11-10): no grip, from its title or anywhere on it the task moves, and other apps get its line.
         _ = outline.canDragRows(with: IndexSet(integer: index), at: cell.title.convert(NSPoint(x: cell.title.bounds.midX, y: cell.title.bounds.midY), to: outline))
-        let link = writer()
-        check("a drag from its title carries the task, to link, and gives other apps its line", !outline.dragsFromGrip
-              && link?.string(forType: DragItem.taskType) == nil && link?.data(forType: DragItem.itemType).map { String(decoding: $0, as: UTF8.self) } == "task:\(carried.id)"
-              && link?.string(forType: .string) == line, link?.string(forType: .string) ?? "no line")
-        // Onto another task it links there (T-359), never onto itself, and nothing moves.
-        let drag = FakeDrag(item: ModalRoute.task(carried.id).selectionKey, source: outline)
+        let moved = writer()
+        check("a drag from anywhere on the card moves the task, and gives other apps its line", moved?.string(forType: DragItem.taskType) == "\(carried.id)"
+              && moved?.data(forType: DragItem.itemType) == nil && moved?.string(forType: .string) == line, moved?.string(forType: .string) ?? "no line")
+        check("no grip: no open hand over the outline", !outline.trackingAreas.contains { $0.owner === outline && $0.options.contains(.cursorUpdate) })
+        // Onto another task: the drop menu (Link to among its choices), never onto itself.
+        let drag = FakeDrag(tasks: [carried.id], source: outline)
         let onto = coordinator.node(.task(target.id))
-        check("a task carried onto another task's row proposes a link (T-359)",
-              coordinator.outlineView(outline, validateDrop: drag, proposedItem: onto, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .link)
+        check("a task dragged onto another task's card is taken (the drop menu asks)",
+              coordinator.outlineView(outline, validateDrop: drag, proposedItem: onto, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         check("never onto itself", coordinator.outlineView(outline, validateDrop: drag, proposedItem: coordinator.node(.task(carried.id)),
                                                            proposedChildIndex: NSOutlineViewDropOnItemIndex) == [])
+        let pick = OutlineCoordinator.pickDropChoice
+        OutlineCoordinator.pickDropChoice = { menu, _ in menu.items.first { $0.title.hasPrefix("Link to") } }
         _ = coordinator.outlineView(outline, acceptDrop: drag, item: onto, childIndex: NSOutlineViewDropOnItemIndex)
-        await endUndoGroup(model)
         await ui.settle(0.4)
-        check("dropped, the carried task shows under the target only, and neither moved", model.isLinked(.task(carried.id), to: target.id)
+        OutlineCoordinator.pickDropChoice = pick
+        await endUndoGroup(model)
+        check("Link to: the task links to the target only, and neither moved", model.isLinked(.task(carried.id), to: target.id)
               && model.taskTree.parent(of: carried.id) == nil && model.outputs(ofTask: target.id).contains(.task(carried.id))
               && !model.outputs(ofTask: carried.id).contains(.task(target.id)))
         model.undoManager?.undo()
         await ui.settle(0.3)
         check("Undo unlinks them", !model.isLinked(.task(carried.id), to: target.id))
-        // Onto a session's card, as by its grip, it links to that session.
+        // Onto a session's card it links to that session.
         if let session = model.gridSessions.first {
             check("a task carried onto a card proposes a link onto it", validate(cards, collection, drag, item: 0, operation: .before).0 == .link)
             _ = cards.collectionView(collection, acceptDrop: drag, indexPath: IndexPath(item: 0, section: 0), dropOperation: .on)
@@ -1499,9 +1589,9 @@ extension UITest {
 
         // Copy and ⌘C (T-358): the rows', the card's and the open item's lines.
         Pasteboard.copied = nil
-        outline.selectRowIndexes(IndexSet([index, outline.row(forItem: onto)]), byExtendingSelection: false)
+        outline.selectRowIndexes([index], byExtendingSelection: false)
         outline.copy(nil)
-        check("⌘C on selected rows copies their lines", Pasteboard.copied == "\(line)\nTask \(target.key): Link it here", Pasteboard.copied ?? "nothing")
+        check("⌘C on a selected row copies its line", Pasteboard.copied == line, Pasteboard.copied ?? "nothing")
         if let press = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: ui.window.windowNumber,
                                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { cell.key.mouseDown(with: press) }
         check("a click on the key copies the same line", Pasteboard.copied == line, Pasteboard.copied ?? "nothing")
@@ -1529,15 +1619,19 @@ extension UITest {
             await ui.settle(0.3)
         }
 
-        // Remind Me… (T-343): the row's alarm, then the PR modal's.
-        guard let row = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(target.id))), makeIfNecessary: true) as? TaskCell,
-              let alarm = row.subviews.compactMap({ $0 as? NSButton }).first(where: { $0.toolTip == "Remind me about the task…" }) else {
-            return check("the row's Remind Me… button", false)
+        // Remind Me… (T-343): the card's menu (no button on the card since 2026-11-10), then the PR modal's.
+        let targetRow = outline.row(forItem: coordinator.node(.task(target.id)))
+        // The task selected: the menu acts on it.
+        outline.selectRowIndexes([targetRow], byExtendingSelection: false)
+        guard let row = outline.view(atColumn: 1, row: targetRow, makeIfNecessary: true) as? TaskCell, let taskMenu = coordinator.menu(forRow: targetRow) else {
+            return check("the task's card and its menu", false)
         }
-        row.setHovered(true)
-        row.layoutSubtreeIfNeeded()
-        check("under the pointer, the row shows Remind Me… with the hand", !alarm.isHidden && alarm.tracksHandCursor)
-        alarm.performClick(nil)
+        taskMenu.update()
+        guard let remindItem = taskMenu.items.firstIndex(where: { $0.title == "Remind Me…" }) else {
+            return check("the card's menu has Remind Me…", false, taskMenu.items.map(\.title).joined(separator: ", "))
+        }
+        check("no Remind Me… button on the card", !row.subviews.contains { ($0 as? NSButton)?.toolTip?.hasPrefix("Remind me") == true })
+        taskMenu.performActionForItem(at: remindItem)
         await ui.until(2) { model.modal == .newReminder }
         await ui.settle(0.6)
         row.setHovered(false)
@@ -1752,17 +1846,6 @@ extension UITest {
         await ui.key(.down, .shift)
         await ui.settle(0.5)
         check("Shift-Down moves it back", tree().top(.overview) == [a, b, new, c] && model.selectedTasks == [new], "\(tree().top(.overview))")
-        outline.selectRowIndexes(IndexSet([b, new].map { outline.row(forItem: coordinator.node(.task($0))) }), byExtendingSelection: false)
-        await ui.key(.up, .shift)
-        await ui.settle(0.5)
-        check("Shift-Up moves several rows together", tree().top(.overview) == [b, new, a, c] && model.selectedTasks == [b, new],
-              "\(tree().top(.overview)) \(state())")
-        await ui.key(.up, .shift)
-        await ui.settle(0.5)
-        check("and they stop whole at the top", tree().top(.overview) == [b, new, a, c], "\(tree().top(.overview))")
-        model.undoManager?.undo()
-        await ui.settle(0.4)
-        check("one Undo puts them back", tree().top(.overview) == [a, b, new, c], "\(tree().top(.overview))")
         let a1 = tree().children(of: a)[0]
         coordinator.select(a1)
         await ui.key(.up, .shift)
@@ -1815,6 +1898,21 @@ extension UITest {
         await ui.key(.escape)
         await ui.settle(0.5)
         check("and Escape drops it, empty", blank.map { model.task($0) == nil } == true && tree().top(.overview) == [a, b, new, c])
+        // The same keys at once, no pause for the rows to settle: an empty task moved and left while its rows still move
+        // (T-372, a crash placing the cards).
+        for leave in [Driver.Key.escape, .down, .up] {
+            coordinator.select(new)
+            await ui.key("n")
+            await ui.settle(0.3)
+            let quick = model.focusedTask
+            await ui.key(.right, .shift)
+            await ui.key(.left, .shift)
+            await ui.key(.right, .shift)
+            await ui.key(leave)
+            await ui.settle(0.6)
+            check("an empty task moved by keys and left at once (\(leave)) goes, the outline whole",
+                  quick.map { model.task($0) == nil } == true && tree().top(.overview) == [a, b, new, c] && rows(), "\(tree().top(.overview)) \(state())")
+        }
 
         // Return edits, Escape gives the rows back the keyboard; the Task menu's keys work on rows.
         coordinator.select(new)
@@ -1952,11 +2050,25 @@ extension UITest {
 
         // Folding a task whose subtask is selected selects the task.
         coordinator.select(a2)
-        outline.collapseItem(coordinator.node(.task(a)))
+        coordinator.fold([a], .hidden)
         await ui.settle(0.3)
         check("folding a task whose subtask is selected selects the task", model.selectedTasks == [a] && rows(), state())
-        outline.expandItem(coordinator.node(.task(a)))
+        // ← folds the selected task, → shows all its subtasks again; ← on a subtask without any selects its parent.
+        coordinator.fold([a], .all)
         await ui.settle(0.3)
+        await ui.key(.left)
+        await ui.settle(0.3)
+        check("← hides the selected task's subtasks", model.fold[a] == .hidden && model.selectedTasks == [a], state())
+        await ui.key(.right)
+        await ui.settle(0.3)
+        check("→ shows all its subtasks", model.fold[a] == .all && outline.row(forItem: coordinator.node(.task(a2))) >= 0, state())
+        await ui.key(.right)
+        await ui.settle(0.3)
+        let firstChild = tree().children(of: a).first
+        check("→ on an open task selects its first subtask", firstChild.map { model.selectedTasks == [$0] } == true, state())
+        await ui.key(.left)
+        await ui.settle(0.3)
+        check("← on a subtask without subtasks selects its parent", model.selectedTasks == [a] && model.fold[a] == .all, state())
 
         // Quick add: Return keeps the field; Option-Return sends to the Backlog; Escape goes back to the rows.
         model.focusQuickAdd(.overview)
@@ -1992,29 +2104,26 @@ extension UITest {
         model.backlogOpen = true
         await ui.settle(0.8)
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
-              let a = ids["A"], let a1 = ids["A1"], let b = ids["B"], let c = ids["C"], let d = ids["D"], let e = ids["E"] else {
+              let a = ids["A"], let a1 = ids["A1"], let b = ids["B"], let c = ids["C"], let d = ids["D"] else {
             return check("the outline for drops", false)
         }
         let tree = { model.taskTree }
-        // Several selected rows: the Task menu acts on them all, and they move to the Backlog in order.
-        outline.selectRowIndexes(IndexSet([b, c].map { outline.row(forItem: coordinator.node(.task($0))) }), byExtendingSelection: false)
+        // One row at a time (2026-11-10): the Task menu acts on it; a task goes to the Backlog with its subtasks, still nested.
+        outline.selectRowIndexes(IndexSet([outline.row(forItem: coordinator.node(.task(b))), outline.row(forItem: coordinator.node(.task(c)))]),
+                                 byExtendingSelection: false)
         await ui.settle(0.3)
-        check("the Task menu targets every selected row", MenuState.shared.tasks == [b, c], "\(MenuState.shared.tasks)")
+        check("only one row can be selected", outline.selectedRowIndexes.count <= 1 && !outline.allowsMultipleSelection, "\(outline.selectedRowIndexes.count)")
+        coordinator.select(a)
+        await ui.settle(0.3)
+        check("the Task menu targets the selected row", MenuState.shared.tasks == [a], "\(MenuState.shared.tasks)")
+        let family = tree().children(of: a)
         model.moveTasks(MenuState.shared.tasks, toBacklog: true)
         await endUndoGroup(model)
-        check("several rows move to the Backlog in their order", Array(tree().top(.backlog).prefix(2)) == [b, c], "\(tree().top(.backlog))")
+        check("a task goes to the Backlog with its subtasks, still nested", tree().top(.backlog).first == a && tree().children(of: a) == family,
+              "\(tree().top(.backlog)) \(tree().children(of: a))")
         model.undoManager?.undo()
         await ui.settle(0.3)
-        check("one Undo brings them back", tree().top(.overview) == [a, b, c], "\(tree().top(.overview))")
-        let family = [a] + tree().children(of: a)
-        outline.selectRowIndexes(IndexSet(family.map { outline.row(forItem: coordinator.node(.task($0))) }), byExtendingSelection: false)
-        await ui.settle(0.3)
-        model.moveTasks(MenuState.shared.tasks, toBacklog: true)
-        await endUndoGroup(model)
-        check("a task and its subtasks selected together go to the Backlog together, still nested",
-              tree().top(.backlog).first == a && tree().children(of: a) == Array(family.dropFirst()), "\(tree().top(.backlog)) \(tree().children(of: a))")
-        model.undoManager?.undo()
-        await ui.settle(0.3)
+        check("one Undo brings it back", tree().top(.overview) == [a, b, c], "\(tree().top(.overview))")
         outline.deselectAll(nil)
         func drop(_ moving: [Int], on item: OutlineNode.Kind?, index: Int) async -> (NSDragOperation, Bool) {
             let info = FakeDrag(tasks: moving, source: outline)
@@ -2051,12 +2160,6 @@ extension UITest {
         await ui.settle(0.3)
         let refused = await drop([a], on: .task(a1), index: NSOutlineViewDropOnItemIndex)
         check("a drop into its own subtree is refused", refused.0 == [] && tree().parent(of: a) == nil)
-        let two = await drop([e, d], on: .header(.overview), index: 3)
-        await ui.settle(0.3)
-        check("several rows drop together, in order", two.1 && tree().top(.overview) == [a, b, c, e, d], "\(tree().top(.overview))")
-        model.undoManager?.undo()
-        await ui.settle(0.3)
-        check("Undo moves them all back", tree().top(.backlog) == [d, e] || tree().top(.backlog) == [e, d])
         // A drag that ends outside the window leaves no drop target behind.
         coordinator.dragEnded()
         check("a cancelled drag leaves no row marked as a drop target", (0..<outline.numberOfRows).allSatisfy { !(outline.rowView(atRow: $0, makeIfNecessary: false)?.isTargetForDropOperation ?? false) })
@@ -2094,26 +2197,25 @@ extension UITest {
         let linkedTask = top.first { model.tasksWithOutputs.contains($0) }
         check("a task with a link on the overview", linkedTask != nil)
         if let linkedTask, !model.descriptionShownInOutline(linkedTask) {
-            check("a task's links take a line under its title", height(linkedTask) == coordinator.gap(of: linkedTask) + Metric.outlineRow + Metric.linksLine,
-                  "\(height(linkedTask))")
-            // Short at rest, whole titles once the row is selected (T-292).
+            // On the card's first line, at its end: no line of their own (2026-11-10).
+            let stack = TaskCell.stack(model, linkedTask, big: coordinator.isBig(linkedTask), description: false)
+            check("a task's links take no line of their own", height(linkedTask) == coordinator.gap(of: linkedTask) + stack.height, "\(height(linkedTask))")
             let linkedRow = outline.row(forItem: coordinator.node(.task(linkedTask)))
-            outline.deselectAll(nil)
-            await ui.settle(0.3)
-            let rest = (outline.view(atColumn: 1, row: linkedRow, makeIfNecessary: true) as? TaskCell)?.linksExpanded
-            outline.selectRowIndexes([linkedRow], byExtendingSelection: false)
-            await ui.settle(0.3)
-            let picked = (outline.view(atColumn: 1, row: linkedRow, makeIfNecessary: true) as? TaskCell)?.linksExpanded
-            check("a task's links are short at rest and whole on its selected row", rest == false && picked == true,
-                  "\(String(describing: rest)) → \(String(describing: picked))")
-            outline.deselectAll(nil)
+            if let linkedCell = outline.view(atColumn: 1, row: linkedRow, makeIfNecessary: true) as? TaskCell {
+                linkedCell.layoutSubtreeIfNeeded()
+                check("they sit at the end of its first line", !linkedCell.links.isHidden && !linkedCell.links.tokens.isEmpty
+                      && abs(linkedCell.links.frame.midY - linkedCell.glyph.frame.midY) < 1 && linkedCell.links.frame.minX > linkedCell.key.frame.maxX,
+                      "\(linkedCell.links.frame) glyph \(linkedCell.glyph.frame)")
+            }
         }
         if let lent { model.unlink(lent.route, from: lent.task); await ui.settle(0.4) }
-        check("the first task sits under its card's padding, a top-level task after another a gap lower; its subtasks don't",
-              lineHeight(top[1]) == Metric.outlineRow + Metric.outlineGroupGap && lineHeight(top[0]) == Metric.outlineRow + Metric.listCardPadding && lineHeight(child) == Metric.outlineRow,
+        let blockPad = { (id: Int) in coordinator.plan.blocks.contains(id) ? (coordinator.plan.depth[id] == 0 ? Metric.storyTrayPadding : Metric.trayPadding) : 0 }
+        check("the first task sits at the list's top, a top-level task after another a story's gap lower, a subtask a card's gap",
+              coordinator.gap(of: top[0]) == blockPad(top[0]) && coordinator.gap(of: top[1]) >= Metric.storyGap + blockPad(top[1])
+              && coordinator.gap(of: child) >= Metric.taskGap && coordinator.gap(of: child) < Metric.storyGap,
               "\(height(top[0])) \(height(top[1])) \(height(child))")
 
-        // A hidden description shows as a small mark after the title; a click on it shows the description.
+        // A description, hidden: the card's button says it has one; Show Description shows it.
         model.setDescription(child, "**Why**: the canary flaps.\n\nMore below.")
         await ui.settle(0.5)
         let row = outline.row(forItem: coordinator.node(.task(child)))
@@ -2123,22 +2225,18 @@ extension UITest {
             outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell ?? first
         }
         cell.layoutSubtreeIfNeeded()
-        check("a hidden description shows its mark after the title", !cell.note.isHidden && cell.note.frame.minX >= cell.title.frame.maxX,
-              "\(cell.note.isHidden) \(cell.note.frame)")
-        cell.note.performClick(nil)
-        await ui.settle(0.5)
-        check("a click on the mark shows the description", model.descriptionShownInOutline(child))
+        // A subtask's card: its description button in the corner, nothing on the title's line (2026-11-10); Show Description
+        // shows it in the card, under its line.
+        check("a hidden description shows as the card's description button, no other mark", !cell.note.isHidden
+              && !cell.subviews.contains { $0 is NSButton && !$0.isHidden && $0 !== cell.note })
         model.toggleDescription(child)
-        await ui.settle(0.4)
-
-        // The toggle after the title shows and hides it, and stays on the row while it shows.
-        if model.descriptionShownInOutline(child) { model.toggleDescription(child) }
-        await ui.settle(0.4)
-        let toggled = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell)?.note
-        toggled?.performClick(nil)
         await ui.settle(0.5)
-        check("the description toggle after the title shows the description", model.descriptionShownInOutline(child))
-        toggled?.performClick(nil)
+        check("Show Description shows it", model.descriptionShownInOutline(child))
+        if let shownHost = cell.descriptionHost {
+            check("under the card's first line, from where the lines under it start", shownHost.frame.minY >= cell.glyph.frame.maxY
+                  && shownHost.frame.minX == TaskCell.titleX, "\(shownHost.frame)")
+        }
+        model.toggleDescription(child)
         await ui.settle(0.5)
         check("and hides it", !model.descriptionShownInOutline(child))
 
@@ -2191,24 +2289,21 @@ extension UITest {
               "\(cell.project.frame) \(cell.title.frame)")
         cell.project.onPick(nil)
         await ui.settle(0.4)
-        let inherited = model.project(ofTask: child) != nil
-        check("with none, its icon alone, unless a parent's project applies", model.task(child)?.project == nil
-              && (inherited ? cell.project.labels.isEmpty : cell.project.labels.first?.text == ""), "\(cell.project.labels)")
+        cell.layoutSubtreeIfNeeded()
+        check("with none, nothing: no icon on a card (2026-11-10)", model.task(child)?.project == nil && (cell.project.isHidden || cell.project.project == nil),
+              "\(cell.project.labels)")
 
-        // The subtask count counts every level.
-        if let grandchild = model.addSubtask(to: child, title: "Grandchild") {
+        // A block's progress, on its header's line: every level under it, by state.
+        if let grandchild = model.addSubtask(to: child, title: "Grandchild"), model.addSubtask(to: grandchild.id, title: "Great-grandchild") != nil {
             await ui.settle(0.4)
-            let parentCell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(parent))), makeIfNecessary: true) as? TaskCell
-            let below = model.taskTree.subtree(of: parent).count - 1
-            check("a task's subtask count counts every level under it", parentCell?.progress.total == below,
-                  "\(parentCell?.progress.total ?? -1) of \(below)")
-            // Its ring has a segment per status.
-            model.setStatus(grandchild.id, .doing)
+            func childCell() -> TaskCell? { outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(child))), makeIfNecessary: true) as? TaskCell }
+            let leaves = model.taskFlow.tally(of: child).total
+            check("a block's progress counts what's under it, every level", childCell()?.progress.tally.total == leaves && leaves >= 1,
+                  "\(childCell()?.progress.tally.total ?? -1) of \(leaves)")
+            model.setStatus(model.taskTree.children(of: grandchild.id).first ?? grandchild.id, .doing)
             await ui.settle(0.4)
-            let statuses = model.taskTree.subtree(of: parent).filter { $0 != parent }.compactMap { model.task($0)?.status }
-            let ring = (outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(parent))), makeIfNecessary: true) as? TaskCell)?.progress
-            check("a task's ring counts what's under it by status", ring?.counts[.doing] == statuses.filter { $0 == .doing }.count
-                  && ring?.toolTip?.contains("doing") == true, ring?.toolTip ?? "no ring")
+            let bar = childCell()?.progress
+            check("by state: what's doing shows as doing", bar?.tally.doing == 1 && bar?.toolTip?.contains("1 doing") == true, bar?.toolTip ?? "no bar")
             model.deleteTasks([grandchild.id])
             await ui.settle(0.3)
         }
@@ -2233,17 +2328,25 @@ extension UITest {
             cell.setHovered(false)
         }
 
-        // A click on the faces starts a session on the task, through the outline as AppKit delivers it.
+        // The face sits in its slot at the card's start; with nobody on the task, the plain avatar, a click offering Start Session….
         if let faces = outline.view(atColumn: 0, row: keyRow, makeIfNecessary: true) as? FacesCell {
             faces.layoutSubtreeIfNeeded()
-            let point = faces.convert(NSPoint(x: faces.bounds.width - Space.xs - Metric.faceRow / 2, y: faces.gap + Metric.outlineRow / 2), to: nil)
-            // The pointing hand: the view under the pointer tracks it, wherever the row scrolled.
-            let hit = ui.hitView(point)
-            check("the hand shows over a task's faces", (hit as? FaceStackView)?.tracksHandCursor == true, String(describing: hit.map { type(of: $0) }))
-            check("and over its status", cell.glyph.tracksHandCursor)
-            if let click = ui.mouseDown(point, clicks: 1) { outline.mouseDown(with: click) }
+            let nobody = model.sessions(on: child, includeEnded: true).isEmpty
+            check("the plain avatar when nobody is on the task, before its status", nobody ? !faces.noSession.isHidden
+                  && faces.convert(faces.noSession.frame, to: outline).maxX <= cell.convert(cell.glyph.frame, to: outline).minX : faces.noSession.isHidden)
+            if nobody {
+                var offered: String?
+                let show = FaceMenu.show
+                FaceMenu.show = { menu, id, _, _ in offered = id + ": " + menu.items.map(\.title).joined(separator: ", ") }
+                let avatar = faces.noSession.convert(NSPoint(x: faces.noSession.bounds.midX, y: faces.noSession.bounds.midY), to: nil)
+                if let click = ui.mouseDown(avatar, clicks: 1) { outline.mouseDown(with: click) }
+                await ui.settle(0.3)
+                FaceMenu.show = show
+                check("a click on it offers Start Session…", offered == "no-session: Start Session…", offered ?? "nothing")
+            }
+            check("the hand over its status", cell.glyph.tracksHandCursor)
+            model.beginStart(task: child)
             await ui.settle(0.6)
-            check("a click on a task's faces starts a session on it", model.modal == .start, "\(String(describing: model.modal))")
             // Closing keeps the sheet's size and content while it animates out: no jump, no flash.
             let open = ui.window.attachedSheet?.frame.size
             model.closeModal()
@@ -2256,6 +2359,12 @@ extension UITest {
                 model.link(task: child, session: session.id)
                 await ui.settle(0.4)
                 faces.layoutSubtreeIfNeeded()
+                let face = faces.subviews.first { $0 is FaceStackView }
+                let point = face.map { $0.convert(NSPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) } ?? .zero
+                let hit = ui.hitView(point)
+                check("the face shows at the card's start, before its status, the hand over it", (hit as? FaceStackView)?.tracksHandCursor == true
+                      && (face.map { faces.convert($0.frame, to: outline).maxX <= cell.convert(cell.glyph.frame, to: outline).minX } ?? false),
+                      String(describing: hit.map { type(of: $0) }))
                 var shown: String?
                 let show = FaceMenu.show
                 FaceMenu.show = { _, id, _, _ in shown = id }
@@ -2300,11 +2409,13 @@ extension UITest {
         model.shownDescriptions = []
         await ui.settle(0.6)
         // A ring with nothing started is only a grey track: hidden until something under it starts (2026-11-07).
-        if let fresh = model.addTask(to: .overview, title: "Nothing started yet"), let first = model.addSubtask(to: fresh.id, title: "First part"),
+        // On a block's header: a top-level task shows its progress line instead.
+        if let holder = model.addTask(to: .overview, title: "Holds a block"), let fresh = model.addSubtask(to: holder.id, title: "Nothing started yet"),
+           let first = model.addSubtask(to: fresh.id, title: "First part"),
            model.addSubtask(to: fresh.id, title: "Second part") != nil {
             await ui.settle(0.4)
             // Laid out on screen: a cell made off screen keeps its defaults.
-            func ring() -> ProgressRingView? {
+            func bar() -> BlockProgressView? {
                 let row = outline.row(forItem: coordinator.node(.task(fresh.id)))
                 guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return nil }
                 cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
@@ -2312,12 +2423,13 @@ extension UITest {
                 cell.layoutSubtreeIfNeeded()
                 return cell.progress
             }
-            let hidden = ring()?.isHidden
+            let resting = bar()
+            let shownAtRest = resting?.isHidden == false && resting?.tally.total == 2
             model.setStatus(first.id, .doing)
             await ui.settle(0.4)
-            check("a task's ring hides while all under it is todo, and shows once one starts", hidden == true && ring()?.isHidden == false,
-                  "\(String(describing: hidden)) → \(String(describing: ring()?.isHidden))")
-            model.deleteTasks([fresh.id])
+            check("a block's progress shows on its header, 0/2 with nothing started, and counts one doing once it starts", shownAtRest && bar()?.tally.doing == 1,
+                  "\(String(describing: resting?.tally)) → \(String(describing: bar()?.tally))")
+            model.deleteTasks([holder.id])
             await ui.settle(0.3)
         }
 
@@ -2415,9 +2527,13 @@ extension UITest {
         }
         var bottom: CGFloat { max((scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height, 0) }
         func visibleRowsDrawn() -> Bool {
+            // Drawn: at full opacity, or faded with its card when the selection doesn't light it.
             let rows = outline.rows(in: outline.visibleRect)
-            return rows.length > 0 && (rows.location..<rows.location + rows.length)
-                .allSatisfy { (outline.rowView(atRow: $0, makeIfNecessary: false)?.alphaValue ?? 0) > 0.99 }
+            return rows.length > 0 && (rows.location..<rows.location + rows.length).allSatisfy { row in
+                let task = (outline.item(atRow: row) as? OutlineNode)?.task
+                let expected: CGFloat = task.map { outline.lit?.contains($0) == false } == true ? Motion.dimmedOpacity : 1
+                return abs((outline.rowView(atRow: row, makeIfNecessary: false)?.alphaValue ?? 0) - expected) < 0.01
+            }
         }
 
         // The Backlog opened below the fold, then scrolled to.
@@ -2451,7 +2567,7 @@ extension UITest {
 
         let search = await Stall.measure(["r", "re", "reg", "regi", "reg", "re", "r", ""].map { text in { model.search = text } })
         let folded = model.taskTree.top(.overview).filter { !model.taskTree.children(of: $0).isEmpty }.prefix(8)
-        let fold = await Stall.measure(folded.map { id in { model.setCollapsed(id, true) } } + folded.map { id in { model.setCollapsed(id, false) } })
+        let fold = await Stall.measure(folded.map { id in { model.setFold(id, .hidden) } } + folded.map { id in { model.setFold(id, .all) } })
         let move = await Stall.measure(model.taskTree.top(.overview).prefix(8).map { id in {
             if let index = model.tasks.firstIndex(where: { $0.id == id }) { model.tasks[index].order += 2.5 }
         } })
@@ -2468,10 +2584,10 @@ extension UITest {
               && outline.rowView(atRow: outline.numberOfRows - 1, makeIfNecessary: false) != nil, "\(outline.visibleRect)")
         // The lists' cards are layers under the rows, the GPU's to draw: a scroll redraws nothing for them (T-337).
         let cardLayers = outline.cardsView.layer?.sublayers ?? []
-        let lists = (model.backlogOpen ? 2 : 1)
-        check("the lists' cards are layers under the rows, a body and a far shadow each", outline.subviews.first === outline.cardsView
-              && cardLayers.count == 2 * lists && cardLayers.allSatisfy { $0.shadowPath != nil },
-              "\(cardLayers.count) layers for \(lists) lists, first subview \(outline.subviews.first.map { String(describing: type(of: $0)) } ?? "none")")
+        let shapes = outline.cardsView.shapes.count
+        check("the cards and trays are layers under the rows, a body and a far shadow each", outline.subviews.first === outline.cardsView
+              && shapes > 0 && cardLayers.filter { !($0 is CAShapeLayer) }.count == 2 * shapes && cardLayers.filter { !($0 is CAShapeLayer) }.allSatisfy { $0.shadowPath != nil },
+              "\(cardLayers.count) layers for \(shapes) cards and trays, first subview \(outline.subviews.first.map { String(describing: type(of: $0)) } ?? "none")")
         scrollPage(to: 0)
 
         print("  perf: baseline scroll of the small page \(baseline?.description ?? "-")")
@@ -2527,9 +2643,12 @@ final class Stall {
 final class FakeDrag: NSObject, NSDraggingInfo {
     private let pasteboard = NSPasteboard(name: NSPasteboard.Name("HQ-uitest-\(UUID().uuidString)"))
     private let source: Any?
+    /// Where the pointer is, in window coordinates.
+    private let location: NSPoint
 
-    init(tasks: [Int] = [], session: String? = nil, item key: String? = nil, source: Any?) {
+    init(tasks: [Int] = [], session: String? = nil, item key: String? = nil, source: Any?, at location: NSPoint = .zero) {
         self.source = source
+        self.location = location
         super.init()
         pasteboard.clearContents()
         var items: [NSPasteboardItem] = tasks.map { id in
@@ -2552,7 +2671,7 @@ final class FakeDrag: NSObject, NSDraggingInfo {
 
     var draggingDestinationWindow: NSWindow? { nil }
     var draggingSourceOperationMask: NSDragOperation { .move }
-    var draggingLocation: NSPoint { .zero }
+    var draggingLocation: NSPoint { location }
     var draggedImageLocation: NSPoint { .zero }
     var draggedImage: NSImage? { nil }
     var draggingPasteboard: NSPasteboard { pasteboard }
@@ -2649,4 +2768,322 @@ extension Driver {
 
     var sheetIsTyping: Bool { window.attachedSheet?.firstResponder is NSTextView }
     var sheetResponder: String { window.attachedSheet?.firstResponder.map { String(describing: Swift.type(of: $0)) } ?? "none" }
+}
+
+extension UITest {
+    // MARK: Stories: cards, blocks, Blocked and its links (T-372)
+
+    static func storyFlow(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return check("the outline is on the page", false) }
+        model.folded = []
+        model.search = ""
+        model.allDescriptions = []
+        guard let goal = model.addTask(to: .overview, title: "Ship the story"),
+              let first = model.addSubtask(to: goal.id, title: "First step"),
+              let second = model.addSubtask(to: goal.id, title: "Second step"),
+              let third = model.addSubtask(to: goal.id, title: "Third step"),
+              let part = model.addSubtask(to: second.id, title: "A part of the second") else { return check("a story to look at", false) }
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        func index(_ id: Int) -> Int { outline.row(forItem: coordinator.node(.task(id))) }
+        func cell(_ id: Int) -> TaskCell? {
+            let row = index(id)
+            return row >= 0 ? outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell : nil
+        }
+        // The goal heads a tray, on its big card; the second step heads a tray inside it; the steps are cards in it.
+        let plan = coordinator.plan
+        check("a top-level task with subtasks heads a block, a subtask with subtasks a block inside it",
+              plan.blocks.isSuperset(of: [goal.id, second.id]) && plan.depth[goal.id] == 0 && plan.depth[part.id] == 2)
+        let goalCard = outline.cardFrame(ofRow: index(goal.id)), firstCard = outline.cardFrame(ofRow: index(first.id))
+        let partCard = outline.cardFrame(ofRow: index(part.id))
+        check("a story's own subtasks sit full width under its big card, a block's subtasks a level in; the cards reach the section's edge",
+              goalCard != nil && firstCard != nil && partCard != nil && firstCard!.minX == goalCard!.minX
+              && partCard!.minX >= firstCard!.minX + Metric.subtaskIndent && abs(goalCard!.maxX - (outline.bounds.width - Metric.storyTrayPadding)) < 0.5,
+              "\(String(describing: goalCard)) \(String(describing: firstCard)) \(String(describing: partCard))")
+        let trays = outline.cardsView.shapes.filter { $0.kind == .tray }
+        check("two trays and a raised card per task show behind the rows", trays.count >= 2
+              && outline.cardsView.shapes.contains { $0.kind == .card && abs($0.rect.minY - (firstCard?.minY ?? -1)) < 0.5 })
+        check("the goal's big card shows its progress line", cell(goal.id)?.storyHost != nil && cell(first.id)?.storyHost == nil)
+        // Blocked, with a reason: the glyph stays the status (2026-11-10), the red edge and the reason under the title.
+        model.block(third.id, reason: "Waiting on a decision")
+        await endUndoGroup(model)
+        await ui.until(2) { cell(third.id)?.reason.isHidden == false }
+        check("a Blocked task keeps its status glyph and shows its reason under its title", cell(third.id)?.glyph.hold == nil
+              && cell(third.id)?.reason.stringValue == "Waiting on a decision" && cell(third.id)?.reason.isHidden == false)
+        check("its card takes the red edge; no card takes a yellow one", outline.cardsView.shapes.contains { $0.ring == .blocked })
+        model.unblock(third.id)
+        await endUndoGroup(model)
+        // Blocked by a task: a chip per blocking task; no lines (2026-11-10).
+        check("a link the tree already says, or a circle, is refused",
+              model.addLink(second.id, .blockedBy, part.id) == .partOf && model.addLink(first.id, .blockedBy, goal.id) == .circle)
+        check("a task can be blocked by another", model.addLink(third.id, .blockedBy, first.id) == nil)
+        await endUndoGroup(model)
+        // The chip shows once the card is laid out again, a frame after its key.
+        await ui.until(2) { cell(third.id).map { $0.blockers.keys == "T-\(first.id)" && !$0.blockers.isHidden } ?? false }
+        check("a task blocked by another shows the other's key in a chip, its glyph still its status",
+              cell(third.id)?.glyph.hold == nil && cell(third.id)?.blockers.keys == "T-\(first.id)" && cell(third.id)?.blockers.isHidden == false,
+              cell(third.id).map { "keys \($0.blockers.keys) hidden \($0.blockers.isHidden) hold \(String(describing: $0.glyph.hold)) cell \($0.frame.integral) chip \($0.blockers.frame.integral)" } ?? "no cell")
+        // After: no arrow; selected, what it comes after stays lit and the rest fades.
+        model.addLink(second.id, .after, first.id)
+        await endUndoGroup(model)
+        outline.deselectAll(nil)
+        await ui.settle(0.2)
+        let restAtRest = outline.cardsView.shapes.allSatisfy { !$0.dimmed }
+        coordinator.select(second.id)
+        await ui.settle(0.3)
+        let lit = coordinator.lit() ?? []
+        let shapes = outline.cardsView.shapes
+        func dimmed(_ id: Int) -> Bool? { shapes.first { $0.key == "card:\(id)" }?.dimmed }
+        check("selected, a task lights what it comes after, its parent and its subtasks; the rest fades",
+              restAtRest && lit.isSuperset(of: [second.id, first.id, goal.id, part.id]) && dimmed(first.id) == false && dimmed(third.id) == true,
+              "lit \(lit.sorted()), first \(String(describing: dimmed(first.id))), third \(String(describing: dimmed(third.id)))")
+        coordinator.select(third.id)
+        await ui.settle(0.3)
+        check("selected, a blocked task lights what blocks it", coordinator.lit()?.contains(first.id) == true)
+        // A click on a blocking task's chip selects that task.
+        if let point = cell(third.id)?.blockers.windowPoint(of: first.id), let click = ui.mouseDown(point, clicks: 1) {
+            outline.mouseDown(with: click)
+            await ui.settle(0.4)
+            check("a click on a blocking task's chip selects it", model.selectedTasks == [first.id], "\(model.selectedTasks)")
+        } else {
+            check("a click on a blocking task's chip selects it", false, "no chip")
+        }
+        check("the order stays the user's: neither link moved a task",
+              model.taskTree.children(of: goal.id) == [first.id, second.id, third.id])
+        // Keys: B asks for a reason, Return blocks; B again unblocks.
+        coordinator.select(first.id)
+        await ui.settle(0.2)
+        await ui.key("b")
+        await ui.settle(0.6)
+        if let picker = ui.popoverWindow("hold-reason"), let field = picker.firstResponder as? NSTextView {
+            field.insertText("Needs an answer", replacementRange: NSRange(location: 0, length: 0))
+            await ui.key(.return, inPopover: "hold-reason")
+            await ui.until(2) { model.task(first.id)?.blocked == true }
+            check("B on a row asks why, and Return blocks it", model.task(first.id)?.blockedReason == "Needs an answer")
+            await ui.key("b")
+            await ui.until(2) { model.task(first.id)?.blocked == false }
+            check("B on a Blocked row unblocks it", model.task(first.id)?.blocked == false)
+        } else {
+            tableCheck(ui, "B on a row asks why, and Return blocks it", false, "no popover")
+        }
+        // A task dropped on a task: the menu, then Add Below.
+        let saved = OutlineCoordinator.pickDropChoice
+        var offered: [String] = []
+        OutlineCoordinator.pickDropChoice = { menu, _ in
+            offered = menu.items.map(\.title).filter { !$0.isEmpty }
+            return menu.items.first { $0.title == "Add Below T-\(first.id)" }
+        }
+        let drag = FakeDrag(tasks: [part.id], source: outline)
+        _ = coordinator.outlineView(outline, acceptDrop: drag, item: coordinator.node(.task(first.id)), childIndex: NSOutlineViewDropOnItemIndex)
+        await ui.until(2) { model.taskTree.parent(of: part.id) == goal.id }
+        OutlineCoordinator.pickDropChoice = saved
+        check("a task dropped on a task asks: Subtask, Above, Below, then the links",
+              offered.starts(with: ["Add as Subtask of T-\(first.id)", "Add Above T-\(first.id)", "Add Below T-\(first.id)", "Link to T-\(first.id)"])
+              && offered.contains("T-\(first.id) Is Blocked by T-\(part.id)") && offered.contains("T-\(part.id) Comes After T-\(first.id)"),
+              offered.joined(separator: " | "))
+        check("Add Below puts it right under the task it was dropped on",
+              model.taskTree.children(of: goal.id).prefix(2) == [first.id, part.id], "\(model.taskTree.children(of: goal.id))")
+        model.undoManager?.undo()
+        await ui.until(2) { model.taskTree.parent(of: part.id) == second.id }
+        check("one Undo puts it back", model.taskTree.parent(of: part.id) == second.id)
+        // Siblings move together in the model (the outline selects one row at a time since 2026-11-10).
+        model.shiftTasks([second.id, third.id], by: -1)
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+        check("siblings moved up together keep their order", model.taskTree.children(of: goal.id) == [second.id, third.id, first.id],
+              "\(model.taskTree.children(of: goal.id))")
+        // The cards hold still under a drag (2026-11-10): the middle of a card takes a dragged task, ringed (its menu
+        // asks); its top edge shows a line in the gap above it, where the task would go.
+        let targetRow = index(second.id)
+        if let card = outline.cardFrame(ofRow: targetRow) {
+            let rects = (0..<outline.numberOfRows).map { outline.rect(ofRow: $0) }
+            func proposal(at y: CGFloat, item: Any?, index: Int) -> (operation: NSDragOperation, onto: Bool, ring: Bool, line: CGRect?) {
+                let probe = FakeDrag(tasks: [first.id], source: outline, at: outline.convert(NSPoint(x: card.midX, y: y), to: nil))
+                let operation = coordinator.outlineView(outline, validateDrop: probe, proposedItem: item, proposedChildIndex: index)
+                return (operation, coordinator.proposedOnto == second.id, outline.dropOnto == second.id, outline.cardsView.dropLine)
+            }
+            let at = model.taskTree.children(of: goal.id).firstIndex(of: second.id) ?? 0
+            let middle = proposal(at: card.midY, item: coordinator.node(.task(goal.id)), index: at)
+            let edge = proposal(at: card.minY + 2, item: coordinator.node(.task(goal.id)), index: at)
+            // AppKit proposing the row itself, near its bottom: below the card, not refused.
+            let below = proposal(at: card.maxY - 2, item: coordinator.node(.task(second.id)), index: NSOutlineViewDropOnItemIndex)
+            check("a task dragged over the middle of a card goes onto it, the card ringed", middle.operation == .move && middle.onto && middle.ring && middle.line == nil,
+                  "\(middle)")
+            check("over its top edge, between cards, a line in the gap above it", edge.operation == .move && !edge.onto && !edge.ring
+                  && edge.line.map { $0.midY < card.minY && $0.midY > card.minY - Metric.taskGap && abs($0.minX - card.minX) < 1 } == true, "\(edge) card \(card)")
+            check("AppKit proposing the card near its bottom moves the task below it", below.operation == .move && !below.onto
+                  && below.line.map { $0.midY > card.maxY } == true, "\(below)")
+            check("and no card moves while dragging", rects == (0..<outline.numberOfRows).map { outline.rect(ofRow: $0) }
+                  && outline.draggingDestinationFeedbackStyle == .none)
+            coordinator.dragEnded()
+            await ui.settle(0.2)
+            check("the drag's end clears the ring and the line", outline.dropOnto == nil && outline.cardsView.dropLine == nil)
+            let image = outline.cardImage(ofRow: targetRow)
+            check("a dragged task's image is its card alone", image?.size == card.size, "\(String(describing: image?.size)) card \(card.size)")
+        }
+        func keyDown(_ code: UInt16, _ characters: String = "") -> NSEvent? {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: code >= 123 && code <= 126 ? [.numericPad, .function] : [],
+                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: ui.window.windowNumber, context: nil,
+                             characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
+        }
+        // Space opens the selected task's window, as before (2026-11-10: no Quick Look).
+        coordinator.select(second.id)
+        await ui.settle(0.3)
+        await ui.key(" ")
+        await ui.until(2) { model.modal == .task(second.id) }
+        check("Space opens the selected task", model.modal == .task(second.id), String(describing: model.modal))
+        model.closeModal()
+        await ui.settle(0.5)
+        // ↓ on the list's last task: the new task's card, solid with its ring; ↑ goes back to the task.
+        let quickRow = outline.row(forItem: coordinator.node(.quickAdd(.overview)))
+        if quickRow > 0, let lastTask = (outline.item(atRow: quickRow - 1) as? OutlineNode)?.task {
+            coordinator.select(lastTask)
+            await ui.settle(0.3)
+            await ui.key(.down)
+            await ui.settle(0.4)
+            let typing = (ui.window.firstResponder as? NSTextView)?.delegate is QuickAddField
+            let newCard = outline.cardsView.shapes.first { $0.key == "new:\(TaskList.overview)" }
+            check("↓ on the last task goes to the new task's card, solid with its ring", typing && outline.selectedRowIndexes.isEmpty
+                  && newCard?.kind == .card && newCard?.ring == .selected,
+                  "typing \(typing), selected \(outline.selectedRowIndexes.count), card \(String(describing: newCard))")
+            await ui.key(.up)
+            await ui.settle(0.4)
+            check("↑ from it selects the last task again, its card dashed again", model.selectedTasks == [lastTask]
+                  && outline.cardsView.shapes.first { $0.key == "new:\(TaskList.overview)" }?.kind == .newTask, "\(model.selectedTasks)")
+        } else {
+            check("the list's new task card under its last task", false, "row \(quickRow)")
+        }
+        // The description button: a click selects its task and shows its description.
+        model.setDescription(second.id, "What the second step is about.")
+        await ui.settle(0.4)
+        outline.deselectAll(nil)
+        if let note = cell(second.id)?.note, !note.isHidden {
+            note.performClick(nil)
+            await ui.settle(0.4)
+            check("a click on a card's description button selects its task and shows its description",
+                  model.selectedTasks == [second.id] && model.descriptionShownInOutline(second.id), "\(model.selectedTasks)")
+            model.toggleDescription(second.id)
+            await ui.settle(0.3)
+        } else {
+            check("a card with a description shows its button", false)
+        }
+        // N beside a doing subtask its parent shows among only what matters: the new task shows, its title edited (it was
+        // added out of sight and left empty in the vault).
+        model.setStatus(third.id, .doing)
+        model.setFold(goal.id, .important)
+        await endUndoGroup(model)
+        await ui.settle(0.6)
+        coordinator.select(third.id)
+        await ui.settle(0.3)
+        await ui.key("n")
+        await ui.settle(0.6)
+        let besides = model.focusedTask
+        check("N beside a doing subtask under only what matters: the new task shows, its title edited",
+              besides.map { $0 != third.id && index($0) >= 0 } == true && ui.isTyping, "\(String(describing: besides)) \(String(describing: model.fold[goal.id]))")
+        await ui.key(.escape)
+        await ui.until(2) { besides.map { model.task($0) == nil } ?? true }
+        check("and Escape drops it, empty", besides.map { model.task($0) == nil } == true,
+              besides.flatMap { model.task($0) }.map { "left: title \"\($0.title)\" empty \(model.isEmptyTask($0.id)) shown \(index($0.id)) typing \(ui.isTyping) responder \(String(describing: ui.window.firstResponder)) selected \(model.selectedTasks)" } ?? "-")
+        model.setFold(goal.id, .all)
+        model.setStatus(third.id, .todo)
+        await endUndoGroup(model)
+        await ui.settle(0.4)
+        // In a task's window, moves keep a subtask in it; Add Subtask from a card's menu edits the new one there, not on the page.
+        model.open(.task(goal.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(0.8)
+        if let sheet = ui.window.attachedSheet, let top = model.taskTree.children(of: goal.id).first {
+            model.outdentTasks([top])
+            model.shiftTasks([top], by: -1)
+            await endUndoGroup(model)
+            await ui.settle(0.4)
+            check("in a task's window, ⇧← and ⇧↑ never take a subtask out of it", model.taskTree.parent(of: top) == goal.id && model.modal == .task(goal.id),
+                  "parent \(String(describing: model.taskTree.parent(of: top)))")
+            if let added = model.addSubtask(to: third.id) {
+                model.outlineFocus = .title(added.id, by: 0)
+                await ui.until(2) { (sheet.firstResponder as? NSTextView)?.editedTitle?.task == added.id }
+                check("Add Subtask in a task's window edits the new subtask there, not on the page",
+                      (sheet.firstResponder as? NSTextView)?.editedTitle?.task == added.id && (ui.window.firstResponder as? NSTextView)?.editedTitle == nil
+                      && model.outlineFocus == nil, "\(String(describing: sheet.firstResponder))")
+                model.deleteTasks([added.id])
+                await endUndoGroup(model)
+            }
+        }
+        model.closeModal()
+        await ui.settle(0.5)
+        // The task's window: ↓ on its last subtask goes to the new subtask's card, ↑ back; a double-click on a subtask's
+        // title isn't the description's; Escape in the new subtask closes the window.
+        model.open(.task(goal.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(0.8)
+        if let sheet = ui.window.attachedSheet, let scoped = OutlineCoordinator.scoped(goal.id), let inner = ui.find(TaskOutlineView.self, in: sheet.contentView) {
+            scoped.selectLast()
+            await ui.settle(0.3)
+            let lastSub = inner.selectedRow >= 0 ? (inner.item(atRow: inner.selectedRow) as? OutlineNode)?.task : nil
+            if let down = keyDown(125) { _ = scoped.key(down) }
+            await ui.until(2) { sheet.firstResponder is NSTextView }
+            let field = (sheet.firstResponder as? NSTextView)?.delegate as? NSTextField
+            check("↓ on the window's last subtask goes to the new subtask's card", field?.identifier?.rawValue == "new-subtask-field"
+                  && inner.selectedRowIndexes.isEmpty, "\(String(describing: sheet.firstResponder))")
+            if let field, let editor = sheet.firstResponder as? NSTextView {
+                _ = field.delegate?.control?(field, textView: editor, doCommandBy: #selector(NSResponder.moveUp(_:)))
+                await ui.settle(0.3)
+                check("↑ from it selects the last subtask", lastSub != nil && inner.selectedRow >= 0
+                      && (inner.item(atRow: inner.selectedRow) as? OutlineNode)?.task == lastSub && sheet.firstResponder === inner)
+            }
+            // A double-click on a subtask's title, as the window's description would see it: not its.
+            let firstRow = inner.row(forItem: scoped.node(.task(first.id)))
+            if firstRow >= 0, let title = (inner.view(atColumn: 1, row: firstRow, makeIfNecessary: true) as? TaskCell)?.title,
+               let area = ui.find(EditOnDoubleClick.CatcherView.self, in: sheet.contentView),
+               let event = NSEvent.mouseEvent(with: .leftMouseDown, location: title.convert(NSPoint(x: 4, y: title.bounds.midY), to: nil), modifierFlags: [],
+                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sheet.windowNumber, context: nil,
+                                              eventNumber: 0, clickCount: 2, pressure: 1) {
+                let point = area.convert(event.locationInWindow, from: nil)
+                check("a double-click on a subtask's title isn't taken by the window's description", area.take(event) != nil && !model.modalEditingDescription,
+                      "catcher visible \(area.visibleRect.integral) has the point \(area.visibleRect.contains(point))")
+            } else {
+                check("a subtask's title and the window's description", false)
+            }
+            if let fieldView = ui.find(FocusField.self, in: sheet.contentView) {
+                sheet.makeFirstResponder(fieldView)
+                await ui.settle(0.3)
+                if let editor = sheet.firstResponder as? NSTextView {
+                    _ = fieldView.delegate?.control?(fieldView, textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+                }
+                await ui.until(2) { model.modal == nil }
+                check("Escape in the new subtask closes the window", model.modal == nil, String(describing: model.modal))
+            }
+        } else {
+            check("the task's window and its subtasks", false)
+        }
+        model.closeModal()
+        await ui.settle(0.5)
+        // The task's window: Blocked, what it's blocked by and comes after, each removable, Blocked By… and After….
+        model.open(.task(third.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(0.8)
+        check("the task's window shows Blocked and what it's blocked by, with Blocked By… and After…",
+              ui.anchor("blocked-property") != nil && ui.anchor("relation:\(first.id)") != nil
+              && ui.anchor("relation-add:Blocked By…") != nil && ui.anchor("relation-add:After…") != nil)
+        model.closeModal()
+        await ui.settle(0.5)
+        // The story's window: its subtasks as the list shows them, the same cards, under its relations (2026-11-10).
+        model.open(.task(goal.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(1)
+        let scoped = OutlineCoordinator.live.compactMap(\.coordinator).first { $0.root == goal.id }
+        let rows = [first.id, second.id, third.id].map { scoped?.row(of: $0) ?? -1 }
+        let anchors = (ui.anchor("subtask-outline"), ui.anchor("relation-add:After…"))
+        check("the task's window shows its subtasks as the list's cards, under its relations",
+              rows.allSatisfy { $0 >= 0 } && anchors.0 != nil && anchors.1.map { relation in anchors.0.map { $0.y < relation.y } ?? false } == true,
+              "rows \(rows), outline \(String(describing: anchors.0)), relations \(String(describing: anchors.1))")
+        // Its cards act as the list's: a row's menu goes through the window's outline.
+        check("a subtask in the window belongs to the window's outline", OutlineCoordinator.owner(of: second.id)?.root == goal.id)
+        model.closeModal()
+        await ui.settle(0.5)
+        check("closed, the page's outline has its rows again", OutlineCoordinator.owner(of: second.id)?.root == nil)
+        model.deleteTasks([goal.id])
+        await endUndoGroup(model)
+        await ui.settle(0.3)
+    }
 }

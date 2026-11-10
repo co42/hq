@@ -238,9 +238,22 @@ struct EditOnDoubleClick: NSViewRepresentable {
             guard let window, event.window === window, event.clickCount == 2,
                   event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty else { return event }
             let point = convert(event.locationInWindow, from: nil)
-            guard visibleRect.contains(point) else { return event }
+            // In its own bounds: a view SwiftUI hosts can report a visible rect far bigger than itself (T-372).
+            guard bounds.contains(point), visibleRect.contains(point) else { return event }
+            // Only when its text is what's under the pointer: a task window's subtasks below its description take their own
+            // double-clicks (T-372).
+            guard let hit = window.contentView?.superview?.hitTest(event.locationInWindow), !Self.covered(self, by: hit) else { return event }
             edit?(point)
             return nil
+        }
+
+        /// A list is between the view under the pointer and what it shares with the catcher.
+        static func covered(_ catcher: NSView, by hit: NSView) -> Bool {
+            for view in sequence(first: hit, next: \.superview) {
+                if catcher.isDescendant(of: view) { return false }
+                if view is NSTableView { return true }
+            }
+            return true
         }
     }
 }

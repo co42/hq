@@ -252,12 +252,24 @@ enum AgentCLI {
         if let object = result as? JSONObject, let body = object["body"] as? String {
             // `show`: the item's line, its note's path and the tasks it's part of, then its text, its subtasks and what's linked.
             var rest = object
-            for key in ["body", "parents", "subtasks", "linked"] { rest[key] = nil }
+            for key in ["body", "parents", "subtasks", "linked", "progress", "ready", "blockedTasks"] { rest[key] = nil }
             var text = line(rest) + ((object["path"] as? String).map { "\n" + $0 } ?? "")
             for parent in object["parents"] as? [JSONObject] ?? [] { text += "\nPart of: " + brief(parent) }
             if !body.isEmpty { text += "\n\n" + body }
             let subtasks = object["subtasks"] as? [JSONObject] ?? []
-            if !subtasks.isEmpty { text += "\n\nSubtasks:\n" + subtasks.map { "  " + brief($0) }.joined(separator: "\n") }
+            if !subtasks.isEmpty {
+                // The tree under it, indented, with each block's progress and what holds each task.
+                text += "\n\nSubtasks" + ((object["progress"] as? String).map { " (\($0))" } ?? "") + ":\n"
+                text += subtasks.map { sub in
+                    let indent = String(repeating: "  ", count: max(1, sub["depth"] as? Int ?? 1))
+                    let marks = [sub["progress"] as? String, sub["flow"] as? String].compactMap { $0 }
+                    return indent + brief(sub) + (marks.isEmpty ? "" : " · " + marks.joined(separator: " · "))
+                }.joined(separator: "\n")
+                if let ready = object["ready"] as? [String], !ready.isEmpty { text += "\n\nReady: " + ready.joined(separator: ", ") }
+                if let blocked = object["blockedTasks"] as? [JSONObject], !blocked.isEmpty {
+                    text += "\nBlocked: " + blocked.map { "\($0["id"] as? String ?? "") (\($0["why"] as? String ?? ""))" }.joined(separator: "; ")
+                }
+            }
             let linked = object["linked"] as? [JSONObject] ?? []
             if !linked.isEmpty { text += "\n\nLinked:\n" + linked.map { "  " + link($0) }.joined(separator: "\n") }
             return text
@@ -297,7 +309,8 @@ enum AgentCLI {
             let list = (object["list"] as? String) == "backlog" ? " · Backlog" : ""
             let review = (object["review"] as? String).map { " · Review: \($0)" } ?? ""
             let project = (object["project"] as? String).map { " · \($0)" } ?? ""
-            return "\(id) [\(status)] \(title)\(tags)\(project)\(review)\(list)"
+            let flow = (object["flow"] as? String).map { " · \($0)" } ?? ""
+            return "\(id) [\(status)] \(title)\(tags)\(project)\(flow)\(review)\(list)"
         }
         if let id = object["id"] as? String, let state = object["state"] as? String {
             let reason = (object["reason"] as? String).map { " · \($0)" } ?? ""

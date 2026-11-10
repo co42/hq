@@ -23,7 +23,8 @@ struct TaskModal: View {
     let id: Int
     @Environment(AppModel.self) private var model
     @State private var title = ""
-    @State private var subtaskDraft = ""
+    /// The subtasks' outline's width: the window's column.
+    @State private var outlineWidth: CGFloat = 0
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -43,12 +44,18 @@ struct TaskModal: View {
                         .onChange(of: task.title) { if !titleFocused { title = task.title } }
                         .uiTestAnchor("modal-title")
                 }
+                // A story's progress, as on its big card.
+                if !model.taskTree.children(of: id).isEmpty { StorySummary(id: id).frame(height: Metric.storyLine) }
                 properties(task)
                 ModalGroup(title: "On it") { onIt(task) }
                 ModalGroup(title: "Description") { DescriptionCard(id: id) }
+                // What it waits on and what waits on it, and the tasks linked to it: the list shows them as chips and on
+                // selection only (2026-11-10).
+                ModalGroup(title: "Blocked by, after and linked tasks") { TaskRelations(id: id) }
+                // Its subtasks as the list shows them: the same cards, chips, fold, drag and keys (2026-11-10).
                 ModalGroup(title: "Subtasks") { subtasks(task) }
                 ModalGroup(title: "Files, artifacts, PRs and issues") {
-                    let outputs = model.outputs(ofTask: id)
+                    let outputs = model.outputs(ofTask: id).filter { $0.taskID == nil }
                     if !outputs.isEmpty { OutputRows(routes: outputs, task: id) }
                     LinkButton(task: id)
                 }
@@ -89,6 +96,10 @@ struct TaskModal: View {
                 TagList(tags: task.tags) { model.setTags(id, $0) }
                     .frame(maxWidth: 480, alignment: .leading)
             }
+            GridRow {
+                label("Blocked")
+                BlockedProperty(id: id)
+            }
         }
         .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,41 +128,215 @@ struct TaskModal: View {
 
     @ViewBuilder
     private func subtasks(_ task: TaskItem) -> some View {
-        ModalBox {
-            ForEach(model.taskTree.children(of: id).compactMap { model.task($0) }) { sub in
-                HStack(spacing: Space.sm) {
-                    Button { model.toggleDone(sub.id) } label: { TaskGlyph(status: sub.status) }
-                        .buttonStyle(.plain)
-                        .clickable()
-                        .help(sub.status == .done ? "Mark not done" : "Mark done")
-                        .accessibilityLabel(sub.title.isEmpty ? "New task" : sub.title)
-                        .accessibilityValue(sub.status.title)
-                        .accessibilityAddTraits(.isToggle)
-                    Text(sub.title.isEmpty ? "New task" : sub.title)
-                        .foregroundStyle(sub.status == .done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .selectOpen(ModalRoute.task(sub.id).selectionKey) { model.open(.task(sub.id), push: true) }
-                    KeyLabel(key: sub.key)
-                }
-                .kitType(.title)
-                .padding(.horizontal, Space.md)
-                .frame(height: Metric.boxRow)
-            }
-            HStack(spacing: Space.sm) {
-                KitIcon.new.image.foregroundStyle(.tertiary).frame(width: Metric.glyphSlot).accessibilityHidden(true)
-                TextField("Add subtask", text: $subtaskDraft)
-                    .textFieldStyle(.plain)
-                    .onSubmit {
-                        guard !subtaskDraft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                        if let added = model.addSubtask(to: id) { model.setTitle(added.id, subtaskDraft) }
-                        subtaskDraft = ""
-                    }
-            }
-            .kitType(.title)
-            .padding(.horizontal, Space.md)
-            .frame(height: Metric.boxRow)
+        if !model.taskTree.children(of: id).isEmpty {
+            TaskOutline(width: max(outlineWidth, 1), root: id)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { outlineWidth = $0 }
+                .uiTestAnchor("subtask-outline")
         }
+        NewSubtaskCard(id: id)
+    }
+}
+
+/// The card a new subtask is typed in, as the list's new task card: dashed until typed in, then a card with its ring
+/// (2026-11-10). Return adds it and keeps the card for the next; ↑ goes to the last subtask; Escape closes the window.
+private struct NewSubtaskCard: View {
+    let id: Int
+    @Environment(AppModel.self) private var model
+    @State private var typing = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Radius.row, style: .continuous)
+        HStack(spacing: Space.sm) {
+            KitIcon.addTask.image.foregroundStyle(Ink.accent).frame(width: Metric.glyphSlot).accessibilityHidden(true)
+            NewSubtaskField(id: id, model: model, focus: model.newSubtaskFocus == id, typing: $typing)
+        }
+        .padding(.leading, Metric.cardPadding + TaskCell.faceSlot)
+        .padding(.trailing, Metric.cardPadding)
+        .frame(maxWidth: .infinity, minHeight: Metric.outlineQuick, maxHeight: Metric.outlineQuick, alignment: .leading)
+        .background { if typing { shape.fill(Ink.card) } }
+        .overlay {
+            if typing {
+                shape.strokeBorder(Ink.accent, lineWidth: Metric.selectionRing)
+            } else {
+                shape.strokeBorder(Ink.newCardLine, style: StrokeStyle(lineWidth: 1, dash: Metric.newCardDash))
+            }
+        }
+        .contentShape(shape)
+        .onTapGesture { model.newSubtaskFocus = id }
+        .uiTestAnchor("new-subtask")
+    }
+}
+
+/// The new subtask's field, in AppKit as the page's new task field: its keys go to its delegate first.
+private struct NewSubtaskField: NSViewRepresentable {
+    let id: Int
+    let model: AppModel
+    /// Asked to take the keyboard: ↓ on the last subtask, or a click on the card.
+    let focus: Bool
+    @Binding var typing: Bool
+
+    func makeNSView(context: Context) -> FocusField {
+        let field = FocusField()
+        field.onFocus = { [weak coordinator = context.coordinator] in coordinator?.parent.typing = true }
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = KitType.title.nsFont
+        field.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.placeholderAttributedString = NSAttributedString(string: "New Subtask", attributes: [
+            .font: KitType.title.nsFont, .foregroundColor: Ink.secondaryTextNS,
+        ])
+        field.setAccessibilityLabel("New Subtask")
+        field.identifier = NSUserInterfaceItemIdentifier("new-subtask-field")
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: FocusField, context: Context) {
+        context.coordinator.parent = self
+        guard focus else { return }
+        DispatchQueue.main.async {
+            if model.newSubtaskFocus == id { model.newSubtaskFocus = nil }
+            field.window?.makeFirstResponder(field)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: NewSubtaskField
+        init(_ parent: NewSubtaskField) { self.parent = parent }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { parent.typing = true }
+        func controlTextDidEndEditing(_ notification: Notification) { parent.typing = false }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            let model = parent.model, id = parent.id
+            switch selector {
+            case #selector(NSResponder.insertNewline(_:)):
+                let text = control.stringValue.trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { return true }
+                if let added = model.addSubtask(to: id) { model.setTitle(added.id, text) }
+                control.stringValue = ""
+                return true
+            case #selector(NSResponder.moveUp(_:)):
+                OutlineCoordinator.scoped(id)?.selectLast()
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                model.closeModal()
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
+/// Blocked, in the task's properties: its reason in red with Unblock, or Block… to say it can't be done now.
+private struct BlockedProperty: View {
+    let id: Int
+    @Environment(AppModel.self) private var model
+    @State private var picking = false
+
+    var body: some View {
+        if let task = model.task(id) {
+            HStack(spacing: Space.sm) {
+                if task.blocked, task.status != .done {
+                    KitIcon.blocked.image.foregroundStyle(Ink.blockedText)
+                    Text(TaskCell.reason(model, id) ?? "Blocked, no reason").foregroundStyle(Ink.blockedText).lineLimit(2)
+                    Button("Unblock") { model.unblock(id) }.help("It can be done again (B on its card)")
+                } else {
+                    Text(task.status == .done ? "Done" : "No").foregroundStyle(.secondary)
+                    Button("Block…") { picking = true }
+                        .disabled(task.status == .done)
+                        .help("It can't be done now, with a reason or not (B on its card)")
+                        .popover(isPresented: $picking, arrowEdge: .bottom) { HoldPicker(task: id, kind: .block) { picking = false }.environment(model) }
+                }
+            }
+            .kitType(.callout)
+            .uiTestAnchor("blocked-property")
+        }
+    }
+}
+
+/// What a task waits on and what waits on it, in its window (2026-11-10): the tasks it's blocked by and comes after, each
+/// removable, with Blocked By… and After… to add one; the tasks it blocks and that come after it; the tasks linked to it.
+/// A click on a row opens that task.
+private struct TaskRelations: View {
+    let id: Int
+    @Environment(AppModel.self) private var model
+    @State private var picking: HoldPicker.Kind?
+
+    var body: some View {
+        let task = model.task(id)
+        let flow = model.taskFlow
+        let linked = model.outputs(ofTask: id).compactMap(\.taskID)
+        ModalBox {
+            section("Blocked by", task?.blockedBy ?? [], help: "It can't go on until these are done") { model.removeLink(id, .blockedBy, $0) }
+            add("Blocked By…", .blockedBy)
+            section("Comes after", task?.after ?? [], help: "The order you mean: nothing moves") { model.removeLink(id, .after, $0) }
+            add("After…", .after)
+            section("Blocks", flow.dependents(of: id, .blockedBy), help: "These can't go on until this one is done", remove: nil)
+            section("Comes before", flow.dependents(of: id, .after), help: "These come after this one", remove: nil)
+            section("Linked", linked, help: "Linked to this task") { model.unlink(.task($0), from: id) }
+        }
+        .popover(item: $picking, arrowEdge: .bottom) { kind in HoldPicker(task: id, kind: kind) { picking = nil }.environment(model) }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ ids: [Int], help: String, remove: ((Int) -> Void)?) -> some View {
+        if !ids.isEmpty {
+            Text(title).kitType(.groupLabel).foregroundStyle(.secondary)
+                .padding(.horizontal, Space.md).padding(.top, Space.sm)
+                .help(help)
+            ForEach(ids, id: \.self) { other in row(other, remove: remove) }
+        }
+    }
+
+    private func row(_ other: Int, remove: ((Int) -> Void)?) -> some View {
+        HStack(spacing: Space.sm) {
+            if let task = model.task(other) {
+                TaskGlyph(status: task.status)
+                KeyLabel(key: task.key)
+                Text(task.title.isEmpty ? "New task" : task.title)
+                    .foregroundStyle(task.status == .done ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if task.status == .done { Text("Done").kitType(.secondary).foregroundStyle(.secondary) }
+            } else {
+                Text("T-\(other), deleted").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let remove {
+                Button("Remove", icon: .close) { remove(other) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .clickable()
+                    .foregroundStyle(.tertiary)
+                    .frame(width: Metric.rowAction, height: Metric.rowAction)
+                    .help("Take this link off")
+            }
+        }
+        .kitType(.title)
+        .padding(.horizontal, Space.md)
+        .frame(height: Metric.boxRow)
+        .selectOpen(ModalRoute.task(other).selectionKey) { model.open(.task(other), push: true) }
+        .uiTestAnchor("relation:\(other)")
+    }
+
+    private func add(_ title: String, _ kind: HoldPicker.Kind) -> some View {
+        HStack(spacing: Space.sm) {
+            KitIcon.new.image.foregroundStyle(.tertiary).frame(width: Metric.glyphSlot).accessibilityHidden(true)
+            Button(title) { picking = kind }
+                .buttonStyle(.borderless)
+                .clickable()
+                .disabled(model.task(id)?.status == .done)
+                .uiTestAnchor("relation-add:\(title)")
+        }
+        .kitType(.title)
+        .padding(.horizontal, Space.md)
+        .frame(height: Metric.boxRow)
     }
 }
 
@@ -308,7 +493,10 @@ struct OutputRows: View {
         switch route {
         case .file(let id): "File · " + (model.file(id)?.modified.formatted(.relative(presentation: .named)) ?? "")
         case .artifact(let url): "Artifact · " + (model.artifacts.first { $0.id == url }?.published.formatted(.relative(presentation: .named)) ?? "")
-        case .github(let url): (model.githubItem(url)?.kind == .issue ? "Issue · " : "PR · ") + (model.githubItem(url)?.updatedAt.formatted(.relative(presentation: .named)) ?? "")
+        // A PR says where it stands, as on the task's card: "PR · Approved · 2 hours ago" (T-393).
+        case .github(let url): (model.githubItem(url)?.kind == .issue ? "Issue · " : "PR · ")
+            + (model.githubItem(url).flatMap(GitHubStateIcon.status).map { $0.word + " · " } ?? "")
+            + (model.githubItem(url)?.updatedAt.formatted(.relative(presentation: .named)) ?? "")
         case .web: "Link · opens in the browser"
         case .slack: "Slack · opens in Slack"
         default: ""

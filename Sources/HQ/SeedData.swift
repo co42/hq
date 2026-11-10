@@ -134,7 +134,10 @@ enum SeedData {
             TaskItem(id: row.id, title: row.title, status: row.status, type: row.type, project: row.project, tags: row.tags,
                      parent: row.parent, list: row.list, order: row.order, review: row.review, reviewBy: row.reviewBy,
                      reviewAt: row.review == nil ? nil : ago(row.id == 13 ? 25 : 3), done: row.status == .done ? ago(90) : nil,
-                     links: row.links.compactMap(URL.init(string:)), related: row.id == 14 ? [33] : [], sessions: row.sessions,
+                     links: row.links.compactMap(URL.init(string:)), related: row.id == 14 ? [33] : [],
+                     // Each kind of hold: a reason, a task blocked by another, one after another.
+                     blocked: row.id == 53, blockedReason: row.id == 53 ? "Waiting on the chunk API's next release" : nil,
+                     blockedBy: row.id == 7 ? [51] : [], after: row.id == 51 ? [50] : [], sessions: row.sessions,
                      created: ago(Double(3_000 - row.id * 20)), modified: ago(Double(row.id)), body: row.body)
         }
 
@@ -189,7 +192,7 @@ enum SeedData {
                    at: ago(270), readAt: ago(200)),
             Notice(kind: .session, level: .update, source: s7, text: "Notes for the weekly infra sync are in the vault", at: ago(95), readAt: ago(80)),
         ], bellSeenAt: ago(30))
-        model.collapsed = [13]
+        model.fold = [13: .important]
         model.shownDescriptions = [44]
     }
 

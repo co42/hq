@@ -23,6 +23,9 @@ enum KitIcon: String, CaseIterable {
     case search = "magnifyingglass"
     case closedSessions = "clock.arrow.circlepath"
     case disclosure = "chevron.right"
+    case disclosed = "chevron.down"
+    /// A task no session works on: the plain avatar in its face slot.
+    case noSession = "person.fill"
     // Section tiles
     case sessions = "sparkles"
     case files = "doc.on.doc.fill"
@@ -57,6 +60,10 @@ enum KitIcon: String, CaseIterable {
     case back = "chevron.backward"
     case reload = "arrow.clockwise"
     case unlink = "minus.circle.fill"
+    /// Blocked, and what a task is blocked by.
+    case blocked = "minus.circle"
+    /// One task after another.
+    case after = "arrow.down"
     case link = "link"
     case slack = "text.bubble"
     case copied = "checkmark"
@@ -125,3 +132,15 @@ extension ContentUnavailableView where Label == SwiftUI.Label<Text, Image>, Desc
     }
 }
 
+
+extension NSImage {
+    /// The symbol in a color, resolved for the appearance it draws in; only its own pixels take the color.
+    func tinted(_ color: NSColor) -> NSImage {
+        NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceIn)
+            return true
+        }
+    }
+}

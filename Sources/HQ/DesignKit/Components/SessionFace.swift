@@ -300,3 +300,29 @@ final class FaceStackView: NSView {
         }
     }
 }
+
+/// A task no session works on, in its face slot: a plain tile with a silhouette, quieter than any face (2026-11-10).
+final class NoSessionFace: NSView {
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        trackHandCursor()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// A click offers to start a session.
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let side = min(bounds.width, bounds.height)
+        let tile = NSRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        Ink.labelFillNS.setFill()
+        NSBezierPath(roundedRect: tile, xRadius: side * FaceArt.corner, yRadius: side * FaceArt.corner).fill()
+        guard let image = KitIcon.noSession.nsImage?.withSymbolConfiguration(.init(pointSize: side * 0.5, weight: .regular)) else { return }
+        let size = image.size
+        image.tinted(Ink.quietMarkNS).draw(in: NSRect(x: tile.midX - size.width / 2, y: tile.midY - size.height / 2, width: size.width, height: size.height),
+                                           from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+}

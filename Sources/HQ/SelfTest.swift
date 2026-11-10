@@ -762,6 +762,27 @@ enum SelfTest {
         check("Unlink removes the link from that task only",
               !model.outputs(ofTask: task.id).contains(.task(other.id)) && model.outputs(ofTask: other.id).contains(.task(task.id)))
         model.unlink(.task(task.id), from: other.id)
+        // Blocked, blocked by and after: in the note, through hq, read back as written.
+        let blocked = agent("task block", ["task": other.key, "reason": "Waiting on a decision"])
+        _ = agent("task link", ["task": task.key, "blocked-by": other.key])
+        let afterLinked = agent("task link", ["task": other.key, "after": task.key])
+        check("a link that would go in a circle is refused", (afterLinked["error"] as? JSONObject) != nil, "\(afterLinked)")
+        let note = model.task(task.id).flatMap(\.path).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
+        let blockedNote = model.task(other.id).flatMap(\.path).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
+        check("Blocked and blocked by go to the notes' front matter", (blocked["blocked"] as? Bool) == true
+              && blockedNote.contains("blocked: true") && blockedNote.contains("blocked_reason: Waiting on a decision")
+              && note.contains("blocked_by: [\(other.key)]"), note + blockedNote)
+        if let path = model.task(task.id)?.path, let read = Vault.task(at: URL(fileURLWithPath: path), modified: .now),
+           let path2 = model.task(other.id)?.path, let read2 = Vault.task(at: URL(fileURLWithPath: path2), modified: .now) {
+            check("the notes read back as written", read.blockedBy == [other.id] && read2.blocked && read2.blockedReason == "Waiting on a decision")
+        }
+        check("a task blocked by a Blocked one is held, and says so", model.taskFlow.state(task.id) == .blockedBy
+              && model.flowText(task.id) == "blocked by \(other.key)" && model.flowText(other.id) == "Blocked: Waiting on a decision")
+        model.setStatus(other.id, .done)
+        check("done lets both go: Blocked clears, the link holds nothing", model.task(other.id)?.blocked == false && model.taskFlow.state(task.id) != .blockedBy)
+        _ = agent("task unlink", ["task": task.key, "blocked-by": other.key])
+        check("task unlink --blocked-by takes the link off", model.task(task.id)?.blockedBy.isEmpty == true)
+        model.setStatus(other.id, .todo)
         if let old = model.addFile(title: "Older note"), let pinned = model.addFile(title: "Pinned note") {
             model.setFileLabels(pinned.id, project: .some("Registry"), tags: ["#perf", "perf"])
             model.setFileLabels(pinned.id, pinned: true)
@@ -806,9 +827,20 @@ enum SelfTest {
             check("task show carries its parents, subtasks and links", parents == [task.key] && subtasks == [leaf.key]
                   && linked == ["https://github.com/acme/registry/pull/9"], "\(shown)")
             let text = AgentCLI.human(shown)
-            check("and prints them", text.contains("\nPart of: \(task.key) [") && text.contains("Subtasks:\n  \(leaf.key) [")
+            check("and prints them", text.contains("\nPart of: \(task.key) [") && text.contains("Subtasks (") && text.contains("\n  \(leaf.key) [")
                   && text.contains("Linked:\n  ") && text.contains("pull/9"), text)
             model.deleteTasks([middle.id])
+        }
+        // A deleted task's id isn't given again while a file still names it: a new task inherits nothing.
+        if let gone = model.addTask(to: .overview, title: "Gone soon"), let file = model.addFile(title: "Notes on what went", task: gone.id) {
+            model.deleteTasks([gone.id])
+            let named = model.files.first { $0.id == file.id }?.tasks ?? []
+            let expected = model.nextTaskID
+            let next = model.addTask(to: .overview, title: "Comes after")
+            check("a new task never takes the id of a deleted one a file still names", next.map { $0.id != gone.id && model.outputs(ofTask: $0.id).isEmpty } == true,
+                  "gone \(gone.id), new \(String(describing: next?.id)), the file names \(named) (\(file.tasks)), next was \(expected), files \(model.files.count)")
+            if let next { model.deleteTasks([next.id]) }
+            model.deleteFile(file.id)
         }
         // Reviews: what nobody approved by default, reviewed ones included; what waits; or all.
         let github = model.github

@@ -40,6 +40,8 @@ enum KitType {
     case heading1, heading2, heading3
     /// A markdown table's header row: Callout 12 semibold.
     case tableHeader
+    /// A top-level task, heading its story: Title 3 15 bold.
+    case storyTitle
 
     /// The role's text style, weight and design; its size is the style's times View › Zoom.
     private var parts: (style: NSFont.TextStyle, weight: Font.Weight, design: Font.Design) {
@@ -61,6 +63,7 @@ enum KitType {
         case .pageTitle: (.title1, .semibold, .default)
         case .heading1: (.title2, .semibold, .default)
         case .tableHeader: (.callout, .semibold, .default)
+        case .storyTitle: (.title3, .bold, .default)
         }
     }
 
@@ -117,6 +120,7 @@ enum KitType {
         case .section, .heading2: return .systemFont(ofSize: Self.size(.title3), weight: .semibold)
         case .heading1: return .systemFont(ofSize: Self.size(.title2), weight: .semibold)
         case .heading3: return .systemFont(ofSize: body, weight: .bold)
+        case .storyTitle: return .systemFont(ofSize: Self.size(.title3), weight: .bold)
         default: return .systemFont(ofSize: body)
         }
     }

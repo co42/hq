@@ -35,23 +35,10 @@ extension NSView {
         } while held
     }
 
-    /// The pointing hand over a view AppKit makes, which HQ can't subclass (the outline's disclosure triangle): a tracking
-    /// area whose owner sets the hand.
-    func trackHandCursor(for owner: HandCursorOwner) {
-        guard !trackingAreas.contains(where: { $0.owner === owner }) else { return }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: owner))
-    }
-
     /// True when the view tracks the hand cursor.
     var tracksHandCursor: Bool {
-        trackingAreas.contains { $0.options.contains(.cursorUpdate) && ($0.owner === self || $0.owner is HandCursorOwner) }
+        trackingAreas.contains { $0.options.contains(.cursorUpdate) && $0.owner === self }
     }
-}
-
-/// Sets the pointing hand for the views it tracks.
-final class HandCursorOwner: NSResponder {
-    static let shared = HandCursorOwner()
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 }
 
 /// The system's button look with the pointing hand: the default style under every SwiftUI root HQ shows

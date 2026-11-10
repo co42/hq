@@ -224,6 +224,8 @@ nonisolated private struct Pie: Shape {
 /// The task glyph for AppKit rows: the same family, drawn with Core Graphics.
 class TaskGlyphView: NSView {
     var status = TaskStatus.todo { didSet { needsDisplay = true; setAccessibilityLabel(status.title) } }
+    /// Blocked shows over the status: a red disc with a bar; blocked by a task, a red ring with one.
+    var hold: TaskFlow.State? { didSet { if hold != oldValue { needsDisplay = true } } }
     /// White on a selected row.
     var onSelection = false { didSet { needsDisplay = true } }
 
@@ -276,6 +278,25 @@ class TaskGlyphView: NSView {
             ctx.fillPath()
         }
         ctx.setLineWidth(stroke)
+        if status != .done, hold == .blocked || hold == .blockedBy {
+            let bar = side * 0.24
+            if hold == .blocked {
+                ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                ctx.setFillColor(color(Ink.blockedNS))
+                ctx.fillEllipse(in: rect)
+                ctx.setBlendMode(.clear)
+            } else {
+                ctx.setStrokeColor(color(Ink.blockedNS))
+                ctx.strokeEllipse(in: ring)
+            }
+            ctx.setStrokeColor(color(Ink.blockedNS))
+            ctx.setLineCap(.round)
+            ctx.move(to: CGPoint(x: rect.midX - bar, y: rect.midY))
+            ctx.addLine(to: CGPoint(x: rect.midX + bar, y: rect.midY))
+            ctx.strokePath()
+            if hold == .blocked { ctx.endTransparencyLayer() }
+            return
+        }
         switch status {
         case .todo:
             ctx.setStrokeColor(color(.secondaryLabelColor))

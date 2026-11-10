@@ -82,7 +82,10 @@ nonisolated struct Vault: Sendable {
                         reviewBy: note.string("review_by"), reviewAt: note.string("review_at").flatMap(NoteDate.parse),
                         done: note.string("done").flatMap(NoteDate.parse),
                         links: note.list("links").compactMap(URL.init(string:)),
-                        related: note.list("related").compactMap(TaskItem.key).filter { $0 != number }, sessions: note.list("sessions"),
+                        related: note.list("related").compactMap(TaskItem.key).filter { $0 != number },
+                        blocked: note.string("blocked") == "true", blockedReason: note.string("blocked_reason").flatMap { $0.isEmpty ? nil : $0 },
+                        blockedBy: note.list("blocked_by").compactMap(TaskItem.key).filter { $0 != number },
+                        after: note.list("after").compactMap(TaskItem.key).filter { $0 != number }, sessions: note.list("sessions"),
                         created: note.string("created").flatMap(NoteDate.parse) ?? modified, modified: modified,
                         body: note.body.trimmingCharacters(in: .newlines), path: url.path)
     }
@@ -128,10 +131,19 @@ nonisolated struct Vault: Sendable {
         optional(&note, "done", task.status == .done ? task.done.map(NoteDate.minute) : nil)
         if !task.links.isEmpty || note.has("links") { note.set("links", list: task.links.map(\.absoluteString)) }
         if !task.related.isEmpty || note.has("related") { note.set("related", list: task.related.map { "T-\($0)" }) }
+        note.set("blocked", flag: task.blocked)
+        optional(&note, "blocked_reason", task.blocked ? task.blockedReason : nil)
+        keys(&note, "blocked_by", task.blockedBy)
+        keys(&note, "after", task.after)
         if !task.sessions.isEmpty || note.has("sessions") { note.set("sessions", list: task.sessions) }
         if !note.has("created") { note.set("created", Self.dayString(task.created)) }
         note.body = task.body.isEmpty ? "" : task.body + "\n"
         try write(note, to: URL(fileURLWithPath: path))
+    }
+
+    /// A list of task keys, set while it has one, removed when it's empty.
+    private func keys(_ note: inout FrontMatter, _ key: String, _ ids: [Int]) {
+        if !ids.isEmpty { note.set(key, list: ids.map { "T-\($0)" }) } else if note.has(key) { note.set(key, nil) }
     }
 
     /// A key set while it has a value, removed when it has none.
@@ -139,12 +151,13 @@ nonisolated struct Vault: Sendable {
         if let value, !value.isEmpty { note.set(key, value) } else if note.has(key) { note.set(key, nil) }
     }
 
-    /// A new task note, `T-<highest + 1>.md`.
+    /// A new task note, `T-<highest + 1>.md`, or the task's own id when higher: one a deleted task's links still name isn't
+    /// given again (2026-11-10).
     func create(_ task: TaskItem) throws -> TaskItem {
         try FileManager.default.createDirectory(at: tasksDirectory, withIntermediateDirectories: true)
         let numbers = Self.notes(in: tasksDirectory, recursive: false).compactMap { Int($0.deletingPathExtension().lastPathComponent.dropFirst(2)) }
         var item = task
-        item.id = (numbers.max() ?? 0) + 1
+        item.id = max((numbers.max() ?? 0) + 1, task.id)
         item.path = tasksDirectory.appending(path: "T-\(item.id).md").path
         try save(item)
         return item

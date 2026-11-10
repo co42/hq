@@ -84,6 +84,11 @@ list: overview          # overview | backlog (top-level tasks only)
 order: 3.5              # among siblings
 done: 2026-11-04T16:20  # when it was done
 links: [https://github.com/acme/registry/pull/418]
+related: [T-34]          # tasks linked to it: "see also"
+blocked: true            # Blocked: it can't be done now (T-372)
+blocked_reason: Waiting on the CPU decision   # optional
+blocked_by: [T-268]      # blocked until each is done
+after: [T-270]           # the order the user means; nothing moves for it
 sessions: [2f1c9e0a-…]
 created: 2026-11-03
 ---
@@ -93,6 +98,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 - `n` is the highest existing plus one. All other keys and the body keep their exact text.
 - `HQKit.TaskTree`: built from (parent, list, order); a missing parent or a cycle puts a task at the top level. Operations return the notes that change: insert after, insert first child, indent, outdent, move among siblings, move to a list, drop (on a row: last child; between rows: sibling at that index; on a list header: last top-level task), delete with the subtree. Never into its own subtree. Order is fractional: the midpoint between neighbors, the siblings renumbered when a gap falls under 1e-6.
 - **Migration** (once, then idempotent; `HQKit.TaskMigration` plans it, the app applies it after zipping `<vault>/hq/tasks` to `~/Library/Application Support/HQ/Backups/tasks-<date>.zip`): `status: backlog` → `todo` + `list: backlog`; `todo` → `list: backlog`; `doing`, `review` → `list: overview`; `done` → `list: backlog` with `done:` from the file's modification date. A missing type stays missing.
+- **Blocked, blocked by, after** (2026-11-10, T-372): `HQKit.TaskFlow` works out each task's state from the tree and these keys, never stored: done; Blocked; blocked by a task not done; doing; waiting (after a task not done); ready. A story's tally counts its leaves. A link to a task that's gone or done holds nothing; a link the tree already says (to a subtask) or that would go in a circle is refused. Marking a task done clears its Blocked. `hq task block`, `unblock`, `link --blocked-by | --after`; `task show` prints the tree with them.
 - **Nothing moves on its own** (2026-11-09, T-345): a task changes list or place only when the user moves it, or a session through `hq`. A done task stays where it is.
 - **Review** is no status (2026-11-06): a note whose front matter says `status: review` reads as doing. On the first vault scan each overview task still in Review gets an Updates row, "T-12 was in Review: <reason>", linked to it; its `review`, `review_by` and `review_at` keys go the next time HQ writes the note.
 

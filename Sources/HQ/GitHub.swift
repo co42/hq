@@ -18,9 +18,13 @@ final class GitHubService {
         didSet { model?.githubPolling = polling }
     }
     private var observers: [NSObjectProtocol] = []
-    /// Test runs and `HQ_GITHUB=fixtures`.
-    static var usesFixtures: Bool {
-        Store.isOverridden || ProcessInfo.processInfo.environment["HQ_GITHUB"] == "fixtures"
+    /// Test runs and `HQ_GITHUB=fixtures`. A preview asks GitHub, read-only, with `HQ_GITHUB=live` (tools/preview.sh): its
+    /// cache stays in its own store's folder.
+    static var usesFixtures: Bool { !asksGitHub }
+
+    static var asksGitHub: Bool {
+        let mode = ProcessInfo.processInfo.environment["HQ_GITHUB"]
+        return mode == "live" || (!Store.isOverridden && mode != "fixtures")
     }
 
     init(model: AppModel) {

@@ -95,6 +95,36 @@ struct BacklogFilter: Hashable {
     }
 }
 
+/// What a task shows of its subtasks: none, only the blocking and doing ones, or all (2026-11-10).
+enum FoldMode: String, CaseIterable {
+    case hidden, important, all
+
+    /// The modes as they open, fewest subtasks first.
+    static let opening: [FoldMode] = [.hidden, .important, .all]
+
+    /// Its name in the card's menu.
+    var title: String {
+        switch self {
+        case .hidden: "None"
+        case .important: "Only Blocking and Doing"
+        case .all: "All"
+        }
+    }
+
+    /// What the user chose, by task; the tasks folded before the three modes stay hidden.
+    static func remembered() -> [Int: FoldMode] {
+        let defaults = UserDefaults.standard
+        if let saved = defaults.dictionary(forKey: "outline.fold") as? [String: String] {
+            return Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in Int(key).flatMap { id in FoldMode(rawValue: value).map { (id, $0) } } })
+        }
+        return Dictionary(uniqueKeysWithValues: ((defaults.array(forKey: "outline.collapsed") as? [Int]) ?? []).map { ($0, .hidden) })
+    }
+
+    static func remember(_ fold: [Int: FoldMode]) {
+        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: fold.map { (String($0.key), $0.value.rawValue) }), forKey: "outline.fold")
+    }
+}
+
 /// A problem HQ shows in its banner (DESIGN.md §3).
 enum Problem: String, CaseIterable {
     case pluginMissing, ghosttyAccess, ghosttyUnreachable, githubSignedOut, githubMissing, githubFailing
@@ -265,9 +295,10 @@ final class AppModel {
     var descriptionEditorHeight: CGFloat = 0
     /// Where a double-click landed on rendered markdown, from its top-left: the next editor puts the caret there.
     @ObservationIgnored var editorCaret: CGPoint?
-    /// Folded tasks, remembered by key.
-    var collapsed: Set<Int> = Set((UserDefaults.standard.array(forKey: "outline.collapsed") as? [Int]) ?? []) {
-        didSet { if !Store.isOverridden { UserDefaults.standard.set(Array(collapsed), forKey: "outline.collapsed") } }
+    /// What each task shows of its subtasks, where the user chose, by key (2026-11-10). A task not in it shows them all,
+    /// but under a task that shows only some: it follows that one.
+    var fold: [Int: FoldMode] = FoldMode.remembered() {
+        didSet { if !Store.isOverridden { FoldMode.remember(fold) } }
     }
     /// Colors the user picked, by "tag:name" or "project:name" (lowercased); the others follow their name.
     var labelColors: [String: String] = (UserDefaults.standard.dictionary(forKey: "labels.colors") as? [String: String]) ?? [:] {
@@ -294,12 +325,18 @@ final class AppModel {
     var outlineKeyboard = OutlineKeyboard.none { didSet { syncMenu() } }
     /// New Task: the quick-add line of this list takes the keyboard.
     var quickAddFocus: TaskList?
+    /// ↓ on a task window's last subtask: that task's new subtask card takes the keyboard.
+    var newSubtaskFocus: Int?
     /// Where the outline puts the keyboard after its next update.
     var outlineFocus: OutlineFocus?
     /// A PR opened from a notification at its review or comment: the PR's URL and the page to load (T-328).
     var githubPage: (pr: String, page: String)?
     /// Link… on a task's row: the outline shows the link picker under it (T-298).
     @ObservationIgnored var showLinkPicker: (Int) -> Void = { _ in }
+    /// Block…, Blocked By… and After… on a task's row: the outline shows their picker under it.
+    @ObservationIgnored var showHoldPicker: (Int, HoldPicker.Kind) -> Void = { _, _ in }
+    /// Sets what tasks show of their subtasks, as the outline does it: the selection moves to a task that hid it.
+    @ObservationIgnored var foldTasks: ([Int], FoldMode) -> Void = { _, _ in }
     /// The section that takes the keyboard next: Tab and ⇧Tab.
     var sectionFocus: PageSection?
     /// A row of Pull Requests or Files and Artifacts that the keyboard selected: the page scrolls to it.
@@ -391,6 +428,7 @@ final class AppModel {
     /// The last search's tasks and their parents, by list, tasks' version and words.
     @ObservationIgnored var foundCache: [TaskList: (key: String, found: Set<Int>)] = [:]
     @ObservationIgnored var treeCache: (version: Int, tree: TaskTree)?
+    @ObservationIgnored var flowCache: (version: Int, flow: TaskFlow)?
     @ObservationIgnored var taskIndex: [Int: Int] = [:]
     /// Every task's outputs, by task.
     @ObservationIgnored var outputsCache: [Int: [ModalRoute]]?
@@ -407,6 +445,8 @@ final class AppModel {
     @ObservationIgnored var slackService: SlackService?
     /// The Slack links a test run would have opened.
     @ObservationIgnored var slackLog: [String] = []
+    /// Pages a test run would have opened in the browser.
+    @ObservationIgnored var browserLog: [String] = []
     /// How many times a test run asked HQ to restart.
     @ObservationIgnored var restarts = 0
     /// While Ghostty is in front: reads the terminal the user looks at, every few seconds.
@@ -433,7 +473,7 @@ final class AppModel {
             zoom = 1
             backlogOpen = false
             folded = []
-            collapsed = []
+            fold = [:]
             hideDone = []
             allDescriptions = []
             reviewFilter = .notApproved
@@ -501,6 +541,13 @@ final class AppModel {
             return
         }
         if case .slack(let url) = route { return openInSlack(url) }
+        // A PR or an issue HQ hasn't loaded from GitHub yet (a link just made, a preview's first poll) opens on GitHub:
+        // never a window that says it's gone. Test runs only log it.
+        if case .github(let url) = route, githubItem(url) == nil {
+            guard !Store.isOverridden || GitHubService.asksGitHub else { return browserLog.append(url) }
+            if let address = URL(string: url) { NSWorkspace.shared.open(address) }
+            return
+        }
         if case .github(let url) = route, githubPage?.pr == url {} else { githubPage = nil }
         showWindow()
         saveModalEdits()
@@ -651,6 +698,7 @@ final class MenuState: ObservableObject {
     @Published private(set) var hideDone: Set<TaskList> = []
     @Published private(set) var canEditFile = false
     @Published private(set) var taskDescriptionShown = false
+    @Published private(set) var taskBlocked = false
     /// What the Task menu acts on: the selected rows, or the one task.
     @Published private(set) var tasks: [Int] = []
     @Published private(set) var taskStatus: TaskStatus?
@@ -697,6 +745,7 @@ final class MenuState: ObservableObject {
         let file: Bool = if case .file = model.modal { model.editingFile == nil } else { false }
         set(\.canEditFile, file)
         set(\.taskDescriptionShown, task.map { model.descriptionShownInOutline($0.id) } ?? false)
+        set(\.taskBlocked, task?.blocked ?? false)
         let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []
         set(\.tasks, targets)
         set(\.tasksToBacklog, targets.contains { model.list(of: $0) != .backlog })

@@ -123,6 +123,14 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     var links: [URL] = []
     /// Tasks linked to it: they show under its row, not it under theirs.
     var related: [Int] = []
+    /// Blocked: it can't be done now; the user or a session sets it and clears it.
+    var blocked = false
+    /// Why it's blocked, when someone said.
+    var blockedReason: String?
+    /// Tasks it can't go on without: it's blocked until each is done.
+    var blockedBy: [Int] = []
+    /// Tasks it comes after: the order the user means. It never moves a task.
+    var after: [Int] = []
     var sessions: [String] = []
     var created: Date
     var modified: Date
@@ -139,13 +147,45 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
         title == other.title && status == other.status && type == other.type && project == other.project
             && tags == other.tags && parent == other.parent && list == other.list && order == other.order
             && review == other.review && reviewBy == other.reviewBy && reviewAt == other.reviewAt && done == other.done
-            && links == other.links && related == other.related && sessions == other.sessions && body == other.body
+            && links == other.links && related == other.related && blocked == other.blocked && blockedReason == other.blockedReason
+            && blockedBy == other.blockedBy && after == other.after && sessions == other.sessions && body == other.body
     }
 
     var node: TaskTree.Node { TaskTree.Node(id: id, parent: parent, list: list, order: order) }
 
     static func key(_ text: String) -> Int? {
         Int(text.trimmingCharacters(in: .whitespaces).uppercased().replacingOccurrences(of: "T-", with: ""))
+    }
+}
+
+extension TaskItem {
+    /// Reads tasks saved before Blocked and its links (`hq task history`): those keys default.
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        status = try c.decode(TaskStatus.self, forKey: .status)
+        type = try c.decodeIfPresent(TaskType.self, forKey: .type)
+        project = try c.decodeIfPresent(String.self, forKey: .project)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        parent = try c.decodeIfPresent(Int.self, forKey: .parent)
+        list = try c.decodeIfPresent(TaskList.self, forKey: .list) ?? .backlog
+        order = try c.decodeIfPresent(Double.self, forKey: .order) ?? 0
+        review = try c.decodeIfPresent(String.self, forKey: .review)
+        reviewBy = try c.decodeIfPresent(String.self, forKey: .reviewBy)
+        reviewAt = try c.decodeIfPresent(Date.self, forKey: .reviewAt)
+        done = try c.decodeIfPresent(Date.self, forKey: .done)
+        links = try c.decodeIfPresent([URL].self, forKey: .links) ?? []
+        related = try c.decodeIfPresent([Int].self, forKey: .related) ?? []
+        blocked = try c.decodeIfPresent(Bool.self, forKey: .blocked) ?? false
+        blockedReason = try c.decodeIfPresent(String.self, forKey: .blockedReason)
+        blockedBy = try c.decodeIfPresent([Int].self, forKey: .blockedBy) ?? []
+        after = try c.decodeIfPresent([Int].self, forKey: .after) ?? []
+        sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
+        created = try c.decode(Date.self, forKey: .created)
+        modified = try c.decode(Date.self, forKey: .modified)
+        body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
+        path = try c.decodeIfPresent(String.self, forKey: .path)
     }
 }
 

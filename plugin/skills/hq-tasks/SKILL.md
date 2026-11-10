@@ -42,13 +42,23 @@ Merged in #418; the canary runs since 14:00. Next: watch it until 14:30, then do
 
 - The first lines: the goal and why. **Done when**: a checklist; tick each item as it's done and verified. **Status**: a few lines you rewrite at each milestone (what's done, what's next, what blocks), not a history. **Decisions**: what was chosen and why, when it matters later. Leave out a section with nothing in it; keep what the user wrote.
 - Edit it whole with `hq task edit T-n --body -`, starting from its current text (`hq task show T-n --json | jq -r .body`): the user edits it too, so never write from a stale copy.
-- PRs, Slack messages, files, artifacts and other tasks go through `hq task link`: they show under the task's row, the description needn't list them.
+- PRs, Slack messages, files, artifacts and other tasks go through `hq task link`: they show on the task's card, the description needn't list them.
 
 ## Fields
 
 - **Status**: `todo`, `doing`, `done`. As a move target, `backlog` means todo, in the Backlog. There is no review status: what the user must check goes to `hq notify`.
 - **Project**: the product or area the work is for (HQ, Registry, Billing). HQ lets it be empty; you don't, when the work belongs to one. Pass `--project` when you create a task, and set it on any task you work on that has none. Reuse a project in use (`hq ls projects`); when none fits, create it by naming it: `--project "New Name"`, and give it its folder and repositories when you know them (`hq project edit`, see the `hq` skill). A tag that names a project (`#registry`) becomes the project: `--project Registry --remove-tag registry`.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`). Reuse the names already in use.
+
+## Blocked, blocked by, after
+
+A top-level task and the tree under it is a story: the task is its goal, its subtasks the work. Three more things show where a story stands, on the user's task list and in `hq task show`:
+
+- **Blocked**: the task can't be done now (a decision someone owes, an answer, a prod freeze). `hq task block T-n "…"`, the reason optional; it holds until `hq task unblock T-n`. When you can't go on, block the task with the reason and `hq notify` the user.
+- **Blocked by a task**: it can't go on until that task is done, then it lets go on its own. `hq task link T-n --blocked-by T-m`. For a hard wait only: a stacked PR, an API the client needs, a change that must ship first.
+- **After a task**: the order the user means to work in, a softer link. `hq task link T-n --after T-m`.
+
+Neither link moves a task: the order is the user's, or yours when they ask (`hq task edit --parent`). Before you pick up the next task, `hq task show` the story's top task: "ready" marks what nothing holds, and its Ready and Blocked lines say what can start and what holds the rest.
 
 `#word` in a title given to `hq task add` or `hq task edit --title` isn't kept as text: it sets the status it names (`#doing`), else the project it names (case, spaces and dashes ignored: `#machine-identities` → Machine Identities), else becomes a tag. `#418` stays text. Keep it when the user types one; otherwise use the flags.
 
@@ -57,7 +67,7 @@ Merged in #418; the canary runs since 14:00. Next: watch it until 14:30, then do
 ```
 hq ctx                                              # what this session works on, and the overview
 hq ls tasks [--overview|--backlog] [--all] [--project Registry] [--tag perf]
-hq task show T-12                                   # parents, description, subtasks, links; --json for every field
+hq task show T-12                                   # parents, description, the tree under it with what holds each task, links; --json for every field
 hq task add "Title" [--project p] [--tag a,b] [--body -]    # at the end of Tasks
 hq task add "Title" --backlog                        # the Backlog: only when the user says so
 hq task add "Title" --status doing                   # on Tasks, doing: you start it now
@@ -69,12 +79,14 @@ hq task edit T-12 [--title …] [--project p] [--add-tag t] [--remove-tag t]
 hq task edit T-12 --parent T-34                     # move it under T-34, as its last subtask; --parent none: top level
 hq task link T-12 <PR or issue URL | Slack message link | web page URL | T-34 | file | artifact URL | session id>
 hq task unlink T-12 <the same item>                 # a link made by mistake
+hq task block T-12 ["…"]                            # Blocked: it can't be done now; task unblock T-12 clears it
+hq task link T-12 --blocked-by T-34                 # blocked until T-34 is done; --after T-34: the order; task unlink takes either
 hq task delete T-12 --yes                           # only when the user asks; its subtasks go too (without --yes: what it would delete)
 hq task history T-12                                # what sessions changed in it through hq, the last 30 days
 hq task undo T-12 --yes                             # put back every task its latest change touched (without --yes: what it would)
 ```
 
-`--not-mine` on every command that changes a task (`task edit`, `move`, `delete`, `link`, `unlink`, and `add --parent` for its parent): for a task this session isn't on (see Rules). A title that starts with `--` goes after a bare `--`: `hq task add --project HQ -- "--flag is ignored"`.
+`--not-mine` on every command that changes a task (`task edit`, `move`, `delete`, `link`, `unlink`, `block`, `unblock`, and `add --parent` for its parent): for a task this session isn't on (see Rules). A title that starts with `--` goes after a bare `--`: `hq task add --project HQ -- "--flag is ignored"`.
 
 `--body -` reads stdin. A task you create, or move to doing, is linked to this session: its face shows on the task's row. Edits alone (title, description, project, tags) don't link it.
 
@@ -84,8 +96,9 @@ hq task undo T-12 --yes                             # put back every task its la
 - **Work is agreed or planned**: one task per piece of work the user would track (a feature, a fix, an investigation), with its project. Title: a short imperative ("Dedup layers on push"). Description: the goal and how you'll know it's done, in a few lines. Parts the user wants to see on their own become subtasks (`--parent`); steps they don't need stay in the description as a checklist (`- [ ] …`).
 - **New tasks go to Tasks**, at the end, todo (or `--status doing` when you start now). The Backlog only when the user says so: `--backlog`.
 - **Progress or a decision**: at milestones the user would want to read (not after every command), update the description: tick what's done, rewrite Status, add the decision. `--body` replaces it all, so start from `hq task show T-n --json | jq -r .body`.
-- **You make something**: link it to the task, so it shows under its row: the PR or issue you open or work from (`hq task link T-n <url>`), a related or follow-up task (`hq task link T-n T-m`). Files from `hq file new` link themselves.
-- **Blocked or waiting on the user**: say what's needed in the description, and `hq notify` (`--important` when you can't go on without them).
+- **You make something**: link it to the task, so it shows on its card: the PR or issue you open or work from (`hq task link T-n <url>`), a related or follow-up task (`hq task link T-n T-m`). Files from `hq file new` link themselves.
+- **A PR goes on the task it's for, only that one.** HQ doesn't link a session's PRs to its tasks on its own: the moment you open a PR (or start working from one), `hq task link` it to the subtask it delivers, not to the story above it or to every task you're on. Co reads where a task stands from its PR's status on its card (Draft, In review, Approved, Merged). A PR that delivers two tasks is linked to both.
+- **Blocked or waiting on the user**: `hq task block T-n "…"`, say what's needed in the description, and `hq notify` (`--important` when you can't go on without them). Unblock it once it moves again.
 - **The user says later**: `hq task move T-n backlog`. **Dropped**: say why in the description; the user deletes it, or asks you to (`hq task delete`).
 - **The user asks to note something to do**: `hq task add "…"` (on Tasks; `--backlog` when they say Backlog, or "later").
 

@@ -159,6 +159,47 @@ struct GitHubStateIcon: View {
         }
     }
 
+    /// Its state's color, for AppKit drawings.
+    static func nsColor(_ item: GitHubItem) -> NSColor {
+        switch item.state {
+        case .open: Ink.doneNS
+        case .draft: Ink.secondaryTextNS
+        case .merged: .systemPurple
+        case .closed: Ink.failedNS
+        }
+    }
+
+    /// Where a PR stands, in a word or two and its color, so a task's card says it (T-393): merged, closed, a draft,
+    /// checks failed, changes requested, approved, or in review. An issue only once closed.
+    static func status(_ item: GitHubItem) -> (word: String, color: NSColor)? {
+        switch item.state {
+        case .merged: return ("Merged", .systemPurple)
+        case .closed: return ("Closed", Ink.failedTextNS)
+        case .draft: return item.kind == .pullRequest ? ("Draft", Ink.secondaryTextNS) : nil
+        case .open:
+            guard item.kind == .pullRequest else { return nil }
+            if item.checks == .failed { return ("Checks failed", Ink.failedTextNS) }
+            switch item.review {
+            case .changesRequested: return ("Changes requested", Ink.failedTextNS)
+            case .approved: return ("Approved", Ink.textNS)
+            default: return ("In review", Ink.secondaryTextNS)
+            }
+        }
+    }
+
+    /// Its status as a symbol after its number on a task's card (2026-11-10): approved, changes requested or checks
+    /// failed, a draft. Merged and closed say it with their own icon; in review, nothing.
+    static func statusMark(_ item: GitHubItem) -> (icon: KitIcon, color: NSColor)? {
+        guard item.kind == .pullRequest else { return nil }
+        switch item.state {
+        case .merged, .closed: return nil
+        case .draft: return (.pending, Ink.secondaryTextNS)
+        case .open:
+            if item.checks == .failed || item.review == .changesRequested { return (.checkFailed, Ink.failedNS) }
+            return item.review == .approved ? (.checkPassed, Ink.doneNS) : nil
+        }
+    }
+
     static func label(_ item: GitHubItem) -> String {
         let kind = item.kind == .issue ? "Issue" : "Pull request"
         switch item.state {

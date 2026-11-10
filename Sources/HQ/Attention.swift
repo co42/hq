@@ -32,10 +32,11 @@ extension AppModel {
         outputsIndex[id] ?? []
     }
 
-    /// Files and artifacts the task made (newest first), its PRs and issues, the PRs its sessions opened, its linked tasks.
+    /// Files and artifacts the task made (newest first), its PRs and issues, its linked tasks. A PR shows on the task it's
+    /// linked to, by the session that works on it (`hq task link`): never on every task its session is on (T-393).
     private var outputsIndex: [Int: [ModalRoute]] {
         // Read what it depends on, so views that show it follow changes.
-        _ = (sessions.count, tasks.count, files.count, artifacts.count, github?.fetchedAt)
+        _ = (tasks.count, files.count, artifacts.count, github?.fetchedAt)
         if let outputsCache { return outputsCache }
         var index: [Int: [ModalRoute]] = [:]
         for file in files.sorted(by: { $0.modified > $1.modified }) {
@@ -44,23 +45,13 @@ extension AppModel {
         for artifact in artifacts.sorted(by: { $0.published > $1.published }) {
             for task in artifact.tasks { index[task, default: []].append(.artifact(artifact.id)) }
         }
-        // A PR a session on the task opened links itself.
-        var tasksOfSession: [String: [Int]] = [:]
-        for task in tasks { for session in task.sessions { tasksOfSession[session, default: []].append(task.id) } }
-        var opened: [Int: [String]] = [:]
-        for item in github?.items ?? [] where item.kind == .pullRequest {
-            for session in sessions where tasksOfSession[session.id] != nil
-                && (session.links.contains(item.url) || GitHubLinks.matches(item, branch: session.branch, origin: session.origin)) {
-                for task in tasksOfSession[session.id] ?? [] { opened[task, default: []].append(item.url) }
-            }
-        }
         var related: [Int: [Int]] = [:]
         for task in tasks {
             for other in task.related where other != task.id { related[task.id, default: []].append(other) }
         }
         for task in tasks {
             var urls = Set<String>()
-            let github = (task.links.map(\.absoluteString).filter(GitHubLinks.isItem) + (opened[task.id] ?? [])).filter { urls.insert($0).inserted }
+            let github = task.links.map(\.absoluteString).filter(GitHubLinks.isItem).filter { urls.insert($0).inserted }
             var ids = Set<Int>()
             let linked = (related[task.id] ?? []).filter { taskIndex[$0] != nil && ids.insert($0).inserted }
             // Any other web page linked by hand (T-299).

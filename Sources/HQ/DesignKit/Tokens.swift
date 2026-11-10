@@ -36,6 +36,11 @@ enum Ink {
     }
     static let failedText = Color(nsColor: failedTextNS)
     static let failedFill = Color(nsColor: .systemRed).opacity(0.11)
+    /// Blocked: it can't be done now. A task blocked by another shows the same red, as a ring.
+    static let blocked = Color(nsColor: .systemRed)
+    static let blockedNS = NSColor.systemRed
+    static let blockedTextNS = failedTextNS
+    static let blockedText = failedText
     /// Task in progress.
     static let doing = Color(nsColor: .systemYellow)
     static let doingNS = NSColor.systemYellow
@@ -75,9 +80,23 @@ enum Ink {
     static let surfaceNS = dynamic("surface", light: .white, dark: NSColor(srgbRed: 0.137, green: 0.137, blue: 0.149, alpha: 1),
                                    darkHigh: NSColor(srgbRed: 0.17, green: 0.17, blue: 0.18, alpha: 1))
     static let card = Color(nsColor: surfaceNS)
+    /// A done task's card: flat, behind the open ones.
+    static let doneCardNS = dynamic("doneCard", light: gray(1, 0.55), dark: NSColor(srgbRed: 0.137, green: 0.137, blue: 0.149, alpha: 0.5))
+    /// A block's tray: a task with subtasks, a shade under its cards.
+    static let trayNS = dynamic("tray", light: gray(0, 0.035), dark: gray(1, 0.035), lightHigh: gray(0, 0.08), darkHigh: gray(1, 0.09))
+    /// The line from a task to the one it blocks.
+    static let blockLineNS = dynamic("blockLine", light: gray(0.39), dark: gray(0.64))
+    /// A doing card's edge, and a Blocked one's.
+    static let doingRingNS = NSColor.systemYellow.withAlphaComponent(0.6)
+    static let blockedRingNS = NSColor.systemRed.withAlphaComponent(0.6)
     /// A card's edge: a hairline that is a highlight in dark mode.
     static let cardHairlineNS = dynamic("hairline", light: gray(0, 0.07), dark: gray(1, 0.08), lightHigh: gray(0, 0.32), darkHigh: gray(1, 0.36))
     static let cardHairline = Color(nsColor: cardHairlineNS)
+    /// The edge of the card a new task is typed in: dashed, a card not made yet (2026-11-10).
+    static let newCardLineNS = dynamic("newCardLine", light: gray(0, 0.2), dark: gray(1, 0.22), lightHigh: gray(0, 0.45), darkHigh: gray(1, 0.5))
+    static let newCardLine = Color(nsColor: newCardLineNS)
+    /// A card's control that is on: a task's description shown.
+    static let markOnNS = NSColor.controlAccentColor.withAlphaComponent(0.14)
     /// A line between rows in a card, inset from the text.
     static let rowRuleNS = dynamic("rowRule", light: gray(0, 0.06), dark: gray(1, 0.06), lightHigh: gray(0, 0.2), darkHigh: gray(1, 0.24))
     static let rowRule = Color(nsColor: rowRuleNS)
@@ -142,6 +161,16 @@ enum Ink {
     /// The section in view, in the section bar: a quiet capsule inside the glass.
     static let barSelection = Color(nsColor: dynamic("barSelection", light: NSColor(white: 0, alpha: 0.08), dark: NSColor(white: 1, alpha: 0.12)))
     static let rowSelectionInactiveNS = NSColor.unemphasizedSelectedContentBackgroundColor
+    /// A selected task card's tint, under its accent ring.
+    static let cardSelectionNS = NSColor.controlAccentColor.withAlphaComponent(0.06)
+    /// The card a dragged task would drop onto: its surface with a touch of the accent, opaque over the tray.
+    static let dropCardNS = NSColor(name: "dropCard") { appearance in
+        var color = surfaceNS
+        appearance.performAsCurrentDrawingAppearance { color = surfaceNS.usingColorSpace(.sRGB)?.blended(withFraction: 0.14, of: NSColor.controlAccentColor.usingColorSpace(.sRGB) ?? .systemBlue) ?? surfaceNS }
+        return color
+    }
+    /// The capsule of the tasks a task is blocked by.
+    static let blockedChipNS = NSColor.systemRed.withAlphaComponent(0.11)
     /// Where a dragged card lands.
     static let dropNS = NSColor.controlAccentColor
     /// A row a dragged task would drop onto.
@@ -226,6 +255,8 @@ nonisolated enum Metric {
     /// Faces.
     static var faceCard: CGFloat { 44 * Zoom.factor }
     static var faceRow: CGFloat { 22 * Zoom.factor }
+    /// A selected card's ring, as a session card's.
+    static var selectionRing: CGFloat { 2 * Zoom.factor }
     static var faceChip: CGFloat { 16 * Zoom.factor }
     /// A face in a menu: the menu bar icon's Focus items. Menus don't zoom.
     static let faceMenu: CGFloat = 16
@@ -240,19 +271,53 @@ nonisolated enum Metric {
     static var rowKey: CGFloat { 44 * Zoom.factor }
     /// Buttons, toggles, pop-ups and searches on the right of a section's title.
     static var headerControl: CGFloat { 28 * Zoom.factor }
-    /// The outline.
-    static var outlineRow: CGFloat { 32 * Zoom.factor }
+    /// The outline: a card's first line with its padding above and below.
+    static var outlineRow: CGFloat { 36 * Zoom.factor }
+    /// The outline's container column for faces: the face cell places itself at a card's end.
+    static var facesColumn: CGFloat { 22 * Zoom.factor }
+    /// A card's first line: the glyph, the key, the title and what's at its end.
+    static var cardLine: CGFloat { 20 * Zoom.factor }
+    /// A card's padding left and right of its content.
+    static var cardPadding: CGFloat { 12 * Zoom.factor }
+    /// A top-level task's big card: its padding all around.
+    static var bigCardPadding: CGFloat { 14 * Zoom.factor }
+    /// A big card's title line, under its first line.
+    static var bigTitleLine: CGFloat { 24 * Zoom.factor }
+    /// A subtask's card, in from its parent's (but a story's own subtasks).
+    static var subtaskIndent: CGFloat { 24 * Zoom.factor }
+    /// A story's tray: its padding around the big card and its subtasks.
+    static var storyTrayPadding: CGFloat { 10 * Zoom.factor }
+    /// A dragged task over a card's top or bottom edge, this deep, goes between cards; over the rest, onto the card.
+    static var dropEdge: CGFloat { 8 * Zoom.factor }
+    /// The fold chevron and the face at a card's end.
+    static var cardEndControl: CGFloat { 20 * Zoom.factor }
     /// A list's header row: its title line and 12 pt to its card.
     static var outlineHeader: CGFloat { 44 * Zoom.factor }
     /// Above the Backlog's header: the space between sections.
     static var backlogHeaderGap: CGFloat { 28 * Zoom.factor }
-    static var outlineIndent: CGFloat { 20 * Zoom.factor }
-    static var outlineQuick: CGFloat { 32 * Zoom.factor }
+    static var outlineQuick: CGFloat { 36 * Zoom.factor }
+    /// The dashes of the new task's card edge.
+    static var newCardDash: [CGFloat] { [4 * Zoom.factor, 3 * Zoom.factor] }
     static var outlineEmpty: CGFloat { 36 * Zoom.factor }
     /// Space above a top-level task after the first: groups read apart from their subtasks.
     static var outlineGroupGap: CGFloat { 12 * Zoom.factor }
     /// Space inside a list's card above its first task.
     static var listCardPadding: CGFloat { 8 * Zoom.factor }
+    /// A block's tray: its padding around its header and its subtasks.
+    static var trayPadding: CGFloat { 8 * Zoom.factor }
+    /// Between two task cards in the outline.
+    static var taskGap: CGFloat { 8 * Zoom.factor }
+    /// Between two top-level tasks: stories read apart.
+    static var storyGap: CGFloat { 24 * Zoom.factor }
+    /// A top-level task's progress line, under its title.
+    static var storyLine: CGFloat { 28 * Zoom.factor }
+    /// A top-level task's progress bar, and its height.
+    static var storyBar: CGFloat { 200 * Zoom.factor }
+    static var storyBarHeight: CGFloat { 6 * Zoom.factor }
+    /// A block's progress bar, on its header's line.
+    static var blockBar: CGFloat { 64 * Zoom.factor }
+    /// A Blocked task's reason, under its title.
+    static var reasonLine: CGFloat { 18 * Zoom.factor }
     /// The line of links under a task's title.
     static var linksLine: CGFloat { 20 * Zoom.factor }
     /// A hidden description's first line shows when this much room is left.
@@ -349,6 +414,12 @@ enum Motion {
     static let holdSeconds: TimeInterval = 0.7
     /// A status glyph that changed: a short spring, in seconds.
     static let popSeconds: TimeInterval = 0.34
+    /// How long the pointer rests before a tooltip shows, in milliseconds (AppKit's own is about a second).
+    static let tooltipMilliseconds = 100
+    /// Cards and trays sliding with the outline's rows as a task folds or unfolds, about AppKit's own.
+    static let rowsSeconds: TimeInterval = 0.25
+    /// What isn't related to the selected tasks fades to this (2026-11-10).
+    static let dimmedOpacity: CGFloat = 0.35
     /// "Copied" on what a click copied (Copy Link, a task's key), in seconds.
     static let copiedSeconds: TimeInterval = 1.5
 

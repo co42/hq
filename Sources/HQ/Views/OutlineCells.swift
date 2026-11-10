@@ -21,6 +21,8 @@ final class OutlineRowView: NSTableRowView {
             needsLayout = true
         }
     }
+    /// The task's card, in this row's coordinates: hover and selection fill it.
+    var card: NSRect? { didSet { if card != oldValue { needsDisplay = true } } }
     private(set) var hovered = false
 
     override init(frame: NSRect) {
@@ -46,9 +48,12 @@ final class OutlineRowView: NSTableRowView {
         fill(Ink.hoverFillNS)
     }
 
+    /// A selected card: a faint tint here, its accent ring on the card's own layer, whole (2026-11-10); gray while the rows
+    /// don't have the keyboard.
     override func drawSelection(in dirtyRect: NSRect) {
         let active = (window?.firstResponder as? NSView).map { $0.isDescendant(of: superview ?? self) } ?? false
-        fill(active ? Ink.rowSelectionNS : Ink.rowSelectionInactiveNS)
+        guard card != nil else { return fill(active ? Ink.rowSelectionNS : Ink.rowSelectionInactiveNS) }
+        fill(active ? Ink.cardSelectionNS : Ink.rowSelectionInactiveNS)
     }
 
     override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
@@ -57,6 +62,10 @@ final class OutlineRowView: NSTableRowView {
 
     private func fill(_ color: NSColor) {
         color.setFill()
+        if let card {
+            NSBezierPath(roundedRect: card, xRadius: Radius.row, yRadius: Radius.row).fill()
+            return
+        }
         var rect = bounds
         rect.origin.y += gap
         rect.size.height -= gap
@@ -67,17 +76,6 @@ final class OutlineRowView: NSTableRowView {
     override func layout() {
         super.layout()
         spanCells()
-        placeDisclosure()
-    }
-
-    /// The disclosure on the title's line, under the gap: AppKit leaves it where it was when a row's gap changes.
-    private func placeDisclosure() {
-        guard isTask, let button = subviews.first(where: { $0.identifier == NSOutlineView.disclosureButtonIdentifier }) else { return }
-        let line = Metric.outlineRow
-        let y = isFlipped ? gap : bounds.height - gap - line
-        if button.frame.minY != y || button.frame.height != line {
-            button.frame = NSRect(x: button.frame.minX, y: y, width: button.frame.width, height: line)
-        }
     }
 
     /// Text keeps its colors on a selected row.
@@ -170,55 +168,179 @@ final class GlyphButton: TaskGlyphView {
     }
 }
 
-/// A task's progress: a quiet ring that fills green as what's under it gets done, a green disc when all is.
-final class ProgressRingView: NSView {
-    /// Everything under the task, every level, by status.
-    private(set) var counts: [TaskStatus: Int] = [:]
-    var total: Int { counts.values.reduce(0, +) }
-    /// Something under it started or finished: an all-todo ring is only a grey track, and shows nothing.
-    var started: Bool { (counts[.done] ?? 0) + (counts[.doing] ?? 0) > 0 }
-    /// Clockwise from twelve, most finished first; todo is the track left over.
-    private static let segments: [(status: TaskStatus, word: String)] = [(.done, "done"), (.doing, "doing"), (.todo, "to do")]
+/// A block's progress, on its header's line or a folded task's: how many are blocked, a small bar of its subtasks by
+/// state, and how many are done (2026-11-10).
+final class BlockProgressView: NSView {
+    private(set) var tally = TaskFlow.Tally()
+    var started: Bool { tally.total > 0 }
 
     override var isFlipped: Bool { true }
 
-    func show(_ statuses: [TaskStatus]) {
-        let counts = Dictionary(statuses.map { ($0, 1) }, uniquingKeysWith: +)
-        guard counts != self.counts else { return }
-        self.counts = counts
-        toolTip = total == 0 ? nil : Self.segments.compactMap { part in counts[part.status].map { "\($0) \(part.word)" } }.joined(separator: ", ")
+    func show(_ tally: TaskFlow.Tally) {
+        guard tally != self.tally else { return }
+        self.tally = tally
+        toolTip = "\(tally.done) done, \(tally.doing) doing, \(tally.blocked) blocked, \(tally.ready + tally.waiting) to do"
         setAccessibilityLabel(toolTip)
         needsDisplay = true
     }
 
-    override func isAccessibilityElement() -> Bool { total > 0 }
-    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    private var blockedText: NSAttributedString? {
+        tally.blocked > 0 ? NSAttributedString(string: "\(tally.blocked) blocked", attributes: [.font: KitType.groupLabel.nsFont, .foregroundColor: Ink.blockedTextNS]) : nil
+    }
+
+    private var countText: NSAttributedString {
+        NSAttributedString(string: "\(tally.done)/\(tally.total)", attributes: [.font: KitType.meta.nsFont, .foregroundColor: Ink.secondaryTextNS])
+    }
+
+    /// Its parts' width, whole.
+    var naturalWidth: CGFloat {
+        let blocked = blockedText.map { ceil($0.size().width) + Space.sm } ?? 0
+        return blocked + Metric.blockBar + Space.sm + ceil(countText.size().width)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard total > 0, let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let side = Metric.glyph
-        let stroke = Metric.glyphStroke
-        let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        let ring = rect.insetBy(dx: stroke / 2, dy: stroke / 2)
-        if counts[.done] == total {
-            ctx.setFillColor(Ink.doneNS.cgColor)
-            ctx.fillEllipse(in: rect)
-            return
+        var x: CGFloat = 0
+        if let blocked = blockedText {
+            let size = blocked.size()
+            blocked.draw(at: NSPoint(x: x, y: (bounds.height - size.height) / 2))
+            x += ceil(size.width) + Space.sm
         }
-        ctx.setLineWidth(stroke)
-        ctx.setStrokeColor(Ink.quietMarkNS.cgColor)
-        ctx.strokeEllipse(in: ring)
-        // Flipped: angles turn clockwise, from twelve o'clock.
-        var start = -CGFloat.pi / 2
-        for (status, color) in [(TaskStatus.done, Ink.doneNS), (.doing, Ink.doingNS)] {
-            guard let count = counts[status], count > 0 else { continue }
-            let end = start + 2 * .pi * CGFloat(count) / CGFloat(total)
-            ctx.setStrokeColor(color.cgColor)
-            ctx.addArc(center: CGPoint(x: ring.midX, y: ring.midY), radius: ring.width / 2, startAngle: start, endAngle: end, clockwise: false)
-            ctx.strokePath()
-            start = end
+        let height = Space.xs
+        let bar = NSRect(x: x, y: (bounds.height - height) / 2, width: Metric.blockBar, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(roundedRect: bar, xRadius: height / 2, yRadius: height / 2).addClip()
+        Ink.labelFillNS.setFill()
+        bar.fill()
+        let total = CGFloat(max(tally.total, 1))
+        var segment = bar.minX
+        for (count, color) in [(tally.done, Ink.doneNS), (tally.doing, Ink.doingNS), (tally.blocked, Ink.blockedNS)] where count > 0 {
+            let width = bar.width * CGFloat(count) / total
+            color.setFill()
+            NSRect(x: segment, y: bar.minY, width: width, height: bar.height).fill()
+            segment += width
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        x += Metric.blockBar + Space.sm
+        let count = countText
+        count.draw(at: NSPoint(x: x, y: (bounds.height - count.size().height) / 2))
+    }
+
+    override func isAccessibilityElement() -> Bool { started }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The tasks a task is blocked by, still open: a red capsule each, "⊘ T-268", first at its card's end; three, then "+2"
+/// (2026-11-10). A click on one selects that task and brings it into view; on "+2", a menu of the others.
+final class BlockersView: NSView, NSViewToolTipOwner {
+    struct Chip: Equatable {
+        /// The blocking tasks it stands for: one, or the rest behind "+2".
+        var ids: [Int]
+        var text: String
+        var help: String
+    }
+
+    static let shown = 3
+    private(set) var chips: [Chip] = []
+    private var frames: [NSRect] = []
+
+    override var isFlipped: Bool { true }
+
+    /// The blocking tasks' keys, for the UI test: "T-268, T-269".
+    var keys: String { chips.flatMap(\.ids).map { "T-\($0)" }.joined(separator: ", ") }
+
+    func show(_ blockers: [(id: Int, title: String)]) {
+        var chips = blockers.prefix(blockers.count > Self.shown ? Self.shown - 1 : Self.shown).map { Chip(ids: [$0.id], text: "T-\($0.id)", help: "Blocked by T-\($0.id) \($0.title): click to show it") }
+        let rest = blockers.dropFirst(chips.count)
+        if !rest.isEmpty {
+            chips.append(Chip(ids: rest.map(\.id), text: "+\(rest.count)", help: "Also blocked by " + rest.map { "T-\($0.id) \($0.title)" }.joined(separator: ", ")))
+        }
+        guard chips != self.chips else { return }
+        self.chips = chips
+        needsDisplay = true
+        refreshHints()
+    }
+
+    private var font: NSFont { KitType.meta.nsFont }
+    private var markSide: CGFloat { Metric.glyphSlot - Space.xs }
+
+    private func width(_ chip: Chip) -> CGFloat {
+        let mark = chip.ids.count == 1 ? markSide + Space.xs : 0
+        return Space.sm + mark + ceil((chip.text as NSString).size(withAttributes: [.font: font]).width) + Space.sm
+    }
+
+    /// The chips' width, side by side.
+    var naturalWidth: CGFloat {
+        chips.isEmpty ? 0 : chips.map(width).reduce(0, +) + Space.xs * CGFloat(chips.count - 1)
+    }
+
+    private func layoutFrames() -> [NSRect] {
+        var x: CGFloat = 0
+        return chips.map { chip in
+            let width = width(chip)
+            defer { x += width + Space.xs }
+            return NSRect(x: x, y: 0, width: width, height: bounds.height)
         }
     }
+
+    /// The blocking tasks under a point in this view.
+    func ids(at point: NSPoint) -> [Int]? {
+        for (frame, chip) in zip(layoutFrames(), chips) where frame.contains(point) { return chip.ids }
+        return nil
+    }
+
+    /// The middle of the chip that stands for a task, in window coordinates, for the UI test.
+    func windowPoint(of id: Int) -> NSPoint? {
+        for (frame, chip) in zip(layoutFrames(), chips) where chip.ids.contains(id) { return convert(NSPoint(x: frame.midX, y: frame.midY), to: nil) }
+        return nil
+    }
+
+    /// The pointer over a window point: the hand over a chip.
+    func cursor(at windowPoint: NSPoint) -> NSCursor? {
+        let local = convert(windowPoint, from: nil)
+        return frames.contains { $0.contains(local) } ? .pointingHand : nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        for (frame, chip) in zip(layoutFrames(), chips) {
+            let capsule = NSBezierPath(roundedRect: frame, xRadius: frame.height / 2, yRadius: frame.height / 2)
+            Ink.blockedChipNS.setFill()
+            capsule.fill()
+            var x = frame.minX + Space.sm
+            if chip.ids.count == 1, let mark = KitIcon.blocked.nsImage(.mark, weight: .semibold) {
+                let rect = NSRect(x: x, y: frame.midY - markSide / 2, width: markSide, height: markSide)
+                mark.tinted(Ink.blockedTextNS).draw(in: rect)
+                x += markSide + Space.xs
+            }
+            let text = NSAttributedString(string: chip.text, attributes: [.font: font, .foregroundColor: Ink.blockedTextNS])
+            text.draw(at: NSPoint(x: x, y: frame.midY - text.size().height / 2))
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        refreshHints()
+    }
+
+    private func refreshHints() {
+        removeAllToolTips()
+        frames = layoutFrames()
+        for frame in frames { addToolTip(frame, owner: self, userData: nil) }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        for frame in frames { addCursorRect(frame, cursor: .pointingHand) }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        for (frame, chip) in zip(frames, chips) where frame.contains(point) { return chip.help }
+        return ""
+    }
+
+    override func isAccessibilityElement() -> Bool { !chips.isEmpty }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "Blocked by " + keys }
 }
 
 /// The project and tags after a title: colored chips, whole, as many as fit.
@@ -296,14 +418,8 @@ class LabelStripView: NSView {
             } else if let icon = label.icon {
                 let side = Metric.pillIcon
                 let iconRect = NSRect(x: textX, y: (bounds.height - side) / 2, width: side, height: side)
-                let color = label.color?.textNS ?? Ink.quietMarkNS
-                let tinted = NSImage(size: iconRect.size, flipped: false) { rect in
-                    icon.draw(in: rect)
-                    color.set()
-                    rect.fill(using: .sourceAtop)
-                    return true
-                }
-                tinted.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                icon.tinted(label.color?.textNS ?? Ink.quietMarkNS)
+                    .draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
                 textX += side + Space.xs + 1
             }
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Ink.secondaryTextNS]
@@ -422,44 +538,93 @@ final class KeyField: NSTextField {
     var help: String { "Click to copy \u{201C}\(copied)\u{201D}" }
 }
 
+/// A task's card (2026-11-10, T-372): its first line (the face's slot, the outline's; status glyph, key, reminder, title,
+/// project and tags, then at its end the tasks blocking it, its links, its block's progress and its fold chevron), then a
+/// Blocked reason, and its description when shown. A top-level task's big card has its title on a line of its own and its
+/// story's progress under it.
 final class TaskCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("task-cell")
-    /// Where the title and the description start: after the status glyph.
-    static var titleX: CGFloat { Metric.glyphSlot + Space.sm }
+    /// The face's slot at the line's start, every card's (2026-11-10).
+    static var faceSlot: CGFloat { Metric.faceRow + Space.sm }
+    /// Where the lines under the first start: after the face and the status glyph.
+    static var titleX: CGFloat { faceSlot + Metric.glyphSlot + Space.sm }
+
+    /// Where a card's first line sits, from the card's top.
+    static func lineTop(big: Bool) -> CGFloat { big ? Metric.bigCardPadding : (Metric.outlineRow - Metric.cardLine) / 2 }
+
+    /// What a card shows, top to bottom.
+    struct Stack: Equatable {
+        var big = false
+        var reason = false
+        var story = false
+
+        /// The card's height, its description left out.
+        var height: CGFloat {
+            var height = TaskCell.lineTop(big: big) * 2 + Metric.cardLine
+            if big { height += Space.xs + Metric.bigTitleLine }
+            if reason { height += Metric.reasonLine }
+            if story { height += Space.xs + Metric.storyLine }
+            return height
+        }
+
+        /// Where the description starts, under the rest.
+        var descriptionTop: CGFloat { height - TaskCell.lineTop(big: big) }
+    }
+
+    static func stack(_ model: AppModel, _ id: Int, big: Bool, description: Bool) -> Stack {
+        Stack(big: big, reason: reason(model, id) != nil,
+              story: big && showsStory(model, id))
+    }
+
+    /// A top-level task with subtasks: its story's progress shows under its title.
+    static func showsStory(_ model: AppModel, _ id: Int) -> Bool {
+        model.taskTree.parent(of: id) == nil && !model.taskTree.children(of: id).isEmpty
+    }
+
+    /// A Blocked task's reason, shown under its title.
+    static func reason(_ model: AppModel, _ id: Int) -> String? {
+        guard let task = model.task(id), task.blocked, task.status != .done,
+              let reason = task.blockedReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return nil }
+        return reason
+    }
+
     let glyph = GlyphButton()
     let title = TitleField()
-    /// The project after the title: a click picks it.
+    /// The project after the key on a big card, after the title on a subtask in another project: a click picks it.
     let project = ProjectButton()
     /// The tags, as colored chips.
     let labels = LabelStripView()
-    /// After the labels, the description's toggle: when the task has one, and under the pointer to write one.
-    let note = HandButton()
-    /// Everything under it, as a ring that fills as it gets done.
-    let progress = ProgressRingView()
-    /// A reminder that links the task, before its title (T-311).
+    /// A block's progress, or a folded task's, at its line's end.
+    let progress = BlockProgressView()
+    /// A reminder that links the task, after its key (T-311).
     let reminderMark = HandButton()
+    /// The fold chevron at the card's top right: all its subtasks, or only its blocked and doing ones (2026-11-10).
+    let fold = HandButton()
+    /// Beside the chevron: shows or hides the task's description in its card, on every card that has one (2026-11-10).
+    let note = HandButton()
     private var reminderNotice: Notice?
-    /// It has a description: the toggle shows at rest.
-    private var hasNote = false
-    /// Its row is selected: the key shows, as under the pointer.
-    private var selected: Bool { (superview as? NSTableRowView)?.isSelected ?? false }
     let key = KeyField(labelWithString: "")
-    private var actions: [NSButton] = []
+    /// The tasks it's blocked by, still open: "T-268, T-269", first at the line's end.
+    let blockers = BlockersView()
+    /// A Blocked task's reason, under its title.
+    let reason = NSTextField(labelWithString: "")
+    private let reasonMark = NSImageView()
+    /// A top-level task's progress, under its title.
+    private(set) var storyHost: NSHostingView<AnyView>?
     private(set) var descriptionHost: NSHostingView<AnyView>?
-    /// The task's PRs, files, artifacts and linked tasks, on one line under the title.
-    private(set) var linksHost: NSHostingView<AnyView>?
-    /// The hand over the links line's chips, tracked by AppKit over the hosted line.
-    private(set) var chipHand: HandRegionView?
-    private var shownLinks: (task: Int, routes: [ModalRoute], expanded: Bool)?
-    /// Whole titles in the links line (under the pointer or selected), for the UI test.
-    var linksExpanded: Bool? { shownLinks?.expanded }
-    private let chipFrames = ChipFrames()
-    private var hovered = false
+    /// The task's PRs, issues, files, artifacts, Slack messages and web pages, at the line's end.
+    let links = LinkTokensView()
     private var id: Int?
     private weak var coordinator: OutlineCoordinator?
     private weak var model: AppModel?
+    private(set) var stack = Stack()
     private var shownDescription = false
-    /// Space above the line: top-level tasks after the first in their list.
+    /// The card's end holds its chevron: the first line stops before it.
+    var expandable = false { didSet { if expandable != oldValue { needsLayout = true } } }
+    /// What it shows of its subtasks, and what a click on its chevron shows next.
+    var foldMode: FoldMode = .all
+    var foldNext: FoldMode = .all
+    /// Space above the card: from the one before, the trays that close and its own tray's padding.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
 
     override var isFlipped: Bool { true }
@@ -481,36 +646,35 @@ final class TaskCell: NSTableCellView {
         title.placeholderString = "New task"
         title.setAccessibilityLabel("Task title")
         textField = title
-        note.isBordered = false
-        note.image = KitIcon.description.nsImage(.mark, weight: .semibold)
-        note.contentTintColor = Ink.secondaryTextNS
-        note.target = self
-        note.action = #selector(toggleDescription)
         reminderMark.isBordered = false
         reminderMark.image = KitIcon.reminder.nsImage(.mark, weight: .semibold)
         reminderMark.target = self
         reminderMark.action = #selector(showReminder)
         reminderMark.isHidden = true
+        fold.isBordered = false
+        fold.target = self
+        fold.action = #selector(toggleFold)
+        fold.contentTintColor = Ink.secondaryTextNS
+        note.isBordered = false
+        note.target = self
+        note.action = #selector(toggleNote)
+        note.image = KitIcon.description.nsImage(.mark, weight: .semibold)
+        note.wantsLayer = true
+        note.layer?.cornerRadius = Radius.chip
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
-        key.alignment = .right
-        key.setAccessibilityLabel("Copy key and title")
-        for (icon, help, action) in [(KitIcon.new, "Add a subtask (⇧N)", #selector(addSubtask)),
-                                     (.reminder, "Remind me about the task…", #selector(remindMe)),
-                                     (.toBacklog, "Move to the Backlog (⇧⌘B)", #selector(toggleList)),
-                                     (.trash, "Delete the task (⌘⌫)", #selector(deleteTask))] {
-            let button = HandButton()
-            button.isBordered = false
-            button.image = icon.nsImage(.row, weight: .medium)
-            button.contentTintColor = Ink.secondaryTextNS
-            button.toolTip = help
-            button.setAccessibilityLabel(String(help.prefix { $0 != "(" }).trimmingCharacters(in: .whitespaces))
-            button.target = self
-            button.action = action
-            button.isHidden = true
-            actions.append(button)
+        key.setAccessibilityLabel("Copy the task's line")
+        // Always shown now: the hand from the start, not from when it showed.
+        key.trackHandCursor()
+        reason.font = KitType.secondary.nsFont
+        reason.textColor = Ink.blockedTextNS
+        reason.lineBreakMode = .byTruncatingTail
+        reasonMark.image = KitIcon.blocked.nsImage(.mark, weight: .semibold)
+        reasonMark.contentTintColor = Ink.blockedTextNS
+        reasonMark.imageScaling = .scaleProportionallyDown
+        for view in [glyph, key, reminderMark, fold, note, title, project, labels, blockers, links, progress, reasonMark, reason] as [NSView] {
+            addSubview(view)
         }
-        for view in [glyph, reminderMark, title, project, labels, note, progress, key] as [NSView] + actions { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -521,25 +685,49 @@ final class TaskCell: NSTableCellView {
         self.coordinator = coordinator
         let changed = self.id == id && glyph.status != task.status
         self.id = id
-        self.hovered = hovered
         title.task = id
         title.delegate = coordinator
-        let topLevel = task.parent == nil
-        title.font = topLevel ? KitType.titleStrong.nsFont : KitType.title.nsFont
+        let big = coordinator.isBig(id)
+        title.font = big ? KitType.storyTitle.nsFont : KitType.title.nsFont
         title.textColor = task.status == .done ? Ink.secondaryTextNS : Ink.textNS
         // A title being edited keeps what's typed.
         if title.currentEditor() == nil, title.stringValue != task.title { title.stringValue = task.title }
         glyph.status = task.status
+        let flow = model.taskFlow
+        let state = flow.state(id)
+        // The glyph is always the status (2026-11-10): Blocked shows as the red edge and its reason, blocked by as its chips.
+        glyph.hold = nil
+        let open = flow.openBlockers(id)
+        blockers.show(open.compactMap { other in model.task(other).map { (id: other, title: $0.title) } })
+        let because = Self.reason(model, id)
+        reason.stringValue = because ?? ""
+        reason.toolTip = because
+        shownDescription = coordinator.descriptionShown(id)
+        stack = Self.stack(model, id, big: big, description: shownDescription)
+        if stack.story {
+            let view = AnyView(StorySummary(id: id).environment(model))
+            if let storyHost { storyHost.rootView = view } else {
+                let host = NSHostingView(rootView: view)
+                host.sizingOptions = []
+                addSubview(host)
+                storyHost = host
+            }
+        } else if let storyHost {
+            storyHost.removeFromSuperview()
+            self.storyHost = nil
+        }
         if changed { glyph.pop() }
         glyph.onPick = { [weak model] status in model?.setStatus(id, status) }
         glyph.onNext = { [weak model] in model?.nextStatus([id]) }
-        glyph.toolTip = "\(task.status.title): click for the next status (⌘Return), ⌥-click to pick one"
-        project.show(task.project, color: task.project.map { model.labelColor(.project, $0) },
-                     inherited: task.project == nil && model.project(ofTask: id) != nil)
+        glyph.toolTip = (state == .blocked ? "Blocked, " : state == .blockedBy ? "Blocked by \(blockers.keys), " : "")
+            + "\(task.status.title): click for the next status (⌘Return), ⌥-click to pick one"
+        // The project on a big card; on a subtask only when it isn't its parent's: one mark per meaning.
+        let parent = model.taskTree.parent(of: id)
+        let own = task.project.flatMap { project in parent.map { model.project(ofTask: $0) != project } ?? true ? project : nil }
+        project.show(own, color: own.map { model.labelColor(.project, $0) }, inherited: false)
         project.projects = { [weak model] in model?.allProjects ?? [] }
         project.onPick = { [weak model] choice in model?.setProject(id, choice) }
         labels.labels = task.tags.map { LabelStripView.Label(text: $0, color: model.labelColor(.tag, $0), icon: LabelStripView.tagIcon) }
-        hasNote = !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         reminderNotice = model.reminder(for: .task(id))
         if let notice = reminderNotice {
             let mark = model.reminderMark(notice)
@@ -547,23 +735,38 @@ final class TaskCell: NSTableCellView {
             reminderMark.toolTip = mark.help
             reminderMark.setAccessibilityLabel(mark.help)
         }
-        if reminderMark.isHidden != (reminderNotice == nil) { reminderMark.isHidden = reminderNotice == nil; needsLayout = true }
-        showLinks(expanded: hovered || selected)
-        // Every level under it, done over all.
-        let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
-        progress.show(below.map(\.status))
+        reminderMark.isHidden = reminderNotice == nil
+        fold.isHidden = !expandable
+        let chevron: KitIcon = switch foldMode {
+        case .hidden: .disclosure
+        case .important: .filter
+        case .all: .disclosed
+        }
+        fold.image = chevron.nsImage(.mark, weight: .semibold)
+        let shows = switch foldMode {
+        case .hidden: "Subtasks hidden"
+        case .important: "Only blocking and doing subtasks"
+        case .all: "All subtasks"
+        }
+        let next = switch foldNext {
+        case .hidden: "hide them"
+        case .important: "show only blocking and doing ones"
+        case .all: "show all"
+        }
+        fold.toolTip = "\(shows): click to \(next) (← →)"
+        fold.setAccessibilityLabel(fold.toolTip ?? "")
+        note.isHidden = task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        note.contentTintColor = shownDescription ? Ink.accentNS : Ink.secondaryTextNS
+        note.layer?.backgroundColor = shownDescription ? Ink.markOnNS.cgColor : nil
+        note.toolTip = shownDescription ? "Hide the description (⇧Return)" : "Show the description (⇧Return)"
+        note.setAccessibilityLabel(note.toolTip ?? "")
+        links.show(LinkTokensView.tokens(model.outputs(ofTask: id).filter { $0.taskID == nil }, model: model))
+        // A block's progress, or a folded task's: every level under it.
+        progress.show(!big && !model.taskTree.children(of: id).isEmpty ? flow.tally(of: id) : TaskFlow.Tally())
         key.stringValue = task.key
         key.copied = model.line(of: .task(id))
-        let inBacklog = model.list(of: id) == .backlog
-        actions[2].image = (inBacklog ? KitIcon.toTasks : KitIcon.toBacklog).nsImage(.row)
-        actions[2].toolTip = inBacklog ? "Move to Tasks (⇧⌘B)" : "Move to the Backlog (⇧⌘B)"
-        actions[2].setAccessibilityLabel(inBacklog ? "Move to Tasks" : "Move to Backlog")
-        shownDescription = coordinator.descriptionShown(id)
-        note.contentTintColor = shownDescription ? Ink.accentNS : hasNote ? Ink.secondaryTextNS : Ink.quietMarkNS
-        note.toolTip = shownDescription ? "Hide the description (⇧Return)" : hasNote ? "Show the description (⇧Return)" : "Write a description (⇧Return)"
-        note.setAccessibilityLabel(shownDescription ? "Hide the description" : hasNote ? "Show the description" : "Write a description")
         if shownDescription {
-            let view = AnyView(DescriptionBlock(id: id).handCursors().environment(model))
+            let view = AnyView(DescriptionBlock(id: id, root: coordinator.root).handCursors().environment(model))
             if let descriptionHost { descriptionHost.rootView = view } else {
                 let host = NSHostingView(rootView: view)
                 host.sizingOptions = []
@@ -574,6 +777,7 @@ final class TaskCell: NSTableCellView {
             descriptionHost.removeFromSuperview()
             self.descriptionHost = nil
         }
+        let below = model.taskTree.subtree(of: id).filter { $0 != id }.compactMap { model.task($0) }
         var spoken = ["\(task.key) \(task.title)", task.status.title]
         if let project = task.project ?? model.project(ofTask: id) { spoken.append("project \(project)") }
         if !task.tags.isEmpty { spoken.append("tags " + task.tags.joined(separator: ", ")) }
@@ -582,7 +786,7 @@ final class TaskCell: NSTableCellView {
         needsLayout = true
     }
 
-    /// The hover actions, and the row's other commands, for VoiceOver.
+    /// The row's commands, for VoiceOver: what the menu has.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard let id, let model else { return nil }
         let actions: [(String, () -> Void)] = [
@@ -603,233 +807,403 @@ final class TaskCell: NSTableCellView {
         ceil((key.stringValue as NSString).size(withAttributes: [.font: key.font ?? KitType.key.nsFont]).width) + Space.xs
     }
 
-    func setHovered(_ value: Bool) {
-        hovered = value
-        needsLayout = true
+    /// Nothing shows or hides under the pointer (2026-11-10): the card reads the same.
+    func setHovered(_ value: Bool) {}
+
+    /// The links under a point in window coordinates, with their task.
+    func links(at point: NSPoint) -> (routes: [ModalRoute], task: Int)? {
+        guard let id, !links.isHidden else { return nil }
+        let local = links.convert(point, from: nil)
+        guard let routes = links.routes(at: local) else { return nil }
+        return (routes, id)
     }
 
-    /// The link chip under a point in window coordinates, with its task.
-    func link(at point: NSPoint) -> (route: ModalRoute, task: Int)? {
-        guard let linksHost, let id else { return nil }
-        let local = linksHost.convert(point, from: nil)
-        guard linksHost.bounds.contains(local), let route = chipFrames.route(at: local) else { return nil }
-        return (route, id)
+    /// The blocking tasks under a point in window coordinates: one chip's, or the rest behind "+2".
+    func blockers(at point: NSPoint) -> [Int]? {
+        guard !blockers.isHidden else { return nil }
+        return blockers.ids(at: blockers.convert(point, from: nil))
     }
 
-    /// The status glyph or the project under a click, in window coordinates.
+    /// The status glyph, the project or the key under a click, in window coordinates.
     func button(at point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         let hit = hitTest(superview.convert(point, from: nil))
-        return hit === glyph || hit === project || hit === key ? hit : nil
+        return hit === glyph || hit === project || hit === key || hit === fold || hit === note ? hit : nil
     }
+
+    /// The room the chevron and the description button take at the first line's end: both, on every card, so they line up (2026-11-10).
+    private var endReserve: CGFloat { 2 * Metric.cardEndControl + Space.xs + Space.sm }
 
     override func layout() {
         super.layout()
-        let line = Metric.outlineRow
         let slot = Metric.glyphSlot
-        // A gap above a top-level task sets the groups apart; the line sits under it.
-        let top = gap
-        let centered = top + (line - slot) / 2
-        glyph.frame = NSRect(x: 0, y: centered, width: slot, height: slot)
-        let titleX = Self.titleX
-        // A reminder's mark takes the title's start; the title, not the lines under it, moves over.
-        if !reminderMark.isHidden { reminderMark.frame = NSRect(x: titleX, y: centered, width: slot, height: slot) }
-        let textX = titleX + (reminderMark.isHidden ? 0 : slot + Space.xs)
-        var right = bounds.width - Space.xs
-        func place(_ view: NSView, width: CGFloat, height: CGFloat = Metric.chipHeight, visible: Bool = true) {
-            view.isHidden = !visible
-            guard visible else { return }
+        let big = stack.big
+        let top = gap + Self.lineTop(big: big)
+        let line = Metric.cardLine
+        func centered(_ height: CGFloat) -> CGFloat { top + (line - height) / 2 }
+        glyph.frame = NSRect(x: Self.faceSlot, y: centered(slot), width: slot, height: slot)
+        let keyHeight = ceil(key.intrinsicContentSize.height)
+        key.frame = NSRect(x: Self.titleX, y: centered(keyHeight), width: keyWidth, height: keyHeight)
+        var x = key.frame.maxX + Space.sm
+        if !reminderMark.isHidden {
+            reminderMark.frame = NSRect(x: x - Space.xs, y: centered(slot), width: slot, height: slot)
+            x += slot
+        }
+        if expandable { fold.frame = NSRect(x: bounds.width - Metric.cardEndControl, y: top, width: Metric.cardEndControl, height: line) }
+        let side = Metric.cardEndControl
+        if !note.isHidden { note.frame = NSRect(x: bounds.width - 2 * side - Space.xs, y: centered(side), width: side, height: side) }
+        // The line's end, right to left; what doesn't fit hides, the title truncating first.
+        var right = bounds.width - endReserve
+        let minimumTitle = big ? 0 : Metric.titleMinimum
+        func place(_ view: NSView, width: CGFloat, height: CGFloat) {
+            let fits = width > 0 && right - width - x >= minimumTitle
+            view.isHidden = !fits
+            guard fits else { return }
             right -= width
-            view.frame = NSRect(x: right, y: top + (line - height) / 2, width: width, height: height)
-            right -= Space.sm
+            view.frame = NSRect(x: right, y: centered(height), width: width, height: height)
+            right -= Space.md
         }
-        for button in actions.reversed() {
-            place(button, width: Metric.rowAction, height: Metric.rowAction, visible: hovered)
-            if hovered { right += Space.sm - 2 }
-        }
-        if hovered { right -= Space.xs }
-        // The key, and the empty slots that act, show under the pointer or on a selected row: at rest a row tells its story.
-        let active = hovered || selected
-        showLinks(expanded: active)
-        place(key, width: keyWidth, height: ceil(key.intrinsicContentSize.height), visible: active)
-        // What doesn't fit hides, the title truncating first: the progress ring, then labels, then the description mark.
-        let minimumTitle = Metric.titleMinimum
-        let progressWidth = progress.started ? Metric.glyphSlot : 0
-        let trailing = progressWidth > 0 ? progressWidth + Space.sm : 0
-        let showProgress = progressWidth > 0 && right - trailing - textX >= minimumTitle
-        place(progress, width: progressWidth, height: Metric.glyphSlot, visible: showProgress)
-        let available = max(right - textX, 40)
-        let projectWidth = project.project == nil && !active ? 0 : project.naturalWidth
+        place(progress, width: progress.started ? progress.naturalWidth : 0, height: line)
+        links.compact = right - links.width(compact: false) - x < minimumTitle
+        place(links, width: links.tokens.isEmpty ? 0 : links.width(compact: links.compact), height: line)
+        place(blockers, width: blockers.naturalWidth, height: Metric.chipHeight + 1)
+        let chipY = centered(Metric.chipHeight)
+        let projectWidth = project.project == nil ? 0 : project.naturalWidth
         let tagsWidth = labels.naturalWidth
-        let labelsWidth = projectWidth + tagsWidth + (projectWidth > 0 && tagsWidth > 0 ? Space.xs : 0)
-        let editing = title.currentEditor() != nil
-        let text = title.stringValue.isEmpty ? (title.placeholderString ?? "") : title.stringValue
-        let natural = ceil((text as NSString).size(withAttributes: [.font: title.font ?? KitType.title.nsFont]).width) + Space.sm
-        let roomForLabels = labelsWidth > 0 ? min(labelsWidth + Space.sm, max(available - minimumTitle, 0)) : 0
-        let titleWidth = editing ? min(max(natural, available - roomForLabels), available) : min(natural, available - roomForLabels)
-        let titleHeight = ceil(title.intrinsicContentSize.height)
-        title.frame = NSRect(x: textX, y: top + (line - titleHeight) / 2, width: max(titleWidth, 40), height: titleHeight)
-        var x = title.frame.maxX + Space.sm
-        let chipY = top + (line - Metric.chipHeight) / 2
-        project.isHidden = projectWidth == 0 || right - x < projectWidth
-        var tagsX = x
-        if !project.isHidden {
-            project.frame = NSRect(x: x, y: chipY, width: projectWidth, height: Metric.chipHeight)
-            x += projectWidth + Space.sm
-            tagsX = project.frame.maxX + Space.xs
+        if big {
+            // The big card: its project and tags after the key, its title on the line under.
+            project.isHidden = projectWidth == 0 || right - x < projectWidth
+            if !project.isHidden {
+                project.frame = NSRect(x: x, y: chipY, width: projectWidth, height: Metric.chipHeight)
+                x = project.frame.maxX + Space.xs
+            }
+            labels.isHidden = tagsWidth == 0 || right - x < labels.firstWidth
+            if !labels.isHidden { labels.frame = NSRect(x: x, y: chipY, width: min(tagsWidth, right - x), height: Metric.chipHeight) }
+            let titleHeight = ceil(title.intrinsicContentSize.height)
+            let titleTop = top + line + Space.xs
+            title.frame = NSRect(x: 0, y: titleTop + (Metric.bigTitleLine - titleHeight) / 2, width: bounds.width, height: titleHeight)
+        } else {
+            let available = max(right - x, 40)
+            let labelsWidth = projectWidth + tagsWidth + (projectWidth > 0 && tagsWidth > 0 ? Space.xs : 0)
+            let editing = title.currentEditor() != nil
+            let text = title.stringValue.isEmpty ? (title.placeholderString ?? "") : title.stringValue
+            let natural = ceil((text as NSString).size(withAttributes: [.font: title.font ?? KitType.title.nsFont]).width) + Space.sm
+            let roomForLabels = labelsWidth > 0 ? min(labelsWidth + Space.sm, max(available - minimumTitle, 0)) : 0
+            let titleWidth = editing ? min(max(natural, available - roomForLabels), available) : min(natural, available - roomForLabels)
+            let titleHeight = ceil(title.intrinsicContentSize.height)
+            title.frame = NSRect(x: x, y: centered(titleHeight), width: max(titleWidth, 40), height: titleHeight)
+            x = title.frame.maxX + Space.sm
+            project.isHidden = projectWidth == 0 || right - x < projectWidth
+            var tagsX = x
+            if !project.isHidden {
+                project.frame = NSRect(x: x, y: chipY, width: projectWidth, height: Metric.chipHeight)
+                tagsX = project.frame.maxX + Space.xs
+            }
+            labels.isHidden = tagsWidth == 0 || right - tagsX < labels.firstWidth
+            if !labels.isHidden { labels.frame = NSRect(x: tagsX, y: chipY, width: min(tagsWidth, right - tagsX), height: Metric.chipHeight) }
         }
-        labels.isHidden = tagsWidth == 0 || right - tagsX < labels.firstWidth
-        if !labels.isHidden {
-            labels.frame = NSRect(x: tagsX, y: chipY, width: min(tagsWidth, right - tagsX), height: Metric.chipHeight)
-            x = tagsX + labels.drawnWidth + Space.sm
+        // Under the first line (the big card's title): a Blocked reason, the story.
+        var below = top + line + (big ? Space.xs + Metric.bigTitleLine : 0)
+        let underX = big ? 0 : Self.titleX
+        reason.isHidden = !stack.reason
+        reasonMark.isHidden = reason.isHidden
+        if stack.reason {
+            let height = ceil(reason.intrinsicContentSize.height)
+            let mark = slot - Space.xs
+            reasonMark.frame = NSRect(x: underX, y: below + (Metric.reasonLine - mark) / 2, width: mark, height: mark)
+            reason.frame = NSRect(x: underX + mark + Space.xs, y: below + (Metric.reasonLine - height) / 2,
+                                  width: max(bounds.width - underX - mark - Space.xs, 0), height: height)
+            below += Metric.reasonLine
         }
-        note.isHidden = !(hasNote || shownDescription || hovered) || editing || right - x < Metric.rowAction
-        if !note.isHidden {
-            note.frame = NSRect(x: x - Space.xs, y: top + (line - Metric.rowAction) / 2, width: Metric.rowAction, height: Metric.rowAction)
-        }
-        var below = top + line
-        if let linksHost {
-            // A little closer to the title than a line of its own.
-            below -= Space.xs
-            linksHost.frame = NSRect(x: titleX, y: below, width: bounds.width - titleX - Space.xs, height: Metric.linksLine)
-            chipHand?.frame = linksHost.frame
-            below += Metric.linksLine
+        if let storyHost {
+            below += Space.xs
+            storyHost.frame = NSRect(x: 0, y: below, width: bounds.width, height: Metric.storyLine)
+            below += Metric.storyLine
         }
         if let descriptionHost {
-            descriptionHost.frame = NSRect(x: titleX, y: below, width: bounds.width - titleX, height: max(bounds.height - below, 0))
-        }
-    }
-
-    /// The links line: short chips at rest (T-34, #418, a file's first letters), whole titles under the pointer or on a
-    /// selected row (T-292). A new view only when the links or that change.
-    private func showLinks(expanded: Bool) {
-        guard let model, let id else { return }
-        let outputs = model.outputs(ofTask: id)
-        if outputs.isEmpty {
-            linksHost?.removeFromSuperview()
-            linksHost = nil
-            chipHand?.removeFromSuperview()
-            chipHand = nil
-            shownLinks = nil
-        } else if shownLinks?.task != id || shownLinks?.routes != outputs || shownLinks?.expanded != expanded || linksHost == nil {
-            shownLinks = (id, outputs, expanded)
-            chipFrames.frames = [:]
-            let view = AnyView(LinksLine(task: id, routes: outputs, expanded: expanded, frames: chipFrames).handCursors().environment(model))
-            if let linksHost { linksHost.rootView = view } else {
-                let host = NSHostingView(rootView: view)
-                host.sizingOptions = []
-                addSubview(host)
-                linksHost = host
-                let hand = HandRegionView { [chipFrames] point in chipFrames.route(at: point) != nil }
-                addSubview(hand, positioned: .above, relativeTo: host)
-                chipHand = hand
-            }
+            let start = gap + stack.descriptionTop
+            descriptionHost.frame = NSRect(x: underX, y: start, width: max(bounds.width - underX, 0),
+                                           height: max(bounds.height - start - Self.lineTop(big: big), 0))
         }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // The status glyph takes clicks over the line's height and the gap around it.
+        // The status glyph takes clicks over the line's height and the padding around it.
         let local = convert(point, from: superview)
-        let area = NSRect(x: glyph.frame.minX - Space.xs / 2, y: gap, width: glyph.frame.width + Space.xs, height: Metric.outlineRow)
+        let area = NSRect(x: glyph.frame.minX - Space.xs / 2, y: glyph.frame.midY - Metric.outlineRow / 2, width: glyph.frame.width + Space.xs, height: Metric.outlineRow)
         if area.contains(local) { return glyph }
-        // The empty part of the row drags it; the title selects on a click and edits on a double-click.
+        // The empty part of the card drags it; the title selects on a click and edits on a double-click.
         let hit = super.hitTest(point)
-        return hit === self ? nil : hit
+        return hit === self || hit === links || hit === blockers ? nil : hit
     }
 
-    @objc private func toggleDescription() { if let id { model?.toggleDescription(id) } }
+    @objc private func toggleFold() { if let id { coordinator?.stepFold(id) } }
+    /// Shows or hides the description, the task selected as the click on its card does.
+    @objc private func toggleNote() {
+        guard let id else { return }
+        coordinator?.select(id)
+        model?.toggleDescription(id)
+    }
     @objc private func showReminder() { if let reminderNotice { model?.showReminder(reminderNotice) } }
-    @objc private func addSubtask() {
+    private func addSubtask() {
         guard let id, let added = model?.addSubtask(to: id) else { return }
         coordinator?.beginEditing(added.id)
     }
-    @objc private func remindMe() { if let id { model?.beginReminder(about: .task(id)) } }
-    @objc private func toggleList() { if let id { model?.toggleList(id) } }
-    @objc private func deleteTask() { if let id { model?.deleteTasks([id]) } }
+}
+
+/// A task's links at its card's line end, in one family (2026-11-10): a PR or an issue its state's icon, its number and,
+/// for a PR, where it stands as a symbol (approved, changes requested, a draft); files, artifacts, Slack messages and web pages an icon
+/// each, with a count when several. Same size, same weight, secondary: only a PR's or an issue's state colors it.
+final class LinkTokensView: NSView, NSViewToolTipOwner {
+    struct Token: Equatable {
+        var routes: [ModalRoute]
+        var icon: KitIcon?
+        var tint: NSColor
+        var text: String
+        /// A PR's status as a symbol after its number, in its color (2026-11-10): dropped when the line is short.
+        var mark: KitIcon?
+        var markColor: NSColor?
+        var help: String
+    }
+
+    /// A PR or an issue each, two of them, then "+3"; then a token per kind.
+    static func tokens(_ routes: [ModalRoute], model: AppModel) -> [Token] {
+        var tokens: [Token] = []
+        let github = routes.filter { if case .github = $0 { true } else { false } }
+        for route in github.prefix(2) {
+            guard case .github(let url) = route else { continue }
+            let item = model.githubItem(url)
+            let status = item.flatMap(GitHubStateIcon.status)
+            let mark = item.flatMap(GitHubStateIcon.statusMark)
+            tokens.append(Token(routes: [route], icon: item.map(KitIcon.github) ?? .pullRequest,
+                                tint: item.map(GitHubStateIcon.nsColor) ?? Ink.secondaryTextNS, text: model.shortTitle(of: route),
+                                mark: mark?.icon, markColor: mark?.color,
+                                help: model.title(of: route) + (status.map { " · \($0.word)" } ?? "")))
+        }
+        if github.count > 2 {
+            let rest = Array(github.dropFirst(2))
+            tokens.append(Token(routes: rest, icon: nil, tint: Ink.secondaryTextNS, text: "+\(rest.count)",
+                                help: rest.map(model.title(of:)).joined(separator: "\n")))
+        }
+        let kinds: [(KitIcon, String, (ModalRoute) -> Bool)] = [
+            (.file, "File", { if case .file = $0 { true } else { false } }),
+            (.artifact, "Artifact", { if case .artifact = $0 { true } else { false } }),
+            (.slack, "Slack", { if case .slack = $0 { true } else { false } }),
+            (.link, "Web page", { if case .web = $0 { true } else { false } }),
+        ]
+        for (icon, kind, matches) in kinds {
+            let group = routes.filter(matches)
+            guard !group.isEmpty else { continue }
+            tokens.append(Token(routes: group, icon: icon, tint: Ink.secondaryTextNS, text: group.count > 1 ? "\(group.count)" : "",
+                                help: group.map { "\(kind): \(model.title(of: $0))" }.joined(separator: "\n")))
+        }
+        return tokens
+    }
+
+    private(set) var tokens: [Token] = []
+    /// Without the PRs' status: the line is short.
+    var compact = false { didSet { if compact != oldValue { needsDisplay = true; refreshHints() } } }
+    private var frames: [NSRect] = []
+
+    override var isFlipped: Bool { true }
+
+    func show(_ tokens: [Token]) {
+        guard tokens != self.tokens else { return }
+        self.tokens = tokens
+        needsDisplay = true
+        refreshHints()
+    }
+
+    private var font: NSFont { KitType.meta.nsFont }
+    private var iconSide: CGFloat { Metric.glyphSlot - Space.xs }
+
+    private func parts(_ token: Token, compact: Bool) -> (text: String, mark: KitIcon?) {
+        (token.text, compact ? nil : token.mark)
+    }
+
+    private func width(_ token: Token, compact: Bool) -> CGFloat {
+        let (text, mark) = parts(token, compact: compact)
+        var width: CGFloat = token.icon == nil ? 0 : iconSide
+        if !text.isEmpty { width += (token.icon == nil ? 0 : Space.xs - 1) + ceil((text as NSString).size(withAttributes: [.font: font]).width) }
+        if mark != nil { width += Space.xs - 1 + iconSide }
+        return width
+    }
+
+    /// The tokens' width, side by side.
+    func width(compact: Bool) -> CGFloat {
+        guard !tokens.isEmpty else { return 0 }
+        return tokens.map { width($0, compact: compact) }.reduce(0, +) + Space.md * CGFloat(tokens.count - 1)
+    }
+
+    private func layoutFrames() -> [NSRect] {
+        var x: CGFloat = 0
+        return tokens.map { token in
+            let width = width(token, compact: compact)
+            defer { x += width + Space.md }
+            return NSRect(x: x, y: 0, width: width, height: bounds.height)
+        }
+    }
+
+    /// The middle of the token that holds a link, in window coordinates, for the UI test.
+    func windowPoint(of route: ModalRoute) -> NSPoint? {
+        for (frame, token) in zip(layoutFrames(), tokens) where token.routes.contains(route) {
+            return convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
+        }
+        return nil
+    }
+
+    /// The pointer over a window point: the hand over a token, nothing of its own elsewhere.
+    func cursor(at windowPoint: NSPoint) -> NSCursor? {
+        let local = convert(windowPoint, from: nil)
+        return frames.contains { $0.contains(local) } && bounds.contains(local) ? .pointingHand : nil
+    }
+
+    /// The token's links under a point in this view.
+    func routes(at point: NSPoint) -> [ModalRoute]? {
+        for (frame, token) in zip(layoutFrames(), tokens) where frame.insetBy(dx: -Space.xs / 2, dy: 0).contains(point) { return token.routes }
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        for (frame, token) in zip(layoutFrames(), tokens) {
+            var x = frame.minX
+            if let icon = token.icon, let image = icon.nsImage(.row, weight: .medium) {
+                // The symbol's own proportions, centered in its slot, in its tint.
+                let scale = min(iconSide / max(image.size.width, 1), iconSide / max(image.size.height, 1), 1)
+                let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+                let rect = NSRect(x: x + (iconSide - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+                image.tinted(token.tint).draw(in: rect)
+                x += iconSide + Space.xs - 1
+            }
+            let (text, mark) = parts(token, compact: compact)
+            if !text.isEmpty {
+                let string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: Ink.secondaryTextNS])
+                let size = string.size()
+                string.draw(at: NSPoint(x: x, y: (bounds.height - size.height) / 2))
+                x += ceil(size.width) + Space.xs
+            }
+            if let mark, let image = mark.nsImage(.row, weight: .medium) {
+                let scale = min(iconSide / max(image.size.width, 1), iconSide / max(image.size.height, 1), 1)
+                let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+                let rect = NSRect(x: x - 1 + (iconSide - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
+                image.tinted(token.markColor ?? Ink.secondaryTextNS).draw(in: rect)
+            }
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        refreshHints()
+    }
+
+    /// A tooltip and the pointing hand over each token.
+    private func refreshHints() {
+        removeAllToolTips()
+        frames = layoutFrames()
+        for frame in frames { addToolTip(frame, owner: self, userData: nil) }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        for frame in frames { addCursorRect(frame, cursor: .pointingHand) }
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        for (frame, token) in zip(frames, tokens) where frame.contains(point) {
+            return token.help + (token.routes.count > 1 ? "\nClick to pick one" : "\nClick to open")
+        }
+        return ""
+    }
+
+    override func isAccessibilityElement() -> Bool { !tokens.isEmpty }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityLabel() -> String? { "Links: " + tokens.map(\.help).joined(separator: "; ") }
 }
 
 // MARK: Faces column
 
-/// Grip on hover, and the faces of the sessions on the task: a click on them starts a session.
+/// The face of the session that matters most on the task, in its slot at the card's left (2026-11-10): a subtask's only
+/// when it isn't its parent's, the slot blank then; a plain avatar when no session works on it. A click shows its
+/// session's menu, or offers to start one.
 final class FacesCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
-    private let grip = GripView()
     private let faces = FaceStackView()
+    let noSession = NoSessionFace()
+    private var start: () -> Void = {}
     /// The session whose face shows.
     var shownSession: String? { faces.faces.first?.session }
-    /// Space above the task's line.
+    /// Space above the task's card, and from its top to its first line.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
+    var lineTop: CGFloat = 0 { didSet { if lineTop != oldValue { needsLayout = true } } }
 
     override var isFlipped: Bool { true }
+
+    /// The sessions a task's face stands for, the one that matters most first; none when its parent shows the same face.
+    static func sessions(_ model: AppModel, _ id: Int) -> [SessionItem] {
+        let sessions = model.byImportance(model.sessions(on: id, includeEnded: true))
+        guard let first = sessions.first, let parent = model.taskTree.parent(of: id) else { return sessions }
+        return model.byImportance(model.sessions(on: parent, includeEnded: true)).first?.id == first.id ? [] : sessions
+    }
 
     init() {
         super.init(frame: .zero)
         identifier = Self.id
-        grip.isHidden = true
-        grip.toolTip = "Drag to move"
         // One face, the session that matters most: the tooltip names them all.
         faces.limit = OutlineCoordinator.faces
         faces.showsMore = false
         faces.clickable = true
-        for view in [grip, faces] as [NSView] { addSubview(view) }
+        addSubview(faces)
+        noSession.toolTip = "No session on this task: click to start one"
+        noSession.setAccessibilityLabel("No session")
+        noSession.isHidden = true
+        addSubview(noSession)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     func show(model: AppModel, id: Int) {
-        // One face: the session that matters most on the task itself, open or folded; the tooltip names them all.
-        let sessions = model.byImportance(model.sessions(on: id, includeEnded: true))
+        let sessions = Self.sessions(model, id)
         faces.faces = sessions.map { session in
             FaceStackView.Face(spec: session.face, badge: session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil,
                                label: "\(session.name), \(session.isRunning ? session.status.title.lowercased() : "ended")" + (session.status.isNew ? ", new" : ""),
                                working: session.isWorking, ended: !session.isRunning, session: session.id)
         }
-        onStart = { [weak model] in model?.beginStart(task: id) }
         onMenu = { [weak model] session, point, view in
             if let menu = model?.faceMenu(session, task: id) { FaceMenu.show(menu, session, point, view) }
         }
-        faces.toolTip = (faces.toolTip.map { $0 + "\n" } ?? "") + (sessions.isEmpty ? "Click to start a session (⌥⌘Return)"
-            : "Click a face for its session's menu")
+        faces.toolTip = sessions.isEmpty ? nil : (faces.toolTip.map { $0 + "\n" } ?? "") + "Click a face for its session's menu"
         let menuPoint = { [weak self] in self.map { NSPoint(x: $0.faces.frame.minX, y: $0.faces.frame.maxY + Space.xs) } ?? .zero }
         faces.press = { [weak self] in
-            guard let self else { return }
-            if let first = sessions.first { self.onMenu(first.id, menuPoint(), self) } else { self.onStart() }
+            guard let self, let first = sessions.first else { return }
+            self.onMenu(first.id, menuPoint(), self)
         }
         faces.faceActions = sessions.map { session in
             (name: "Menu for \(session.name)", run: { [weak self] in if let self { self.onMenu(session.id, menuPoint(), self) } })
-        } + [(name: "Start Session…", run: { [weak model] in model?.beginStart(task: id) })]
-        faces.isHidden = faces.faces.isEmpty && !hovered
+        }
+        faces.isHidden = faces.faces.isEmpty
+        noSession.isHidden = !model.sessions(on: id, includeEnded: true).isEmpty
+        start = { [weak model] in model?.beginStart(task: id) }
         needsLayout = true
     }
 
-    private var hovered = false
+    /// Nothing shows under the pointer (2026-11-10): Start Session… is in the menu.
+    func setHovered(_ value: Bool) {}
 
-    /// Under the pointer: the grip, and the dashed square that starts a session when nobody is on the task.
-    func setHovered(_ value: Bool) {
-        hovered = value
-        grip.isHidden = !value
-        faces.isHidden = faces.faces.isEmpty && !value
-    }
-
-    /// Start Session… for the task.
-    var onStart: () -> Void = {}
     /// A click on a face: its session's menu, at a point in this cell.
     var onMenu: (String, NSPoint, NSView) -> Void = { _, _, _ in }
 
     override func layout() {
         super.layout()
-        let line = Metric.outlineRow
-        grip.frame = NSRect(x: 0, y: gap + (line - Metric.glyphSlot) / 2, width: Space.md, height: Metric.glyphSlot)
-        // The faces sit against the task.
-        let facesX = bounds.width - Space.xs - faces.contentWidth
-        faces.frame = NSRect(x: facesX, y: gap, width: faces.contentWidth, height: line)
+        let side = Metric.faceRow
+        faces.frame = NSRect(x: 0, y: gap + lineTop + (Metric.cardLine - side) / 2, width: faces.contentWidth, height: side)
+        noSession.frame = NSRect(x: 0, y: faces.frame.minY, width: side, height: side)
     }
 
-    /// The faces start a session; the rest of the cell drags the row. The face stack takes the hit, so the
-    /// hand shows over it; its clicks go on to this cell.
+    /// The face takes the hit, so the hand shows over it; the rest of the cell drags the card.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        return faces.frame.insetBy(dx: -Space.xs, dy: 0).contains(local) ? faces : nil
+        if !noSession.isHidden, noSession.frame.contains(local) { return noSession }
+        return !faces.isHidden && faces.frame.insetBy(dx: -Space.xs, dy: 0).contains(local) ? faces : nil
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -837,48 +1211,42 @@ final class FacesCell: NSTableCellView {
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// The grip, on the title's line left of the faces: a press there moves the row; anywhere else on it, the task is
-    /// carried, to link (T-348, T-359).
-    func onGrip(_ windowPoint: NSPoint) -> Bool {
-        let local = convert(windowPoint, from: nil)
-        return local.x < faces.frame.minX - Space.xs && abs(local.y - grip.frame.midY) <= Metric.outlineRow / 2
-    }
-
-    /// A click on a face shows its session's menu at once; the empty square starts a session. False when the click misses.
+    /// A click on a face shows its session's menu at once. False when the click misses.
     func click(_ event: NSEvent) -> Bool {
         let local = convert(event.locationInWindow, from: nil)
-        guard faces.frame.insetBy(dx: -Space.xs, dy: 0).contains(local) else { return false }
-        if let session = faces.session(at: faces.convert(event.locationInWindow, from: nil)) {
-            onMenu(session, NSPoint(x: faces.frame.minX, y: faces.frame.maxY + Space.xs), self)
-        } else if faces.faces.isEmpty {
-            onStart()
+        if !noSession.isHidden, noSession.frame.contains(local) {
+            let menu = NSMenu()
+            let item = NSMenuItem(title: "Start Session…", action: #selector(startSession), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+            FaceMenu.show(menu, "no-session", NSPoint(x: noSession.frame.minX, y: noSession.frame.maxY + Space.xs), self)
+            return true
         }
+        guard !faces.isHidden, faces.frame.insetBy(dx: -Space.xs, dy: 0).contains(local),
+              let session = faces.session(at: faces.convert(event.locationInWindow, from: nil)) ?? faces.faces.first?.session else { return false }
+        onMenu(session, NSPoint(x: faces.frame.minX, y: faces.frame.maxY + Space.xs), self)
         return true
     }
 
-}
-
-/// Six dots: where to grab a row to move it, under the open hand.
-/// Six dots; its pointer is the outline's (`TaskOutlineView.pointGrip`).
-final class GripView: NSView {
-    override var isFlipped: Bool { true }
-
-    override func draw(_ dirtyRect: NSRect) {
-        Ink.quietMarkNS.setFill()
-        for row in 0..<3 {
-            for column in 0..<2 {
-                let x = bounds.midX - 2.5 + CGFloat(column) * 4
-                let y = bounds.midY - 4.5 + CGFloat(row) * 4
-                NSBezierPath(ovalIn: NSRect(x: x, y: y, width: 1.8, height: 1.8)).fill() // grid: ok drawn mark
-            }
-        }
-    }
+    @objc private func startSession() { start() }
 }
 
 // MARK: Quick add
 
+/// A field that says when it takes the keyboard: its delegate hears of an edit only from the first key typed.
+class FocusField: NSTextField {
+    var onFocus: () -> Void = {}
+
+    override func becomeFirstResponder() -> Bool {
+        let taken = super.becomeFirstResponder()
+        // Once its field editor has the keyboard.
+        if taken { DispatchQueue.main.async { [weak self] in self?.onFocus() } }
+        return taken
+    }
+}
+
 /// A quick-add field knows its list.
-final class QuickAddField: NSTextField {
+final class QuickAddField: FocusField {
     var list = TaskList.overview
 }
 
@@ -918,6 +1286,8 @@ final class QuickAddCell: NSTableCellView {
     func configure(list: TaskList, coordinator: OutlineCoordinator) {
         field.list = list
         field.delegate = coordinator
+        // Its card turns solid with the keyboard.
+        field.onFocus = { [weak coordinator] in coordinator?.keyboardChanged() }
         let placeholder = list == .overview ? "New Task" : "New Backlog Task"
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .font: KitType.title.nsFont, .foregroundColor: Ink.secondaryTextNS,
@@ -957,19 +1327,20 @@ final class QuickAddCell: NSTableCellView {
     override func layout() {
         super.layout()
         let slot = Metric.glyphSlot
-        // The last line of its list's card: the card's padding below it.
-        let line = bounds.height - Metric.listCardPadding
-        plus.frame = NSRect(x: 0, y: (line - slot) / 2, width: slot, height: slot)
+        // After the list's last card and the trays that close: the row's last line.
+        let line = Metric.outlineQuick
+        let top = bounds.height - line
+        plus.frame = NSRect(x: TaskCell.faceSlot, y: top + (line - slot) / 2, width: slot, height: slot)
         let height = ceil(field.intrinsicContentSize.height)
         let x = TaskCell.titleX
         var end = bounds.width - Space.xs
         if let chip {
             let size = chip.fittingSize
             let width = min(size.width, (bounds.width - x) / 2)
-            chip.frame = NSRect(x: end - width, y: (line - size.height) / 2, width: width, height: size.height)
+            chip.frame = NSRect(x: end - width, y: top + (line - size.height) / 2, width: width, height: size.height)
             end = chip.frame.minX - Space.sm
         }
-        field.frame = NSRect(x: x, y: (line - height) / 2, width: end - x, height: height)
+        field.frame = NSRect(x: x, y: top + (line - height) / 2, width: end - x, height: height)
     }
 }
 
@@ -1149,13 +1520,21 @@ struct FilterPicker<Choices: View>: View {
 /// A task's description under its row: rendered (a double-click edits it), or the editor; then its outputs as chips.
 struct DescriptionBlock: View {
     let id: Int
+    /// The task whose window its outline is in; nil on the page.
+    var root: Int?
+    /// Its outline is the one in front: the page behind a task's window shows the text while the window edits it.
+    private var editable: Bool {
+        if let root { return model.modal == .task(root) }
+        if case .task = model.modal { return false }
+        return true
+    }
     /// A long description shows its first lines only; the task's modal has it all.
     static let maxLines = 20
     @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            if model.editingDescription == id {
+            if editable, model.editingDescription == id {
                 InlineDescriptionEditor(id: id, body: model.task(id)?.body ?? "")
             } else if let task = model.task(id) {
                 let lines = task.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false)
@@ -1351,62 +1730,6 @@ struct LinkMenu: View {
             Button("Remove from HQ") { model.removeArtifact(url) }
         default:
             EmptyView()
-        }
-    }
-}
-
-/// A task's links under its title: small chips on one line, as many as fit, then "+n".
-struct LinksLine: View {
-    let task: Int
-    let routes: [ModalRoute]
-    /// Whole titles, under the pointer or on a selected row; short at rest.
-    var expanded = true
-    /// Where each chip sits, for the outline's right-click.
-    let frames: ChipFrames
-
-    var body: some View {
-        OneLineLayout(spacing: Space.sm) {
-            ForEach(routes, id: \.self) { route in
-                OutputChip(route: route, compact: true, short: !expanded, task: task)
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChipFrames.space)) } action: { frames.frames[route] = $0 }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .coordinateSpace(.named(ChipFrames.space))
-    }
-}
-
-/// The link chips' frames in their line, top-left origin like the line's flipped host.
-@MainActor
-final class ChipFrames {
-    nonisolated static let space = "links"
-    var frames: [ModalRoute: CGRect] = [:]
-
-    func route(at point: CGPoint) -> ModalRoute? { frames.first { $0.value.contains(point) }?.key }
-}
-
-/// Views left to right on one line; those that don't fit aren't shown.
-struct OneLineLayout: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
-        return CGSize(width: proposal.width ?? 0, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX
-        for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
-            // The first always shows, truncated if it must; the others only whole.
-            let width = x == bounds.minX ? min(size.width, bounds.width) : size.width
-            if x + width > bounds.maxX + 0.5 {
-                view.place(at: CGPoint(x: bounds.maxX + 10_000, y: bounds.minY), proposal: .zero)
-                x = bounds.maxX + 1
-                continue
-            }
-            view.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: width, height: size.height))
-            x += width + spacing
         }
     }
 }

@@ -33,6 +33,9 @@ retired=(
   '--type' 'nothing: tasks have no type (T-220)'
   'Copy Key and Title' 'Copy: the kind, key and title of an item (T-358)'
   'Read in place' 'a row moves at once (T-365)'
+  'its grip moves' 'a drag from anywhere on the card (T-372)'
+  'progress ring' 'a block'"'"'s small bar, a story'"'"'s progress line (T-372)'
+  'Quick Look' 'Space opens the task; its description button shows a description (T-372)'
 )
 
 SCHEMA=$schema RETIRED=${(pj:\t:)retired} perl -ne '

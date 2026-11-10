@@ -5,6 +5,8 @@ import Foundation
 enum Main {
     static func main() {
         if let code = AgentCLI.runIfRequested() { exit(code) }
+        // Tooltips come almost at once, everywhere (2026-11-10): set before AppKit reads it.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": Motion.tooltipMilliseconds])
         HQApp.main()
     }
 }
