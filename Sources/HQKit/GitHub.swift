@@ -139,7 +139,7 @@ public enum GitHubQuery {
     public static let linkedPerRequest = 20
 
     /// One poll's requests, sent together: review requests, the open PRs the user reviewed and their own open PRs,
-    /// each alone, then the linked URLs 20 at a time. All in one request, it outran GitHub's 10 s limit (T-41).
+    /// each alone, then the linked URLs 20 at a time.
     public static func queries(linked urls: [String]) -> [String] {
         let searches = [
             "viewer { login }\n  rateLimit { remaining resetAt }\n  review: search(query: \"is:pr is:open user-review-requested:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
@@ -195,7 +195,8 @@ public enum GitHubQuery {
         for node in ((body["reviewed"] as? [String: Any])?["nodes"] as? [Any]) ?? [] { add(node) }
         for node in ((body["mine"] as? [String: Any])?["nodes"] as? [Any]) ?? [] { add(node) }
         for index in urls.prefix(linkedLimit).indices { add(body["r\(index)"]) }
-        return GitHubSnapshot(viewer: viewer, items: items.values.sorted { $0.updatedAt > $1.updatedAt }, fetchedAt: now)
+        // Ties by URL: the same answer reads in the same order.
+        return GitHubSnapshot(viewer: viewer, items: items.values.sorted { ($0.updatedAt, $0.url) > ($1.updatedAt, $1.url) }, fetchedAt: now)
     }
 
     public enum ParseError: Error, Equatable {

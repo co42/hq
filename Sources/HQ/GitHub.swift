@@ -63,7 +63,7 @@ final class GitHubService {
 
     // MARK: Polling
 
-    /// Polls now, then every minute while HQ's window is on screen, in front or beside another app, and every five
+    /// Polls now, then every two minutes while HQ's window is on screen, in front or beside another app, and every five
     /// otherwise; slower after errors (T-366: the user keeps HQ beside Ghostty).
     func poll() {
         guard !Self.usesFixtures, searched, !polling else { return }
@@ -92,7 +92,7 @@ final class GitHubService {
     }
 
     private func schedule() {
-        let base: Double = onScreen ? 60 : 300
+        let base: Double = onScreen ? 120 : 300
         let delay = failures == 0 ? base : min(base * pow(2, Double(failures)), 1_800)
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))

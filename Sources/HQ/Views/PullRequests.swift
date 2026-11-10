@@ -67,7 +67,7 @@ struct PullRequestsSection: View {
                     .symbolEffect(.rotate, isActive: model.githubPolling)
             }
             .disabled(model.githubPolling)
-            .help("Refresh: ask GitHub now. \(PullRequestsSection.updated(fetched, now: model.now)); HQ asks every minute while it's in front")
+            .help("Refresh: ask GitHub now. \(PullRequestsSection.updated(fetched, now: model.now)); HQ asks every two minutes while it's on screen")
             .accessibilityLabel(model.githubPolling ? "Refreshing" : "Refresh")
         }
     }

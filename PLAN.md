@@ -114,7 +114,7 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 ### GitHub
 
-`gh auth token`, kept in memory, fetched again on a 401. A poll asks for PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the open PRs they reviewed, their own open PRs, and every PR or issue linked to a task, a session or an unread notification (`resource(url:)`, up to 60); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. GitHub stops a query at 10 s, and all of it in one ran past that (T-41, 2026-11-10). So a poll is several GraphQL queries sent together: each search alone, then the linked items 20 at a time. If one fails, the poll fails and keeps its last answer, and the log says why. Every 60 s while HQ's window is on screen (in front or not: the user keeps it beside Ghostty, T-366), 5 minutes otherwise; at once when it becomes active or comes back on screen after a minute; 5 s after a PR's page closes or sends a form (a review submitted); back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
+`gh auth token`, kept in memory, fetched again on a 401. A poll asks for PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the open PRs they reviewed, their own open PRs, and every PR or issue linked to a task, a session or an unread notification (`resource(url:)`, up to 60); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. GitHub stops a query at 10 s, and all of it in one ran past that (2026-11-10). So a poll is several GraphQL queries sent together: each search alone, then the linked items 20 at a time. If one fails, the poll fails and keeps its last answer, and the log says why. Every 2 minutes while HQ's window is on screen (in front or not: the user keeps it beside Ghostty, T-366; every 60 s until 2026-11-10, when a poll took GitHub several seconds of the 60 s of GraphQL time it allows a user each minute), 5 minutes otherwise; at once when it becomes active or comes back on screen after a minute; 5 s after a PR's page closes or sends a form (a review submitted); back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
 
 ### Slack
 
@@ -191,7 +191,7 @@ The cockpit was built in one go from the T-46 plan (2026-11-04). Since then HQ g
 - `hq hook` latency with the app binary as CLI. Over ~30 ms → a Foundation-only `hq-hook` target.
 - Ghostty ids across a Ghostty restart; `focus` when Ghostty is on another Space.
 - Gap feedback in a view-based `NSOutlineView` inside SwiftUI's scroll view: `.gap` is on and every drop lands right in the UI test, but the parting rows and the drop highlight need a look with a real drag (synthetic drags don't draw).
-- The rate limit of one aliased query a minute, over a working day.
+- GitHub's limits over a working day: a poll's few queries every 2 minutes, beside the user's sessions' own `gh` calls.
 
 ## 10. Risks
 
@@ -200,7 +200,7 @@ The cockpit was built in one go from the T-46 plan (2026-11-04). Since then HQ g
 | SwiftUI page plus AppKit outline and grid: scrolling and sizing | No inner scroll views; each reports its height; checked with `APP_SEED=large` |
 | Inline editing fights drag and selection | Drag starts outside the field editor; a click on the title edits |
 | The real vault migration | Backup first, idempotent planner, tested on a copy, only keys HQ owns |
-| GitHub rate limits or outages | One aliased query per poll, back-off, cached data, a quiet banner |
+| GitHub rate limits or outages | A few small queries every 2 minutes, back-off, cached data, a quiet banner |
 | Sessions started with the old plugin | Hook protocol unchanged; they keep reporting |
 | Transcript format is internal | Best effort; hooks are the source of live data |
 | iCloud vault: sync delays, conflict copies | FSEvents plus a rescan when HQ becomes active; `* 2.md` conflict copies never indexed twice |

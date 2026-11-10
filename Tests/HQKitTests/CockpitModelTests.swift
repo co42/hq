@@ -200,7 +200,6 @@ private func fixture() throws -> GitHubSnapshot {
     }
 }
 
-/// One request for the whole poll outran GitHub's 10 s limit and answered 502 (T-41).
 @Test func githubPollSplitsItsRequests() {
     let urls = (1...70).map { "https://github.com/a/b/pull/\($0)" }
     let queries = GitHubQuery.queries(linked: urls)
@@ -230,6 +229,15 @@ private func fixture() throws -> GitHubSnapshot {
     let split = try GitHubQuery.parse(answers, linked: GitHubFixture.linked, now: GitHubFixture.reference)
     let whole = try fixture()
     #expect(split.viewer == whole.viewer && split.items == whole.items && !split.items.isEmpty)
+}
+
+@Test func githubItemsUpdatedTogetherKeepOneOrder() throws {
+    let nodes = (1...6).map { n in
+        #"{"__typename":"PullRequest","url":"https://github.com/o/r/pull/\#(n)","number":\#(n),"title":"PR \#(n)","updatedAt":"2027-01-15T08:00:00Z"}"#
+    }
+    let json = #"{"data":{"viewer":{"login":"alex"},"mine":{"nodes":["# + nodes.joined(separator: ",") + "]}}}"
+    let snapshot = try GitHubQuery.parse([Data(json.utf8)], linked: [])
+    #expect(snapshot.items.map(\.number) == [6, 5, 4, 3, 2, 1])
 }
 
 @Test func githubLinkRules() throws {

@@ -10,7 +10,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 
 | Section | What it shows |
 |---|---|
-| **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every minute while its window is on screen, and again as you leave a PR's page |
+| **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every two minutes while its window is on screen, and again as you leave a PR's page |
 | **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab |
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app. A note or a description edits in place, looking as it reads: a double-click puts the caret where you clicked, lists continue on Return, ⌘B, ⌘I and ⌘K mark words, checkboxes tick on a click |
 | **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, its grip moves it; dragged from anywhere else it links where you drop it, or types its line in Ghostty ("Task T-12: Title", as Copy and ⌘C give for any item). Each task is a note in the vault, linked to its sessions, PRs, files, artifacts and Slack messages. New Task… (⌘N) adds one from a small sheet, with the Slack link you just copied |
