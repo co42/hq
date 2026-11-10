@@ -48,7 +48,7 @@ final class GitHubService {
 
     /// The fixture's poll, its dates moved to now (seed data and test runs).
     static func fixture(now: Date = .now) -> GitHubSnapshot? {
-        guard var snapshot = try? GitHubQuery.parse(GitHubFixture.poll, linked: GitHubFixture.linked, now: now) else { return nil }
+        guard var snapshot = try? GitHubQuery.parse([GitHubFixture.poll], linked: GitHubFixture.linked, now: now) else { return nil }
         let shift = now.timeIntervalSince(GitHubFixture.reference)
         snapshot.items = snapshot.items.map { item in
             var moved = item
@@ -119,28 +119,17 @@ final class GitHubService {
         }
         tokenFailures = 0
         let linked = linkedURLs()
-        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
-        request.httpMethod = "POST"
-        request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("HQ (macOS)", forHTTPHeaderField: "User-Agent")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["query": GitHubQuery.query(linked: linked)])
-        request.timeoutInterval = 20
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if status == 401 {
-                // A rotated token: ask gh once more next time.
-                self.token = nil
-                set(.githubSignedOut)
-                failures += 1
-                return false
+            // All or nothing: a missing answer would drop its PRs, or their review requests.
+            let answers = try await withThrowingTaskGroup(of: Data.self) { group in
+                for query in GitHubQuery.queries(linked: linked) {
+                    group.addTask { try await Self.post(query, token: token) }
+                }
+                var answers: [Data] = []
+                for try await answer in group { answers.append(answer) }
+                return answers
             }
-            guard status == 200 else {
-                failures += 1
-                if failures >= 3 { set(.githubFailing) }
-                return false
-            }
-            let snapshot = try GitHubQuery.parse(data, linked: linked)
+            let snapshot = try GitHubQuery.parse(answers, linked: linked)
             failures = 0
             let changed = snapshot.viewer != model.github?.viewer || snapshot.items != model.github?.items
             if changed {
@@ -151,11 +140,48 @@ final class GitHubService {
             model.githubAnswered = snapshot.fetchedAt
             set(nil)
             await fetchThreads(token: token)
+        } catch PollError.signedOut {
+            // A rotated token: ask gh once more next time.
+            self.token = nil
+            set(.githubSignedOut)
+            failures += 1
         } catch {
+            NSLog("HQ: GitHub poll failed: %@", String(describing: error))
             failures += 1
             if failures >= 3 { set(.githubFailing) }
         }
         return false
+    }
+
+    private enum PollError: Error, CustomStringConvertible {
+        case signedOut
+        /// Its status, and what GitHub said unless it's an HTML error page.
+        case status(Int, String)
+
+        var description: String {
+            switch self {
+            case .signedOut: "HTTP 401"
+            case let .status(code, said): said.isEmpty ? "HTTP \(code)" : "HTTP \(code): \(said)"
+            }
+        }
+    }
+
+    /// One of the poll's GraphQL requests: its answer when GitHub says 200.
+    nonisolated private static func post(_ query: String, token: String) async throws -> Data {
+        var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("HQ (macOS)", forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 { throw PollError.signedOut }
+        guard status == 200 else {
+            let text = String(decoding: data.prefix(200), as: UTF8.self)
+            throw PollError.status(status, text.hasPrefix("<") ? "" : text)
+        }
+        return data
     }
 
     /// Reviews, comments and failed checks on the user's PRs, and review requests, go to the notification center.

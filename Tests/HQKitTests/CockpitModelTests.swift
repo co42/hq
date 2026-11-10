@@ -128,7 +128,7 @@ func titleTags(_ text: String, _ title: String, _ tags: [String]) {
 // MARK: GitHub
 
 private func fixture() throws -> GitHubSnapshot {
-    try GitHubQuery.parse(GitHubFixture.poll, linked: GitHubFixture.linked, now: GitHubFixture.reference)
+    try GitHubQuery.parse([GitHubFixture.poll], linked: GitHubFixture.linked, now: GitHubFixture.reference)
 }
 
 @Test func githubReviewRequests() throws {
@@ -184,12 +184,52 @@ private func fixture() throws -> GitHubSnapshot {
 
 @Test func githubErrorsAndQuery() {
     #expect(throws: GitHubQuery.ParseError.github("Bad credentials")) {
-        try GitHubQuery.parse(Data(#"{"errors":[{"message":"Bad credentials"}]}"#.utf8), linked: [])
+        try GitHubQuery.parse([Data(#"{"errors":[{"message":"Bad credentials"}]}"#.utf8)], linked: [])
     }
-    let query = GitHubQuery.query(linked: ["https://github.com/a/b/pull/1"])
-    #expect(query.contains(#"r0: resource(url: "https://github.com/a/b/pull/1")"#) && query.contains("user-review-requested:@me"))
+    // A timed out query answers `"data": null`: GitHub's message, not "not JSON".
+    #expect(throws: GitHubQuery.ParseError.github("Timeout")) {
+        try GitHubQuery.parse([Data(#"{"data":null,"errors":[{"message":"Timeout"}]}"#.utf8)], linked: [])
+    }
+    let queries = GitHubQuery.queries(linked: ["https://github.com/a/b/pull/1"])
+    #expect(queries.contains { $0.contains(#"r0: resource(url: "https://github.com/a/b/pull/1")"#) })
+    #expect(queries.contains { $0.contains("user-review-requested:@me") })
     // GitHub refuses a fragment the query doesn't use.
-    #expect(!GitHubQuery.query(linked: []).contains("fragment issue") && query.contains("fragment issue"))
+    for query in queries {
+        #expect(query.contains("...issue") == query.contains("fragment issue"))
+        #expect(query.contains("...pr") == query.contains("fragment pr"))
+    }
+}
+
+/// One request for the whole poll outran GitHub's 10 s limit and answered 502 (T-41).
+@Test func githubPollSplitsItsRequests() {
+    let urls = (1...70).map { "https://github.com/a/b/pull/\($0)" }
+    let queries = GitHubQuery.queries(linked: urls)
+    #expect(queries.count == 3 + 3)
+    for query in queries {
+        let searches = query.components(separatedBy: "search(").count - 1
+        let resources = query.components(separatedBy: "resource(").count - 1
+        #expect(searches + resources > 0 && (searches == 0 || resources == 0))
+        #expect(searches <= 1 && resources <= GitHubQuery.linkedPerRequest)
+    }
+    // Every linked URL once, up to the limit, under the alias `parse` reads.
+    let all = queries.joined()
+    for (index, url) in urls.enumerated() {
+        #expect(all.contains("r\(index): resource(url: \"\(url)\")") == (index < GitHubQuery.linkedLimit))
+    }
+    #expect(GitHubQuery.queries(linked: []).count == 3)
+}
+
+@Test func githubSplitAnswersReadAsOne() throws {
+    let root = try #require(try JSONSerialization.jsonObject(with: GitHubFixture.poll) as? [String: Any])
+    let data = try #require(root["data"] as? [String: Any])
+    let pieces = [["viewer", "rateLimit", "review"], ["reviewed"], ["mine"], ["r1"], ["r0"]]
+    #expect(Set(pieces.joined()) == Set(data.keys))
+    let answers = try pieces.map { keys in
+        try JSONSerialization.data(withJSONObject: ["data": data.filter { keys.contains($0.key) }])
+    }
+    let split = try GitHubQuery.parse(answers, linked: GitHubFixture.linked, now: GitHubFixture.reference)
+    let whole = try fixture()
+    #expect(split.viewer == whole.viewer && split.items == whole.items && !split.items.isEmpty)
 }
 
 @Test func githubLinkRules() throws {

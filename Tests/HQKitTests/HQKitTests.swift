@@ -196,7 +196,7 @@ private func event(_ name: String, _ extra: String = "") -> HookEvent {
 }
 
 @Test func reviewedPullRequestsComeBack() throws {
-    #expect(GitHubQuery.query(linked: []).contains("reviewed-by:@me -author:@me"))
+    #expect(GitHubQuery.queries(linked: []).contains { $0.contains("reviewed-by:@me -author:@me") })
     let json = #"""
     {"data":{"viewer":{"login":"alex"},"review":{"nodes":[]},"mine":{"nodes":[]},
      "reviewed":{"nodes":[{"__typename":"PullRequest","url":"https://github.com/o/r/pull/7","number":7,"title":"Done by me",
@@ -205,7 +205,7 @@ private func event(_ name: String, _ extra: String = "") -> HookEvent {
        "latestReviews":{"nodes":[{"author":{"login":"alex"},"state":"APPROVED","submittedAt":"2027-01-15T09:00:00Z"}]},
        "commits":{"nodes":[{"commit":{"committedDate":"2027-01-15T07:00:00Z"}}]}}]}}}
     """#
-    let snapshot = try GitHubQuery.parse(Data(json.utf8), linked: [])
+    let snapshot = try GitHubQuery.parse([Data(json.utf8)], linked: [])
     let item = try #require(snapshot.items.first)
     #expect(item.reviewedByMe && !item.reviewRequested && !item.waitsForReview(markedReviewedAt: nil))
 }

@@ -26,7 +26,7 @@ Legend: ✅ verified on this Mac or in source · 🔍 to check during the build.
 | Vault | `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes`; hq's folder is `hq/` with `tasks/` and `files/`. Front matter read and written line by line (`HQKit.FrontMatter`), so other keys keep their text |
 | Claude plugin | `plugin/` in this repo, installed globally through a local marketplace: hooks and skills. `Bash(hq:*)` allowed in `~/.claude/settings.json` |
 | Ghostty | AppleScript in-process (`NSAppleScript`). Automation permission |
-| GitHub | GraphQL with the token from `gh auth token`, one aliased query per poll, read-only |
+| GitHub | GraphQL with the token from `gh auth token`, a few aliased queries per poll sent together, read-only |
 | Artifacts | claude.ai links captured from hooks, shown live in a web view with HQ's own claude.ai sign-in |
 | Signing | Apple Development certificate, installed to `/Applications/HQ.app` |
 | Notifications | Events go to a notification center, a sheet, and are read once; the page shows state only. macOS banners, the Dock badge and HQ's mark in the menu bar for what needs the user (2026-11-06) |
@@ -114,7 +114,7 @@ Files are notes under `<vault>/hq/files/` with `sessions:` and `tasks:` in their
 
 ### GitHub
 
-`gh auth token`, kept in memory, fetched again on a 401. One GraphQL query per poll: PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the user's open PRs, and every PR or issue linked to a task or session (`resource(url:)`); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. Every 60 s while HQ's window is on screen (in front or not: the user keeps it beside Ghostty, T-366), 5 minutes otherwise; at once when it becomes active or comes back on screen after a minute; 5 s after a PR's page closes or sends a form (a review submitted); back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
+`gh auth token`, kept in memory, fetched again on a 401. A poll asks for PRs that request the user's review directly (`user-review-requested:@me`, not team requests), the open PRs they reviewed, their own open PRs, and every PR or issue linked to a task, a session or an unread notification (`resource(url:)`, up to 60); with each PR, its last 5 comments and its reviews' text, each author with its type, to tell bots apart. GitHub stops a query at 10 s, and all of it in one ran past that (T-41, 2026-11-10). So a poll is several GraphQL queries sent together: each search alone, then the linked items 20 at a time. If one fails, the poll fails and keeps its last answer, and the log says why. Every 60 s while HQ's window is on screen (in front or not: the user keeps it beside Ghostty, T-366), 5 minutes otherwise; at once when it becomes active or comes back on screen after a minute; 5 s after a PR's page closes or sends a form (a review submitted); back off on errors and rate limits. PR ↔ session: a PR URL in the session's Bash output, or a PR whose head branch and repository match the session's. PR ↔ task: the task's `links`. Test runs use fixtures (`HQ_GITHUB=fixtures`).
 
 ### Slack
 

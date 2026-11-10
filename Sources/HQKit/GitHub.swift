@@ -131,22 +131,35 @@ public struct GitHubSnapshot: Sendable, Hashable, Codable {
     }
 }
 
-/// The GraphQL query and its answer.
+/// The GraphQL queries and their answers.
 public enum GitHubQuery {
-    /// One request per poll: review requests, the open PRs the user reviewed, their own open PRs, and every linked URL.
-    public static func query(linked urls: [String]) -> String {
-        let resources = urls.prefix(60).enumerated().map { index, url in
-            "  r\(index): resource(url: \(quoted(url))) { __typename ...pr ...issue }"
-        }.joined(separator: "\n")
-        return """
-        query {
-          viewer { login }
-          review: search(query: "is:pr is:open user-review-requested:@me archived:false", type: ISSUE, first: 30) { nodes { __typename ...pr } }
-          reviewed: search(query: "is:pr is:open reviewed-by:@me -author:@me archived:false", type: ISSUE, first: 30) { nodes { __typename ...pr } }
-          mine: search(query: "is:pr is:open author:@me archived:false", type: ISSUE, first: 30) { nodes { __typename ...pr } }
-          rateLimit { remaining resetAt }
-        \(resources)
+    /// Linked URLs one poll asks about.
+    public static let linkedLimit = 60
+    /// Linked URLs per request: 30 take GitHub about 4 s.
+    public static let linkedPerRequest = 20
+
+    /// One poll's requests, sent together: review requests, the open PRs the user reviewed and their own open PRs,
+    /// each alone, then the linked URLs 20 at a time. All in one request, it outran GitHub's 10 s limit (T-41).
+    public static func queries(linked urls: [String]) -> [String] {
+        let searches = [
+            "viewer { login }\n  rateLimit { remaining resetAt }\n  review: search(query: \"is:pr is:open user-review-requested:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
+            "reviewed: search(query: \"is:pr is:open reviewed-by:@me -author:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
+            "mine: search(query: \"is:pr is:open author:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
+        ].map { "query {\n  \($0)\n}\n\(prFragment)" }
+        let linked = Array(urls.prefix(linkedLimit).enumerated())
+        let batches = stride(from: 0, to: linked.count, by: linkedPerRequest).map { start in
+            let fields = linked[start..<min(start + linkedPerRequest, linked.count)].map { index, url in
+                "  r\(index): resource(url: \(quoted(url))) { __typename ...pr ...issue }"
+            }.joined(separator: "\n")
+            // GitHub refuses a fragment the query doesn't use: only these declare `issue`.
+            return "query {\n\(fields)\n}\n\(prFragment)\n\(issueFragment)"
         }
+        return searches + batches
+    }
+
+    static let issueFragment = "fragment issue on Issue { url number title state updatedAt body author { login } repository { nameWithOwner } }"
+
+    static let prFragment = """
         fragment pr on PullRequest {
           url number title isDraft state merged updatedAt body
           author { login } repository { nameWithOwner } headRefName reviewDecision
@@ -157,17 +170,19 @@ public enum GitHubQuery {
           commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 30) { nodes {
             __typename ... on CheckRun { name conclusion status } ... on StatusContext { context state } } } } } } }
         }
-        \(urls.isEmpty ? "" : "fragment issue on Issue { url number title state updatedAt body author { login } repository { nameWithOwner } }")
         """
-    }
 
-    /// The URLs the answer covered, in the order of `query(linked:)`.
-    public static func parse(_ data: Data, linked urls: [String], now: Date = .now) throws -> GitHubSnapshot {
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ParseError.notJSON }
-        if root["data"] == nil, let errors = root["errors"] as? [[String: Any]] {
-            throw ParseError.github(errors.compactMap { $0["message"] as? String }.joined(separator: "; "))
+    /// The answers to `queries(linked:)`, in any order, read as one: `urls` are the linked URLs they covered.
+    public static func parse(_ answers: [Data], linked urls: [String], now: Date = .now) throws -> GitHubSnapshot {
+        var body: [String: Any] = [:]
+        for data in answers {
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ParseError.notJSON }
+            guard let part = root["data"] as? [String: Any] else {
+                let errors = (root["errors"] as? [[String: Any]])?.compactMap { $0["message"] as? String } ?? []
+                throw errors.isEmpty ? ParseError.notJSON : ParseError.github(errors.joined(separator: "; "))
+            }
+            body.merge(part) { first, _ in first }
         }
-        guard let body = root["data"] as? [String: Any] else { throw ParseError.notJSON }
         let viewer = (body["viewer"] as? [String: Any])?["login"] as? String ?? ""
         var items: [String: GitHubItem] = [:]
         func add(_ node: Any?, requested: Bool = false) {
@@ -179,7 +194,7 @@ public enum GitHubQuery {
         for node in ((body["review"] as? [String: Any])?["nodes"] as? [Any]) ?? [] { add(node, requested: true) }
         for node in ((body["reviewed"] as? [String: Any])?["nodes"] as? [Any]) ?? [] { add(node) }
         for node in ((body["mine"] as? [String: Any])?["nodes"] as? [Any]) ?? [] { add(node) }
-        for index in urls.prefix(60).indices { add(body["r\(index)"]) }
+        for index in urls.prefix(linkedLimit).indices { add(body["r\(index)"]) }
         return GitHubSnapshot(viewer: viewer, items: items.values.sorted { $0.updatedAt > $1.updatedAt }, fetchedAt: now)
     }
 
