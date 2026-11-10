@@ -1,5 +1,13 @@
 # Release notes
 
+## v12.1 · 2026-11-10
+
+A fix for the markdown editor.
+
+**Fixes**
+- Editing a description or a note no longer moves its text. Each line keeps its place and height; only what the marks add moves anything (`##`, `**`, a list's `- [ ]`, a code block's fences, a line they make wrap).
+- In a task's window only the description's text turns into the editor: the card stays, outlined while you edit, and Done takes Edit's place. A note keeps its byline, labels and title while you edit it.
+
 ## v12 · 2026-11-09
 
 **Tasks**

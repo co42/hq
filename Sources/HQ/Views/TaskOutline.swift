@@ -1020,7 +1020,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let level = CGFloat(max(outline.level(forItem: node(.task(id))), 1))
         let available = width - facesWidth - level * outline.indentationPerLevel - TaskCell.titleX
         // Editing, the box grows with its text: never cached.
-        if editing { return line + model.descriptionEditorBox + Space.xl }
+        if editing { return line + model.descriptionEditorBox + Space.xs + Space.md }
         let height = DescriptionBlock.measure(model: model, id: id, width: max(available, Metric.titleMinimum))
         heights[id] = (key, height)
         return line + height
@@ -1614,6 +1614,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         }
     }
 
+    /// The mouse button is down: the system's, which a UI test sets so the user's own clicks beside it don't count.
+    static var buttonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+
     /// A drag whose end never comes (its source gone) holds the rows until the button has been up 3 s.
     private func holdUntilDragEnds() {
         guard dragWatch == nil else { return }
@@ -1621,7 +1624,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             var upSince: Date?
             while let self, !self.dragged.isEmpty {
                 try? await Task.sleep(for: .milliseconds(250))
-                guard NSEvent.pressedMouseButtons & 1 == 0 else { upSince = nil; continue }
+                guard !Self.buttonDown() else { upSince = nil; continue }
                 let since = upSince ?? .now
                 upSince = since
                 if Date.now.timeIntervalSince(since) >= 3 {

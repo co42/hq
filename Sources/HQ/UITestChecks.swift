@@ -768,6 +768,8 @@ extension UITest {
         }
         // Rows hold still until AppKit ends a drag, also once the button is up: a drop elsewhere changes the model before the
         // drag's end, and AppKit then closes its drop gap on the rows it had (T-353, a crash).
+        // The button as the test says, never the user's own mouse beside the run.
+        OutlineCoordinator.buttonDown = { false }
         let rowsBefore = outline.numberOfRows
         coordinator.dragBegan([plain.id])
         let added = model.addTask(to: .overview, title: "Added mid-drag")
@@ -784,6 +786,7 @@ extension UITest {
             check("a drag that never ends holds the rows 3 s, no more", coordinator.dragged.isEmpty && outline.row(forItem: coordinator.node(.task(late.id))) >= 0)
             model.deleteTasks([late.id])
         }
+        OutlineCoordinator.buttonDown = { NSEvent.pressedMouseButtons & 1 != 0 }
         if let added { model.deleteTasks([added.id]) }
         await endUndoGroup(model)
         await ui.settle(0.4)
@@ -812,7 +815,10 @@ extension UITest {
         await ui.settle(0.3)
         // A reminder that links the task: its mark before the title, the title after it (T-311).
         let reminder = model.remind("Look at it again", at: .now.addingTimeInterval(3600), level: .important, links: [ModalRoute.task(plain.id).selectionKey])
-        await ui.settle(0.5)
+        await ui.until(3) {
+            let index = outline.row(forItem: coordinator.node(.task(plain.id)))
+            return index >= 0 && (outline.view(atColumn: 1, row: index, makeIfNecessary: false) as? TaskCell)?.reminderMark.isHidden == false
+        }
         if let listed = await row(plain.id) {
             let mark = listed.cell.reminderMark
             check("a reminder that links a task shows before its title", !mark.isHidden && listed.cell.title.frame.minX >= mark.frame.maxX
@@ -1271,8 +1277,15 @@ extension UITest {
                 && font("Plan")?.pointSize == KitType.heading1.nsFont.pointSize && font("code")?.isFixedPitch == true
                 && storage.attribute(.foregroundColor, at: at("# Plan"), effectiveRange: nil) as? NSColor == Ink.syntaxQuietNS,
               "\(plain?.fontName ?? "-") \(font("Plan")?.pointSize ?? 0) \(font("code")?.fontName ?? "-")")
-        check("the editor opens about as tall as the text it replaces", abs(outline.rect(ofRow: row()).height - rowAtRest) < Space.section * 2,
-              "\(rowAtRest) → \(outline.rect(ofRow: row()).height)")
+        // The rendered text sat at the description's top-left, below its top padding.
+        var editorOrigin: CGPoint?
+        if let scroll = editor.enclosingScrollView, let host = (outline.view(atColumn: 1, row: row(), makeIfNecessary: false) as? TaskCell)?.descriptionHost {
+            let frame = scroll.convert(scroll.bounds, to: host)
+            editorOrigin = CGPoint(x: frame.minX, y: host.isFlipped ? frame.minY : host.bounds.height - frame.maxY)
+        }
+        check("the editor opens where the rendered text was, as tall: its row doesn't move (T-368)", abs(outline.rect(ofRow: row()).height - rowAtRest) <= 1
+              && editorOrigin.map { abs($0.x) <= 0.5 && abs($0.y - Space.xs) <= 0.5 } == true,
+              "row \(rowAtRest) → \(outline.rect(ofRow: row()).height), editor at \(String(describing: editorOrigin))")
         // It grows with its text, and its row with it.
         let box = { editor.enclosingScrollView?.frame.height ?? 0 }
         let boxBefore = box(), rowBefore = outline.rect(ofRow: row()).height
@@ -1373,13 +1386,24 @@ extension UITest {
                                                  windowNumber: sheet.windowNumber, context: nil, eventNumber: 0, clickCount: 2, pressure: 1) else { return false }
             return area.take(event) == nil
         }
+        func frame(_ anchor: String) -> NSRect? {
+            UITest.anchors[anchor, default: []].compactMap(\.view).last(where: { $0.window != nil }).map { $0.convert($0.bounds, to: nil) }
+        }
+        func same(_ a: NSRect?, _ b: NSRect?) -> Bool {
+            guard let a, let b else { return false }
+            return abs(a.minX - b.minX) <= 0.5 && abs(a.maxY - b.maxY) <= 0.5 && abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 1
+        }
         model.open(.task(task.id))
         await ui.settle(1)
         if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
+            let rendered = frame("modal-description"), button = frame("modal-edit-description")
             let swallowed = doubleClick(fourthOf: area, in: sheet)
             await ui.settle(0.8)
             check("a double-click on the description in the task's window edits it at the spot", swallowed && model.modalEditingDescription && onFour(sheet.firstResponder),
                   "caret \((sheet.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
+            check("in the task's window only the text turns into the editor: same place, same size, Edit becomes Done where it was",
+                  same(rendered, frame("modal-description-editor")) && same(button, frame("modal-edit-description")),
+                  "\(String(describing: rendered)) → \(String(describing: frame("modal-description-editor"))), button \(String(describing: button)) → \(String(describing: frame("modal-edit-description")))")
             model.saveModalEdits()
         } else {
             check("the task's window shows its description", false)
@@ -1390,10 +1414,14 @@ extension UITest {
             model.open(.file(file.id))
             await ui.settle(1)
             if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
+                let rendered = frame("file-text")
                 let swallowed = doubleClick(fourthOf: area, in: sheet)
                 await ui.settle(0.8)
                 check("a double-click on a note edits it at the spot", swallowed && model.editingFile == file.id && onFour(sheet.firstResponder),
                       "caret \((sheet.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
+                check("in a note only the text turns into the editor: its byline and title stay, the text in the same place and size",
+                      same(rendered, frame("file-editor")) && frame("file-page") != nil,
+                      "\(String(describing: rendered)) → \(String(describing: frame("file-editor")))")
                 model.editingFile = nil
             } else {
                 check("a note's window shows its text", false)

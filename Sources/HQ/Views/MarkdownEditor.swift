@@ -14,6 +14,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var caretPoint: CGPoint?
     /// What VoiceOver calls it: "Description", "First message", the file's title.
     var label = "Markdown"
+    /// Around the text: none where it replaces rendered markdown in place, a box's padding elsewhere.
+    var inset: CGFloat = 0
     /// The text's height as it changes: the box grows with it.
     var onHeight: ((CGFloat) -> Void)?
     var onCommit: () -> Void = {}
@@ -22,8 +24,8 @@ struct MarkdownEditor: NSViewRepresentable {
     /// Tab and ⇧Tab (true) leave the editor instead of typing a tab, off a list line.
     var onTab: ((Bool) -> Void)?
 
-    /// A growing box's height for its text's: a few lines at least, then it scrolls.
-    static func box(_ height: CGFloat) -> CGFloat { min(max(height, Metric.editorMinimum), Metric.editorMaximum) }
+    /// A box in a row: as tall as its text, then it scrolls.
+    static func box(_ height: CGFloat) -> CGFloat { min(max(height, MarkdownStyle.lineHeight(.body)), Metric.editorMaximum) }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -34,6 +36,7 @@ struct MarkdownEditor: NSViewRepresentable {
         storage.addLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
         layout.addTextContainer(container)
         let editor = EditorTextView(frame: .zero, textContainer: container)
         editor.autoresizingMask = [.width]
@@ -41,7 +44,7 @@ struct MarkdownEditor: NSViewRepresentable {
         editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         editor.isVerticallyResizable = true
         editor.isHorizontallyResizable = false
-        let scroll = NSScrollView()
+        let scroll = EditorScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -61,7 +64,7 @@ struct MarkdownEditor: NSViewRepresentable {
         editor.drawsBackground = false
         editor.font = MarkdownStyle.body
         editor.textColor = Ink.textNS
-        editor.textContainerInset = NSSize(width: Space.sm, height: Space.sm)
+        editor.textContainerInset = NSSize(width: inset, height: inset)
         editor.defaultParagraphStyle = MarkdownStyle.paragraph
         editor.typingAttributes = MarkdownStyle.base
         editor.string = text
@@ -103,10 +106,22 @@ struct MarkdownEditor: NSViewRepresentable {
             reportHeight(editor)
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            if let editor = notification.object as? NSTextView { reportHeight(editor) }
+        }
+
+        /// The text's height. The empty line after a final line break counts only with the caret on it: the rendered text
+        /// has none.
         func reportHeight(_ editor: NSTextView) {
             guard let onHeight = parent.onHeight, let layout = editor.layoutManager, let container = editor.textContainer else { return }
             layout.ensureLayout(for: container)
-            let height = ceil(layout.usedRect(for: container).height + editor.textContainerInset.height * 2)
+            var used = layout.usedRect(for: container).height
+            let length = (editor.string as NSString).length
+            if layout.extraLineFragmentTextContainer != nil, editor.selectedRange().location < length || length == 0 {
+                used = layout.glyphRange(for: container).length > 0
+                    ? layout.boundingRect(forGlyphRange: layout.glyphRange(for: container), in: container).maxY : used
+            }
+            let height = ceil(used + editor.textContainerInset.height * 2)
             guard abs(height - reported) >= 1 else { return }
             reported = height
             // Never while SwiftUI updates the view.
@@ -152,6 +167,14 @@ struct MarkdownEditor: NSViewRepresentable {
             ended = true
             onTab(backward)
             return true
+        }
+    }
+
+    /// As tall as its text, it hands the scroll wheel to the page around it.
+    final class EditorScrollView: NSScrollView {
+        override func scrollWheel(with event: NSEvent) {
+            guard let document = documentView, document.frame.height <= contentView.bounds.height + 0.5 else { return super.scrollWheel(with: event) }
+            nextResponder?.scrollWheel(with: event)
         }
     }
 
@@ -207,6 +230,20 @@ struct MarkdownEditor: NSViewRepresentable {
                 self.setSelectedRange(NSRange(location: caret, length: 0))
                 self.scrollRangeToVisible(self.selectedRange())
             }
+        }
+
+        /// Grown to its text in a page that scrolls, the page follows the caret.
+        override func scrollRangeToVisible(_ range: NSRange) {
+            super.scrollRangeToVisible(range)
+            guard let page = enclosingScrollView?.enclosingScrollView?.documentView, let layout = layoutManager else { return }
+            let length = (string as NSString).length
+            var rect = layout.extraLineFragmentRect
+            if range.location < length || layout.extraLineFragmentTextContainer == nil {
+                let glyph = layout.glyphIndexForCharacter(at: min(range.location, max(length - 1, 0)))
+                rect = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            }
+            guard rect.height > 0 else { return }
+            page.scrollToVisible(convert(rect.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y), to: page))
         }
 
         /// The editor is wider or narrower: its lines wrap again, and its box follows.
@@ -352,31 +389,133 @@ enum MarkdownStyle {
     /// Inline code, at the text's size.
     static var inlineCode: NSFont { KitType.editor.nsFont }
 
-    static func heading(_ level: Int) -> NSFont { (level == 1 ? KitType.heading1 : level == 2 ? .heading2 : .heading3).nsFont }
+    static func headingType(_ level: Int) -> KitType { level == 1 ? .heading1 : level == 2 ? .heading2 : .heading3 }
+    static func heading(_ level: Int) -> NSFont { headingType(level).nsFont }
 
-    static var paragraph: NSParagraphStyle {
+    /// The viewer's line height for a type: SwiftUI's own, measured once per size (TextKit's differs at some sizes).
+    static func lineHeight(_ type: KitType) -> CGFloat {
+        let key = "\(type) \(type.nsFont.pointSize)"
+        if let height = lineHeights[key] { return height }
+        let lines = 10
+        let probe = NSHostingView(rootView: Text(Array(repeating: "Ag", count: lines).joined(separator: "\n")).kitType(type).fixedSize())
+        let height = probe.fittingSize.height / CGFloat(lines)
+        lineHeights[key] = height
+        return height
+    }
+    private static var lineHeights: [String: CGFloat] = [:]
+
+    /// A line exactly `height` tall, `before` below the one above; wrapped lines start at `indent`.
+    static func line(_ height: CGFloat, before: CGFloat = 0, indent: CGFloat = 0) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = Metric.editorLineHeight
+        style.minimumLineHeight = height
+        style.maximumLineHeight = height
+        style.paragraphSpacingBefore = before
+        style.headIndent = indent
+        style.lineBreakStrategy = .standard
         return style
     }
 
-    /// A blank line: the viewer's space between two blocks.
-    static var blank: NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
-        style.minimumLineHeight = Space.md
-        style.maximumLineHeight = Space.md
-        return style
-    }
-
-    /// A heading's line, with the viewer's room above the first two levels.
-    static func headingParagraph(_ level: Int) -> NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = Metric.editorLineHeight
-        style.paragraphSpacingBefore = level <= 2 ? Space.xs : 0
-        return style
-    }
+    static var paragraph: NSParagraphStyle { line(lineHeight(.body)) }
 
     static var base: [NSAttributedString.Key: Any] { [.font: body, .foregroundColor: Ink.textNS, .paragraphStyle: paragraph] }
+
+    /// What a source line is, for the room the viewer gives it.
+    private enum Kind: Equatable {
+        case blank, text, itemText, heading(Int), item, quote, quoteBlank, fenceOpen, fenceClose, code, rule
+    }
+
+    /// Each line as tall as the viewer draws it and as far below the line above: 12 pt between blocks (the blank lines
+    /// between them share it), 4 pt between list items, a heading's room above, a code box's padding taken from the space
+    /// around its fences. Only what the marks add (their own lines, longer lines) moves the text.
+    private static func space(_ storage: NSTextStorage) {
+        let text = storage.string as NSString
+        let body = lineHeight(.body), code = lineHeight(.code)
+        var inFence = false
+        var previous: Kind?
+        var blanks: [NSRange] = []
+        // A list item whose marker differs from the last one at its indent (`-` then `1.`) starts a new list: a block's gap.
+        var markers: [Int: String] = [:]
+        var newList = false
+        func gap(_ kind: Kind) -> CGFloat {
+            guard let previous else {
+                if case .heading(let level) = kind, level <= 2 { return Space.xs }
+                return 0
+            }
+            var gap: CGFloat
+            switch kind {
+            case .code, .fenceClose, .quoteBlank: return 0
+            case .heading(let level): gap = Space.md + (level <= 2 ? Space.xs : 0)
+            case .item, .itemText: gap = [.item, .itemText].contains(previous) && !newList ? Space.xs : Space.md
+            case .text where blanks.isEmpty && [.text, .quote].contains(previous): return 0
+            case .quote where [.quote, .quoteBlank].contains(previous) && blanks.isEmpty: return 0
+            default: gap = Space.md
+            }
+            if kind == .itemText && blanks.isEmpty { return 0 }
+            if previous == .fenceClose { gap += Space.sm - code }
+            if kind == .fenceOpen { gap += Space.sm - code }
+            return max(gap, 0)
+        }
+        func width(_ prefix: String) -> CGFloat { (prefix as NSString).size(withAttributes: [.font: MarkdownStyle.body]).width }
+        text.enumerateSubstrings(in: NSRange(location: 0, length: text.length), options: .byLines) { line, _, enclosing, _ in
+            let line = line ?? ""
+            let whole = NSRange(location: 0, length: (line as NSString).length)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var kind: Kind
+            var indent: CGFloat = 0
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                kind = inFence ? .fenceClose : .fenceOpen
+                inFence.toggle()
+            } else if inFence {
+                kind = .code
+            } else if trimmed.isEmpty {
+                blanks.append(enclosing)
+                return
+            } else if let marks = headingLine.firstMatch(in: line, range: whole) {
+                kind = .heading((line as NSString).substring(with: marks.range(at: 1)).prefix { $0 == "#" }.count)
+            } else if rule.firstMatch(in: line, range: whole) != nil {
+                kind = .rule
+            } else if let marker = item.firstMatch(in: line, range: whole) {
+                kind = .item
+                indent = width((line as NSString).substring(to: NSMaxRange(marker.range)))
+                let depth = marker.range(at: 1).length
+                let sign = marker.range(at: 2).location != NSNotFound ? (line as NSString).substring(with: marker.range(at: 2))
+                    : (line as NSString).substring(with: marker.range(at: 4))
+                newList = markers[depth].map { $0 != sign } ?? false
+                markers[depth] = sign
+                markers = markers.filter { $0.key <= depth }
+            } else if let marker = quote.firstMatch(in: line, range: whole) {
+                kind = marker.range(at: 2).length == 0 ? .quoteBlank : .quote
+                indent = width((line as NSString).substring(to: NSMaxRange(marker.range(at: 1))))
+            } else if let previous, [.item, .itemText].contains(previous), blanks.isEmpty || line.hasPrefix("  ") {
+                kind = .itemText
+            } else if previous == .quote, blanks.isEmpty {
+                kind = .quote
+            } else {
+                kind = .text
+            }
+            if kind != .item, kind != .itemText { markers = [:]; newList = false }
+            let space = gap(kind)
+            newList = false
+            if !blanks.isEmpty {
+                // NSParagraphStyle reads 0 as no limit: a blank line is a point tall at least.
+                let each = max(space / CGFloat(blanks.count), 1)
+                for blank in blanks { storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(each), range: blank) }
+            }
+            let height: CGFloat = switch kind {
+            case .heading(let level): lineHeight(headingType(level))
+            case .fenceOpen, .fenceClose, .code: code
+            case .quoteBlank: Space.md
+            default: body
+            }
+            // TextKit gives the first line no room above: it goes into the line.
+            let first = previous == nil && blanks.isEmpty
+            storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height + (first ? space : 0), before: blanks.isEmpty && !first ? space : 0, indent: indent),
+                                 range: enclosing)
+            blanks = []
+            previous = kind
+        }
+        for blank in blanks { storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(body), range: blank) }
+    }
 
     private static func pattern(_ text: String) -> NSRegularExpression {
         try! NSRegularExpression(pattern: text, options: [.anchorsMatchLines])
@@ -407,7 +546,6 @@ enum MarkdownStyle {
         // Fenced code first: nothing else styles it.
         var fenced = IndexSet()
         var fence: Int?
-        let blank = blank
         text.enumerateSubstrings(in: all, options: .byLines) { line, range, enclosing, _ in
             let trimmed = (line ?? "").trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
@@ -420,11 +558,10 @@ enum MarkdownStyle {
                 }
             } else if fence != nil {
                 storage.addAttributes([.font: code, .foregroundColor: Ink.syntaxCodeNS], range: range)
-            } else if trimmed.isEmpty {
-                storage.addAttribute(.paragraphStyle, value: blank, range: enclosing)
             }
         }
         if let start = fence { fenced.insert(integersIn: start..<text.length) }
+        space(storage)
         func each(_ regex: NSRegularExpression, _ body: (NSTextCheckingResult) -> Void) {
             regex.enumerateMatches(in: storage.string, range: all) { match, _, _ in
                 guard let match, !fenced.intersects(integersIn: match.range.location..<max(NSMaxRange(match.range), match.range.location + 1)) else { return }
@@ -441,7 +578,7 @@ enum MarkdownStyle {
         each(headingLine) { match in
             let marks = match.range(at: 1)
             let level = text.substring(with: marks).prefix { $0 == "#" }.count
-            storage.addAttributes([.font: heading(level), .paragraphStyle: headingParagraph(level)], range: text.paragraphRange(for: match.range))
+            storage.addAttribute(.font, value: heading(level), range: text.paragraphRange(for: match.range))
             quiet(marks)
         }
         each(item) { match in

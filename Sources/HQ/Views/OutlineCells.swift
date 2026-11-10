@@ -1187,8 +1187,8 @@ struct DescriptionBlock: View {
 /// The description's editor in the outline. Escape and ⌘Return save and select the row; Tab saves
 /// and edits the next task's title, ⇧Tab this one's; leaving saves.
 extension AppModel {
-    /// The outline's description editor: as tall as its text, a few lines at least, then it scrolls.
-    var descriptionEditorBox: CGFloat { MarkdownEditor.box(descriptionEditorHeight > 0 ? descriptionEditorHeight : Metric.editorMinimum) }
+    /// The outline's description editor: as tall as its text, then it scrolls.
+    var descriptionEditorBox: CGFloat { MarkdownEditor.box(descriptionEditorHeight) }
 }
 
 private struct InlineDescriptionEditor: View {
@@ -1209,8 +1209,9 @@ private struct InlineDescriptionEditor: View {
                        onEnd: { save(then: .left(id)) },
                        onTab: { backward in save(then: .title(id, by: backward ? 0 : 1)) })
             .frame(height: model.descriptionEditorBox)
-            .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
+            // The text stays where the rendered one was; the box is drawn around it.
+            .background { RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.editor).padding(-Space.xs) }
+            .overlay { RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame).padding(-Space.xs) }
             .onAppear { model.editorCaret = nil }
             .uiTestAnchor("description-editor:\(id)")
     }

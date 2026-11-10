@@ -296,11 +296,8 @@ nonisolated enum Metric {
     /// Labels in the task modal's property grid.
     static var propertyLabel: CGFloat { 72 * Zoom.factor }
     static var boxRow: CGFloat { 32 * Zoom.factor }
-    /// A markdown editor's box grows with its text from a few lines, then scrolls.
-    static var editorMinimum: CGFloat { 72 * Zoom.factor }
+    /// A markdown editor in a row grows with its text up to this, then scrolls.
     static var editorMaximum: CGFloat { 480 * Zoom.factor }
-    /// The markdown editor's line height, as a multiple of its font's: the rendered note's.
-    static let editorLineHeight: CGFloat = 1
     static var messageEditor: CGFloat { 200 * Zoom.factor }
     /// A Mermaid diagram while it's drawn the first time.
     static var diagramPlaceholder: CGFloat { 120 * Zoom.factor }

@@ -722,6 +722,34 @@ enum SelfTest {
             return Date().timeIntervalSince(start)
         }.sorted()
         check("the editor styles a 3,600-line note in under 40 ms", styleTimes[2] < 0.04, "median \(Int(styleTimes[2] * 1000)) ms")
+        // The editor draws the text where the viewer does (T-368): the same height for the same markdown at the same width.
+        let samples = [
+            "One line.",
+            "A first paragraph long enough to wrap onto a second line at four hundred points wide, and some more words to be sure it does.\n\nSecond.",
+            "# Title\n\nText under it.\n\n## Section\n\nMore text.\n\n### Small\n\nEnd.",
+            "Intro.\n\n- one\n- two\n- three\n\nAfter.",
+            "## Done when\n- [x] At most 3 attempts\n- [ ] The canary stays green\n\n## Status\nMerged in **#418**, `canary` green.",
+            "- a\n  - nested\n- b\n\n1. first\n2. second",
+            "> A quote\n> on two lines.\n\nText.",
+            "Text.\n\n```\nlet x = 1\nlet y = 2\n```\n\nAfter the code.",
+        ]
+        var offsets: [String] = []
+        for sample in samples {
+            let width: CGFloat = 400
+            let rendered = NSHostingView(rootView: MarkdownView(sample).environment(model).frame(width: width).fixedSize(horizontal: false, vertical: true))
+            let renderedHeight = rendered.fittingSize.height
+            let storage = NSTextStorage(string: sample)
+            MarkdownStyle.apply(to: storage)
+            let layout = NSLayoutManager()
+            storage.addLayoutManager(layout)
+            let container = NSTextContainer(size: NSSize(width: width, height: 100_000))
+            container.lineFragmentPadding = 0
+            layout.addTextContainer(container)
+            layout.ensureLayout(for: container)
+            let edited = layout.usedRect(for: container).height
+            if abs(edited - renderedHeight) > 1 { offsets.append("\(sample.prefix(16).debugDescription): \(renderedHeight) rendered, \(edited) edited") }
+        }
+        check("the editor draws markdown as tall as the viewer, so switching moves nothing", offsets.isEmpty, offsets.joined(separator: "; "))
         // Links between tasks, one way; pins and labels on files.
         guard let other = model.addTask(to: .backlog, title: "Linked") else { return check("a task to link", false) }
         let linked = agent("task link", ["task": task.key, "item": other.key])
