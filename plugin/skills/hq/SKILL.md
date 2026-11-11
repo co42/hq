@@ -63,8 +63,8 @@ hq task edit T-12 --replace "until 14:30" --with "until 15:00"   # an exact text
 - **Project**: the product or area (HQ, Registry, Billing). A task you create always gets one: `--project` on a top-level task; a subtask takes its parent's. Reuse a project in use (`hq ls projects`); naming a new one creates it.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`).
 - **Subtasks**: parts the user wants to see on their own (`--parent T-12`). Steps they don't need stay in the checklist.
-- **Blocked**: it can't be done now (a decision, an answer, a freeze): `hq task block T-n "why"`, then `hq notify`; `hq task unblock T-n` once it moves.
-- **Blocked by** a task until that one is done, for a hard wait (a stacked PR, an API that must ship first): `hq task link T-n --blocked-by T-m`. **After**, the order meant: `--after T-m`. Neither moves a task. Before picking the next one, `hq task show` the story's top task: its Ready line says what can start.
+- **Blocked**, unasked, the moment a task waits on something outside: a person (the user to log in or decide, a reviewer from another team), an answer on Slack, a freeze. `hq task block T-n "Waiting on …"`, then `hq notify`; `hq task unblock T-n` once it moves.
+- **Blocked by**, unasked, the moment it can't go on until another task is done (a stacked PR, an API that must ship first): `hq task link T-n --blocked-by T-m`. **After**, an order without a hard wait: `--after T-m`. Neither moves a task. Before picking the next one, `hq task show` the story's top task: its Ready line says what can start.
 
 ## Links
 
@@ -84,9 +84,9 @@ Nothing notifies when a turn ends. Tell them when they should look:
 ## Commands
 
 ```
-hq ctx [--all]                       # this session's tasks, what is doing in its project, its files, other sessions
+hq ctx [--all]                       # this session's role, leader, tasks, its sessions, what is doing in its project, its files
 hq ls tasks [--overview|--backlog] [--parent T-12] [--project p] [--tag t] [--all]
-hq ls sessions [--here] | prs | files | artifacts | projects | notifications | reminders
+hq ls sessions [--here] [--tree] | prs | files | artifacts | projects | notifications | reminders | roles
 hq task show T-12 [T-13 …] [--deep|--brief|--body]
 hq task add "Title" [--project p] [--parent T-12] [--status doing] [--backlog] [--link url] [--body -]
 hq task move T-12 todo|doing|done|backlog [--list tasks]
@@ -106,6 +106,8 @@ A list cut at its page ends with a line like `50 of 112: --limit 200`. The text 
 - A task this session isn't on, nor under one it's on, is refused (exit code 5), naming the task the key hit: check the key. `--not-mine` only for the task the user named, never on a key you guessed (a new task's key is the first word of `task add`'s line).
 - Titles plain and short: the user reads them on one row.
 
-## Continue a task in a fresh session
+## Sessions you start
 
-When the user asks to take a task to a new conversation: make its description the handoff (what's done, the decisions, what's left, the next step), then `hq session new "T-12 Short name" --task T-12`. It opens a new Claude session in a Ghostty tab, in this session's folder (`--cwd` for another), sent to the task. Tell the user, and leave the task to it.
+`hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists.
+
+**A handoff**, when the user asks to take a task to a new conversation: make its description the handoff (what's done, the decisions, what's left, the next step), then `hq session new "T-12 Short name" --task T-12 --beside`, at your level rather than under you. Tell the user, and leave the task to it.

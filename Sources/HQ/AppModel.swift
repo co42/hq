@@ -25,6 +25,8 @@ enum ModalRoute: Hashable {
     case start
     case closedSessions
     case notifications
+    /// The Roles modal (T-415): the roles' list beside the one picked.
+    case roles
 }
 
 /// The Start a session form, before it starts.
@@ -34,6 +36,14 @@ struct StartDraft: Hashable {
     var message: String
     var task: Int?
     var pullRequest: String?
+    /// The session it starts under: nil, the top level.
+    var parent: String?
+    /// The name of its role.
+    var role: String?
+    /// The session whose conversation it starts with.
+    var history: String?
+    /// The user picked the role: a new parent no longer changes it.
+    var roleChosen = false
 }
 
 /// The Backlog's filter bar.
@@ -110,7 +120,7 @@ struct TextDraft: Equatable {
     }
 }
 
-/// What a task shows of its subtasks: none, only the blocking and doing ones, or all (2026-11-10).
+/// What a task shows of its subtasks: none, only the blocked and doing ones, or all (2026-11-10).
 enum FoldMode: String, CaseIterable {
     case hidden, important, all
 
@@ -121,7 +131,7 @@ enum FoldMode: String, CaseIterable {
     var title: String {
         switch self {
         case .hidden: "None"
-        case .important: "Only Blocking and Doing"
+        case .important: "Only Blocked and Doing"
         case .all: "All"
         }
     }
@@ -218,6 +228,8 @@ final class AppModel {
         }
     }
     var files: [FileItem] = [] { didSet { outputsCache = nil; persistFiles(from: oldValue) } }
+    /// The roles a session can start with: notes in <vault>/hq/roles/, Leader and Worker first.
+    var roles: [RoleItem] = []
     /// Pages Claude published, captured from its hooks. Saved at once.
     var artifacts: [ArtifactItem] = [] { didSet { outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
     /// GitHub's last answer, shown while the next one comes.
@@ -280,6 +292,7 @@ final class AppModel {
             Zoom.factor = zoom
             KitType.resetFonts()
             remember(Double(zoom), as: "view.zoom")
+            syncMenu()
         }
     }
     /// Which reviews the Reviews card lists, remembered.
@@ -345,6 +358,12 @@ final class AppModel {
     /// Every selected outline row, in order: the Task menu's targets when there are several.
     var selectedTasks: [Int] = [] { didSet { syncMenu() } }
     var selectedSession: String? { didSet { syncMenu() } }
+    /// The one team shown open on the grid, its top card's id; nil folds it.
+    var openTeam: SessionItem.ID? { didSet { if openTeam != oldValue { syncMenu() } } }
+    /// The session cards have the keyboard: the Session menu's ⌘↓ ⌘↑ follow.
+    var cardsKeyboard = false { didSet { if cardsKeyboard != oldValue { syncMenu() } } }
+    /// The session grid's columns: on two, a card's ⇧ arrows move it on screen, and the Session menu says so.
+    var gridColumns = 1 { didSet { if gridColumns != oldValue { syncMenu() } } }
     /// A PR, a chip or a modal row a click selected; a double-click opens it.
     var selectedItem: String? {
         didSet {
@@ -399,6 +418,9 @@ final class AppModel {
     /// What Back returns to, newest last.
     var modalStack: [ModalRoute] = [] { didSet { syncMenu() } }
     var startDraft: StartDraft?
+    /// The role picked in the Roles modal, and its name, line or text while edited in place.
+    var selectedRole: String?
+    var roleEdit: RoleEdit? { didSet { syncMenu() } }
     /// A file's markdown in the modal's editor, the text it started from, and the text so far.
     var editingFile: FileItem.ID?
     var fileDraftBase = ""
@@ -642,6 +664,7 @@ final class AppModel {
             modalDescription = nil
             commitDescription(draft)
         }
+        if roleEdit != nil { commitRoleEdit() }
     }
 
     /// The task window's description in its editor.
@@ -650,26 +673,43 @@ final class AppModel {
         modalDescription = TextDraft(id: id, base: task(id)?.body ?? "")
     }
 
-    /// Start Session… on a task, a PR, or New Session….
-    func beginStart(task: Int? = nil, pullRequest: GitHubItem? = nil, push: Bool = false) {
+    /// Start Session… on a task, a PR, or New Session…; Start Child Session… (`parent`) and Start Session from Its
+    /// History… (`history`: at that session's level, with its role and folder, its name marked ⑂).
+    func beginStart(task: Int? = nil, pullRequest: GitHubItem? = nil, parent: SessionItem.ID? = nil, history: SessionItem.ID? = nil,
+                    push: Bool = false) {
         showWindow()
         let item = self.task(task)
-        let name = item.map { "\($0.key) \($0.title)" } ?? pullRequest.map { "Review \($0.reference)" } ?? ""
+        let source = session(history)
+        let under = source.map { $0.parent } ?? session(parent)?.id
+        var name = item.map { "\($0.key) \($0.title)" } ?? pullRequest.map { "Review \($0.reference)" } ?? ""
+        if let source { name = "\(source.name) ⑂" }
         // The project's folder: the task's (or a parent's) project, or the one the PR's repository belongs to.
         let project = task.flatMap(project(ofTask:)) ?? pullRequest.flatMap { project(ofRepo: $0.repo) }
-        let folder = project.flatMap { links(of: $0).folder } ?? pullRequest.flatMap { clone(of: $0.repo) }
+        let folder = source?.cwd ?? session(parent)?.cwd ?? project.flatMap { links(of: $0).folder } ?? pullRequest.flatMap { clone(of: $0.repo) }
             ?? recentDirectories(for: task).first ?? NSHomeDirectory()
         let message = item.map(Self.taskPrompt) ?? pullRequest.map(Self.reviewPrompt) ?? ""
         startDraft = StartDraft(name: name, folder: folder, message: message + (message.isEmpty ? "" : "\n\n"), task: task,
-                                pullRequest: pullRequest?.url)
+                                pullRequest: pullRequest?.url, parent: under, role: source.map { $0.role } ?? siblingsRole(under: under),
+                                history: source?.id)
         open(.start, push: push)
+    }
+
+    /// The role most of a new session's siblings have, else none: a leader's next session is a Worker, and no rule names one.
+    func siblingsRole(under parent: SessionItem.ID?) -> String? {
+        let tree = sessionTree
+        let roles = (parent.map { tree.children(of: $0) } ?? tree.roots).compactMap { session($0) }.map { role(named: $0.role)?.name ?? "" }
+        let counts = Dictionary(roles.map { ($0, 1) }, uniquingKeysWith: +)
+        guard let best = counts.max(by: { $0.value < $1.value }), !best.key.isEmpty,
+              counts.values.filter({ $0 == best.value }).count == 1 else { return nil }
+        return best.key
     }
 
     /// Start (⌘Return). On failure the form stays with its text and the banner says why.
     func startFromDraft() {
         guard let draft = startDraft, !draft.name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         startSession(named: draft.name.trimmingCharacters(in: .whitespaces), in: (draft.folder as NSString).expandingTildeInPath,
-                     task: draft.task, pullRequest: draft.pullRequest, message: draft.message) { [weak self] started in
+                     task: draft.task, pullRequest: draft.pullRequest, message: draft.message,
+                     parent: draft.parent, role: draft.role, history: draft.history) { [weak self] started in
             guard let self, started else { return }
             if self.modal == .start { self.closeModal() }
         }
@@ -714,6 +754,22 @@ final class MenuState: ObservableObject {
     @Published private(set) var zoom: CGFloat = 1
     @Published private(set) var hideDone: Set<TaskList> = []
     @Published private(set) var canEditFile = false
+    @Published private(set) var canEditRole = false
+    /// The Session menu's team items: its team shown open, has one, sits under a session, its open sessions as a top card,
+    /// and the sessions it can move under.
+    @Published private(set) var teamShown = false
+    @Published private(set) var cardsKeyboard = false
+    @Published private(set) var sessionHasTeam = false
+    @Published private(set) var sessionHasParent = false
+    @Published private(set) var teamOpenCount = 0
+    @Published private(set) var moveUnder: [String] = []
+    /// Its moves, as a task's: Move Up, Move Down, Indent, Outdent.
+    @Published private(set) var sessionUp = false
+    @Published private(set) var sessionDown = false
+    @Published private(set) var sessionRight = false
+    @Published private(set) var sessionLeft = false
+    /// A card on two columns: ⇧→ and ⇧← move it on screen, Move Right and Move Left, not Indent and Outdent.
+    @Published private(set) var sessionMovesOnScreen = false
     @Published private(set) var taskDescriptionShown = false
     @Published private(set) var taskBlocked = false
     /// What the Task menu acts on: the selected rows, or the one task.
@@ -746,6 +802,20 @@ final class MenuState: ObservableObject {
         set(\.sessionRunning, session?.isRunning ?? false)
         set(\.sessionCanFocus, session.map { !$0.isRunning || $0.tty != nil } ?? false)
         set(\.sessionClosable, session.map { $0.isRunning && $0.tty != nil } ?? false)
+        let tree = model.sessionTree
+        let root = session.map { tree.root(of: $0.id) }
+        set(\.sessionHasTeam, root.map { !tree.rows(under: $0).isEmpty } ?? false)
+        set(\.teamShown, root != nil && model.openTeam == root)
+        set(\.cardsKeyboard, model.modal == nil && model.cardsKeyboard)
+        set(\.sessionHasParent, session.map { tree.parent(of: $0.id) != nil } ?? false)
+        set(\.teamOpenCount, session.map { item in tree.parent(of: item.id) == nil && !tree.rows(under: item.id).isEmpty ? model.openSessions(ofTeam: item.id).count : 0 } ?? 0)
+        set(\.moveUnder, session.map { model.moveUnderChoices(for: $0.id) } ?? [])
+        let moves = session.map { model.sessionMoves($0.id) }
+        set(\.sessionUp, moves?.up ?? false)
+        set(\.sessionDown, moves?.down ?? false)
+        set(\.sessionRight, moves?.right ?? false)
+        set(\.sessionLeft, moves?.left ?? false)
+        set(\.sessionMovesOnScreen, session.map { model.movesOnScreen($0.id) } ?? false)
         set(\.outlineKeyboard, model.modal == nil ? model.outlineKeyboard : .none)
         set(\.canGoBack, !model.modalStack.isEmpty)
         set(\.inCenter, model.modal == .notifications)
@@ -761,6 +831,7 @@ final class MenuState: ObservableObject {
         set(\.hideDone, model.hideDone)
         let file: Bool = if case .file = model.modal { model.editingFile == nil } else { false }
         set(\.canEditFile, file)
+        set(\.canEditRole, model.modal == .roles && model.roleEdit == nil && model.role(named: model.selectedRole) != nil)
         set(\.taskDescriptionShown, task.map { model.descriptionShownInOutline($0.id) } ?? false)
         set(\.taskBlocked, task?.blocked ?? false)
         let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []

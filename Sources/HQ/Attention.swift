@@ -69,15 +69,26 @@ extension AppModel {
 
     // MARK: Pull requests
 
-    /// Reviews, as its filter shows them.
+    /// Reviews, as its filter shows them, without those the user set a reminder on for later.
     var reviewRequests: [GitHubItem] {
-        allReviewRequests.filter { item in
-            switch reviewFilter {
+        let reminded = remindedLater
+        return allReviewRequests.filter { item in
+            guard !reminded.contains(item.url) else { return false }
+            return switch reviewFilter {
             case .notApproved: !item.approved
             case .waiting: waitsForReview(item)
             case .all: true
             }
         }
+    }
+
+    /// The PRs a reminder still to come links: later for the user, out of Reviews and Needs You until it's due (T-392).
+    var remindedLater: Set<String> {
+        var urls = Set<String>()
+        for notice in notices where notice.kind == .reminder && notice.readAt == nil && (notice.dueAt ?? .distantPast) > now {
+            for case .github(let url) in notice.links.compactMap(ModalRoute.init(noticeKey:)) { urls.insert(url) }
+        }
+        return urls
     }
 
     /// Every open PR that asks for the user's review, waiting or reviewed, and the others' open PRs they reviewed:

@@ -312,6 +312,17 @@ public struct SessionLive: Sendable, Hashable {
         }
     }
 
+    /// Claude Code says it has been idle since `idle` while the session works: the turn ended without a Stop (a prompt
+    /// cancelled before any answer, Esc while Claude thinks, a prompt a hook blocked). Both for `grace`, so a Stop just behind wins.
+    @discardableResult
+    public mutating func claudeIdle(since idle: Date, now: Date, grace: TimeInterval = 3) -> Bool {
+        guard status.state == .working, now.timeIntervalSince(status.since) >= grace, now.timeIntervalSince(idle) >= grace else { return false }
+        tool = nil
+        toolInput = nil
+        set(.idle, now)
+        return true
+    }
+
     private mutating func set(_ state: SessionState, _ now: Date) {
         guard status.state != state else { return }
         status.state = state
@@ -380,6 +391,18 @@ public enum TranscriptInterrupt {
 
     private static func date(_ text: String) -> Date? {
         (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)) ?? (try? Date.ISO8601FormatStyle().parse(text))
+    }
+}
+
+/// Claude Code's own record of a running Claude, `~/.claude/sessions/<pid>.json`, read best effort: the format is internal.
+public enum ClaudeSessionFile {
+    /// When the Claude of `sessionID` went idle ("status": "idle"), or nil while it works, waits or says nothing.
+    public static func idleSince(_ path: String, sessionID: String) -> Date? {
+        guard let data = FileManager.default.contents(atPath: path),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["status"] as? String == "idle", let millis = (object["statusUpdatedAt"] as? NSNumber)?.doubleValue else { return nil }
+        if let id = object["sessionId"] as? String, id != sessionID { return nil }
+        return Date(timeIntervalSince1970: millis / 1000)
     }
 }
 

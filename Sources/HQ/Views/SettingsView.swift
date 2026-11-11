@@ -248,7 +248,6 @@ struct KeysSettings: View {
     static let keys: [(String, String)] = [
         ("Next or previous section", "Tab  ⇧Tab"),
         ("Select in a section, open", "↑  ↓, Return or Space"),
-        ("On a session card: its terminal, its details", "Return  Space"),
         ("Copy the selected item’s line", "⌘C"),
         ("Notifications", "⌘J"),
         ("New Reminder…", "⌃⌘R"),
@@ -264,7 +263,7 @@ struct KeysSettings: View {
         ("Focus the session's terminal", "⌘O"),
         ("Open the item outside HQ", "⇧⌘O"),
         ("Copy the item’s link", "⇧⌘C"),
-        ("Edit the file", "⌘E"),
+        ("Edit the file, or the role picked in Roles", "⌘E"),
         ("Reload the page", "⌘R"),
         ("Find, next, previous", "⌘F  ⌘G  ⇧⌘G"),
         ("Search", "⌥⌘F"),
@@ -277,7 +276,7 @@ struct KeysSettings: View {
         ("New task below, new subtask", "N  ⇧N"),
         ("Indent, outdent", "⇧→  ⇧←"),
         ("Move up or down", "⇧↑  ⇧↓"),
-        ("Fewer or more subtasks: none, blocking and doing, all", "←  →, or click the chevron"),
+        ("Fewer or more subtasks: none, blocked and doing, all", "←  →, or click the chevron"),
         ("No subtasks or all, on every task under it", "⌥←  ⌥→"),
         ("Next status", "⌘Return, or click the status"),
         ("Status menu", "⌥-click the status"),
@@ -287,6 +286,13 @@ struct KeysSettings: View {
         ("To the Backlog or to Tasks", "⇧⌘B"),
         ("Start Session…", "⌥⌘Return"),
         ("Delete", "⌫  ⌘⌫"),
+    ]
+    static let cardKeys: [(String, String)] = [
+        ("Its terminal, its details", "Return  Space"),
+        ("Walk the cards, an open team's rows", "←  →  ↑  ↓"),
+        ("Show or hide a team's sessions", "⌘↓  ⌘↑, or click its toggle"),
+        ("Move up or down, indent, outdent; on two columns, a card left or right", "⇧↑  ⇧↓  ⇧→  ⇧←"),
+        ("Hide them", "Escape, or click outside"),
     ]
     static let titleKeys: [(String, String)] = [
         ("New task below", "Return"),
@@ -316,11 +322,12 @@ struct KeysSettings: View {
         ("Delete", "⌫"),
     ]
     /// Every list, for the self-test that holds them to the menus.
-    static var all: [(String, String)] { keys + rowKeys + titleKeys + descriptionKeys + noticeKeys }
+    static var all: [(String, String)] { keys + rowKeys + cardKeys + titleKeys + descriptionKeys + noticeKeys }
 
     var body: some View {
         Section("Everywhere") { rows(Self.keys) }
         Section("On a selected task") { rows(Self.rowKeys) }
+        Section("On a session card") { rows(Self.cardKeys) }
         Section {
             rows(Self.titleKeys)
         } header: {

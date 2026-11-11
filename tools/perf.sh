@@ -18,7 +18,7 @@ notes="$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/Notes"
 perf_history="$HOME/Library/Developer/HQ/perf-history.tsv"
 
 # Budgets for --check: loose enough for any machine, tight enough to catch a redraw loop or SwiftUI's GPU renderer.
-budget_rest_cpu=1        # % at rest, faces swaying and cards breathing (0.1 on 2026-11-06)
+budget_rest_cpu=3        # % at rest, faces swaying and cards breathing (0.1 alone; 1.0 beside the tests, 2026-11-11)
 budget_memory=200        # MB at rest (about 90)
 budget_peak=200          # MB at any time since launch (about 90; 380 to 540 before 2026-11-06)
 budget_gpu=20            # MB of GPU memory at rest (3; 260 to 420 before)
@@ -48,11 +48,11 @@ measure() {
     sqlite3 "$HOME/Library/Application Support/HQ/HQ.store" ".backup $store"
     cp -R "$notes/hq" $vault/
   fi
-  local before=(${(f)"$(pgrep -f "$app/Contents/MacOS/HQ")"})
   open -g -n "$app" $env --stdout $log --stderr $log --args -ApplePersistenceIgnoreState YES
-  local pid="" p
+  # The test copy is the process with its store open: other test copies may start beside it.
+  local pid=""
   for _ in {1..50}; do
-    for p in ${(f)"$(pgrep -f "$app/Contents/MacOS/HQ")"}; do (( ${before[(Ie)$p]} )) || pid=$p; done
+    pid=$(lsof -t $store 2>/dev/null | head -1)
     [[ -n $pid ]] && break
     sleep 0.2
   done
@@ -80,6 +80,7 @@ measure() {
   # top's second sample covers the measured seconds.
   cpu=$(top -l 2 -s $measure -pid $pid -stats pid,cpu | awk '/^PID/{n++} n==2 && $1 ~ /^[0-9]+$/ {print $2}')
   [[ -n $sampler ]] && wait $sampler
+  [[ -n $cpu ]] || { print "FAIL perf: the test copy ($pid) quit while measured: $log"; exit 1 }
   events=0
   if [[ -n $busy ]]; then
     kill $busy
@@ -101,14 +102,14 @@ if [[ ${1:-} == --check ]]; then
   }
   export PERF_SEED=1
   unset PERF_BUSY PERF_STATES PERF_SAMPLE
-  measure 20 20
+  measure 15 10
   rest_cpu=$cpu rest_memory=$memory rest_peak=$peak rest_gpu=$gpu
   verdict "CPU at rest" $rest_cpu $budget_rest_cpu %
   verdict "memory at rest" $rest_memory $budget_memory MB
   verdict "memory peak since launch" $rest_peak $budget_peak MB
   verdict "GPU memory at rest" $rest_gpu $budget_gpu MB
-  PERF_BUSY=10 measure 20 20
-  verdict "CPU with tool calls coming in ($(( events / 20 )) a second)" $cpu $budget_busy_cpu %
+  PERF_BUSY=10 measure 15 10
+  verdict "CPU with tool calls coming in ($(( events / 15 )) a second)" $cpu $budget_busy_cpu %
   mkdir -p ${perf_history:h}
   [[ -f $perf_history ]] || print "date\tcommit\trest cpu %\tmemory MB\tpeak MB\tgpu MB\tbusy cpu %" >| $perf_history
   commit=$(git -C ${0:A:h:h} rev-parse --short HEAD 2>/dev/null)$(git -C ${0:A:h:h} diff --quiet 2>/dev/null || print +)

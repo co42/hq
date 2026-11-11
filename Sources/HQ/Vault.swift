@@ -2,13 +2,14 @@ import CoreServices
 import Foundation
 import HQKit
 
-/// HQ's folder in the Obsidian vault (PLAN.md §5): `hq/tasks/T-<n>.md` and any note under
-/// `hq/files/`. The notes are the truth; hq writes only the front matter keys it owns.
+/// HQ's folder in the Obsidian vault (PLAN.md §5): `hq/tasks/T-<n>.md`, any note under
+/// `hq/files/` and the roles, `hq/roles/<Name>.md`. The notes are the truth; hq writes only the front matter keys it owns.
 nonisolated struct Vault: Sendable {
     /// `<vault>/hq`.
     let root: URL
     var tasksDirectory: URL { root.appending(path: "tasks", directoryHint: .isDirectory) }
     var filesDirectory: URL { root.appending(path: "files", directoryHint: .isDirectory) }
+    var rolesDirectory: URL { root.appending(path: "roles", directoryHint: .isDirectory) }
 
     init(vault: URL) {
         root = vault.resolvingSymlinksInPath().appending(path: "hq", directoryHint: .isDirectory)
@@ -18,6 +19,7 @@ nonisolated struct Vault: Sendable {
     struct Cache: Sendable {
         var tasks: [String: (Date, TaskItem)] = [:]
         var files: [String: (Date, FileItem)] = [:]
+        var roles: [String: (Date, RoleItem)] = [:]
     }
 
     // MARK: Reading
@@ -26,7 +28,7 @@ nonisolated struct Vault: Sendable {
     /// A task note that can't be read (still downloading, or caught empty mid-write) keeps its last read, uncached,
     /// and is named in `unreadable` so the caller reads it again.
     /// A vault that can't be listed (iCloud signed out, access revoked) throws: it isn't an empty one.
-    func scan(_ cache: Cache) throws -> (tasks: [TaskItem], files: [FileItem], cache: Cache, unreadable: [String]) {
+    func scan(_ cache: Cache) throws -> (tasks: [TaskItem], files: [FileItem], roles: [RoleItem], cache: Cache, unreadable: [String]) {
         let vault = root.deletingLastPathComponent()
         guard FileManager.default.fileExists(atPath: vault.path) else { throw Unreadable.folder(vault.path) }
         for folder in [tasksDirectory, filesDirectory] where FileManager.default.fileExists(atPath: folder.path) {
@@ -65,7 +67,33 @@ nonisolated struct Vault: Sendable {
                 }
             }
         }
-        return (tasks, files, next, unreadable)
+        var roles: [RoleItem] = []
+        for url in Self.notes(in: rolesDirectory, recursive: false) {
+            let modified = Self.modified(url)
+            if let item = cache.roles[url.path].flatMap({ $0.0 == modified ? $0.1 : nil }) ?? Self.role(at: url, modified: modified) {
+                roles.append(item)
+                next.roles[url.path] = (modified, item)
+            } else {
+                unreadable.append(url.lastPathComponent)
+                if let cached = cache.roles[url.path] {
+                    roles.append(cached.1)
+                    next.roles[url.path] = cached
+                }
+            }
+        }
+        return (tasks, files, roles, next, unreadable)
+    }
+
+    /// A role note: its name is the note's, `color` and `line` in the front matter, the text in the body. Nil while it
+    /// can't be read: the scan keeps its last read.
+    static func role(at url: URL, modified: Date) -> RoleItem? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let note = FrontMatter(text)
+        let name = url.deletingPathExtension().lastPathComponent
+        return RoleItem(name: name, color: note.string("color").flatMap { LabelColor(rawValue: $0.lowercased()) } ?? LabelColor.automatic(name),
+                        line: note.string("line") ?? "", text: note.body.trimmingCharacters(in: .whitespacesAndNewlines),
+                        builtin: RoleItem.defaults.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame },
+                        modified: modified, path: url.path)
     }
 
     /// 12 for `T-12.md`.
@@ -236,6 +264,54 @@ nonisolated struct Vault: Sendable {
         var note = try Self.existing(path, emptyIsFine: true)
         note.body = body
         try write(note, to: URL(fileURLWithPath: path))
+    }
+
+    /// Writes hq's keys of a role, `color` and `line`, and its text. Other keys keep their text.
+    func save(_ role: RoleItem) throws {
+        guard let path = role.path else { return }
+        var note = try Self.existing(path, emptyIsFine: true)
+        note.set("color", role.color.rawValue)
+        optional(&note, "line", role.line)
+        note.body = role.text.isEmpty ? "" : role.text + "\n"
+        try write(note, to: URL(fileURLWithPath: path))
+    }
+
+    /// A new role note, `<Name>.md`, never over one that has the name.
+    func create(_ role: RoleItem) throws -> RoleItem {
+        try FileManager.default.createDirectory(at: rolesDirectory, withIntermediateDirectories: true)
+        var item = role
+        let path = rolesDirectory.appending(path: "\(role.name).md").path
+        guard !FileManager.default.fileExists(atPath: path) else {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSLocalizedDescriptionKey: "a role note \(role.name).md is there already"])
+        }
+        item.path = path
+        try save(item)
+        return item
+    }
+
+    /// A renamed role: its note moves to `<new name>.md`, then takes the role's keys.
+    func rename(_ role: RoleItem, from path: String) throws -> RoleItem {
+        let target = rolesDirectory.appending(path: "\(role.name).md").path
+        if target != path {
+            if target.lowercased() == path.lowercased() {
+                // A change of case alone: through a name of its own, as the disk ignores case.
+                let step = path + ".renaming"
+                try FileManager.default.moveItem(atPath: path, toPath: step)
+                try FileManager.default.moveItem(atPath: step, toPath: target)
+            } else {
+                try FileManager.default.moveItem(atPath: path, toPath: target)
+            }
+        }
+        var item = role
+        item.path = target
+        try save(item)
+        return item
+    }
+
+    /// Whether the roles folder has a note by this name, or iCloud is still bringing one (`.<Name>.md.icloud`).
+    func hasRoleNote(_ name: String) -> Bool {
+        let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: rolesDirectory.path)) ?? []).map { $0.lowercased() })
+        return names.contains("\(name).md".lowercased()) || names.contains(".\(name).md.icloud".lowercased())
     }
 
     // MARK: Migration

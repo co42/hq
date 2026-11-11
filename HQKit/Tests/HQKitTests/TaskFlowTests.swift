@@ -61,21 +61,25 @@ private func story() -> TaskFlow {
     #expect(flow.tally(of: 2).total == 1)
 }
 
-@Test func flowWhatMattersIsBlockingAndDoing() {
+@Test func flowBlockedOrDoingKeepsThemAndTheirParents() {
     let flow = story()
     let tree = TaskTree((1...10).map { TaskTree.Node(id: $0, parent: [9, 10].contains($0) ? 8 : $0 == 1 ? nil : 1, order: Double($0)) })
-    // 3 doing and blocking 4; 6 Blocked but blocking 9; 2 done; 4, 7 and 9 blocked: they don't count.
-    #expect(flow.isBlocking(3) && flow.isBlocking(6) && !flow.isBlocking(2) && !flow.isBlocking(4))
-    #expect(flow.important(under: 1, in: tree, doing: 5) == [3, 6])
-    #expect(flow.important(under: 1, in: tree, doing: 0) == [3, 6])
-    #expect(flow.important(under: 8, in: tree, doing: 5).isEmpty)
-    let deep = TaskFlow([.init(id: 1), .init(id: 2, parent: 1), .init(id: 3, parent: 2, doing: true), .init(id: 4, parent: 1, blockedBy: [5]), .init(id: 5)])
+    // 3 doing, 4 blocked by 3, 6 Blocked, 9 blocked by 6 under 8; 2 done, 5 after 4, 7 blocked by a done task, 10 todo.
+    #expect(flow.blockedOrDoing(under: 1, in: tree) == [3, 4, 6, 8, 9])
+    #expect(flow.blockedOrDoing(under: 8, in: tree) == [9])
+    // 5 only blocks 4: it doesn't show; 2 shows on the way to 3.
+    let deep = TaskFlow([.init(id: 1), .init(id: 2, parent: 1), .init(id: 3, parent: 2, doing: true), .init(id: 4, parent: 1, blockedBy: [5]), .init(id: 5, parent: 1)])
     let deepTree = TaskTree((1...5).map { TaskTree.Node(id: $0, parent: $0 == 3 ? 2 : $0 == 1 ? nil : 1, order: Double($0)) })
-    // 5 blocks 4 and shows; 2 shows on the way to 3.
-    #expect(deep.important(under: 1, in: deepTree, doing: 5) == [2, 3, 5])
+    #expect(deep.blockedOrDoing(under: 1, in: deepTree) == [2, 3, 4])
+    // Every doing one, however many.
     let many = TaskFlow([.init(id: 1)] + (2...9).map { .init(id: $0, parent: 1, doing: true) })
     let wide = TaskTree([.init(id: 1)] + (2...9).map { .init(id: $0, parent: 1, order: Double($0)) })
-    #expect(many.important(under: 1, in: wide, doing: 5) == [2, 3, 4, 5, 6])
+    #expect(many.blockedOrDoing(under: 1, in: wide) == Set(2...9))
+    // Under a Blocked task, a held one shows only when it's doing.
+    let held = TaskFlow([.init(id: 1), .init(id: 2, parent: 1, blocked: true), .init(id: 3, parent: 2), .init(id: 4, parent: 2, doing: true)])
+    let heldTree = TaskTree((1...4).map { TaskTree.Node(id: $0, parent: $0 == 1 ? nil : $0 == 2 ? 1 : 2, order: Double($0)) })
+    #expect(held.state(3) == .held)
+    #expect(held.blockedOrDoing(under: 1, in: heldTree) == [2, 4])
 }
 
 @Test func flowRefusesCirclesAndWhatTheTreeSays() {

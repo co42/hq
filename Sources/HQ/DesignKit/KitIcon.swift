@@ -21,9 +21,12 @@ enum KitIcon: String, CaseIterable {
     case pickDate = "calendar"
     case search = "magnifyingglass"
     case closedSessions = "clock.arrow.circlepath"
+    /// Roles, on the Sessions header and in a role chip: playing a role.
+    case roles = "theatermasks"
+    case role = "theatermasks.fill"
     case disclosure = "chevron.right"
     case disclosed = "chevron.down"
-    /// A task showing only its blocking and doing subtasks: still a chevron, shorter.
+    /// A task showing only its blocked and doing subtasks: still a chevron, shorter.
     case partlyDisclosed = "chevron.compact.down"
     /// A task no session works on: the plain avatar in its face slot.
     case noSession = "person.fill"

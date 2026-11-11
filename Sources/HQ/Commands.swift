@@ -227,11 +227,54 @@ struct HQCommands: Commands {
                 .disabled(session == nil || !menu.sessionCanFocus)
             Button("Show Details") { if let session { model.open(.session(session)) } }
                 .disabled(session == nil)
-            Button("Fork Session") { if let session { model.forkSession(session) } }
+            // ⌘↓ shows and ⌘↑ hides, as Finder's open and enclosing keys, only while the cards have the keyboard.
+            Button(menu.teamShown ? "Hide Its Sessions" : "Show Its Sessions") {
+                guard let session else { return }
+                if menu.teamShown { model.foldTeam() } else { model.toggleTeam(model.sessionTree.root(of: session)) }
+            }
+                .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(menu.teamShown ? .upArrow : .downArrow, modifiers: .command) : nil)
+                .disabled(!menu.sessionHasTeam)
+            Divider()
+            Button("Start Child Session…") { if let session { model.beginStart(parent: session, push: model.modal != nil) } }
+                .disabled(session == nil || !menu.sessionRunning)
+            Button("Start Session from Its History…") { if let session { model.beginStart(history: session, push: model.modal != nil) } }
                 .disabled(session == nil)
+            Divider()
+            Menu("Move Under") {
+                if let session {
+                    ForEach(menu.moveUnder, id: \.self) { id in
+                        if let row = model.sessionRows.first(where: { $0.session.id == id }) {
+                            Button { model.setParent(session, to: id) } label: {
+                                Label { Text(row.session.name) } icon: { Image(nsImage: MenuBarMenu.face(row.session, depth: row.depth)) }
+                            }
+                        }
+                    }
+                }
+            }
+                .disabled(menu.moveUnder.isEmpty)
+            Button("Make Root") { if let session { model.setParent(session, to: nil) } }
+                .disabled(!menu.sessionHasParent)
+            // As the Task menu's moves; their keys only while the cards have the keyboard. A card on two columns moves on
+            // screen: its ⇧→ and ⇧← say Move Right and Move Left.
+            Button("Move Up") { if let session { model.move(session: session, .up) } }
+                .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.upArrow, modifiers: .shift) : nil)
+                .disabled(!menu.sessionUp)
+            Button("Move Down") { if let session { model.move(session: session, .down) } }
+                .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.downArrow, modifiers: .shift) : nil)
+                .disabled(!menu.sessionDown)
+            Button(menu.sessionMovesOnScreen ? "Move Right" : "Indent") { if let session { model.move(session: session, .right) } }
+                .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.rightArrow, modifiers: .shift) : nil)
+                .disabled(!menu.sessionRight)
+            Button(menu.sessionMovesOnScreen ? "Move Left" : "Outdent") { if let session { model.move(session: session, .left) } }
+                .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.leftArrow, modifiers: .shift) : nil)
+                .disabled(!menu.sessionLeft)
             Divider()
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)
+            Button(menu.teamOpenCount > 0 ? "Close Team (\(menu.teamOpenCount) sessions)…" : "Close Team…") {
+                if let session { model.closeTeam(session) }
+            }
+                .disabled(menu.teamOpenCount == 0)
             Divider()
             Button("Randomize Face") { if let session { model.randomizeFace(session) } }
                 .disabled(session == nil)
@@ -250,17 +293,29 @@ struct HQCommands: Commands {
             Divider()
             Button("Closed Sessions") { model.open(.closedSessions) }
                 .disabled(!menu.hasClosed)
+            Button("Roles") { model.openRoles() }
         }
 
         CommandGroup(after: .pasteboard) {
-            Button("Edit File") { if case .file(let id) = model.modal { model.beginFileEdit(id) } }
+            // The open note or role: its text in the editor.
+            Button(menu.canEditRole ? "Edit Role" : "Edit File") {
+                if case .file(let id) = model.modal { model.beginFileEdit(id) } else if model.modal == .roles { model.beginRoleEdit(.text) }
+            }
                 .keyboardShortcut("e")
-                .disabled(!menu.canEditFile)
+                .disabled(!menu.canEditFile && !menu.canEditRole)
         }
     }
 }
 
 extension AppModel {
+    /// Move Under ▸: the open sessions on the page it can sit under, in the page's order; not itself, one of its own, or its
+    /// parent.
+    func moveUnderChoices(for id: SessionItem.ID) -> [SessionItem.ID] {
+        let tree = sessionTree
+        return sessionRows.map(\.session).filter { $0.isRunning && $0.id != id && tree.parent(of: id) != $0.id && tree.canMove(id, under: $0.id) }
+            .map(\.id)
+    }
+
     /// What the menu bar acts on: the open modal's item, else a PR, file or artifact selected on the page.
     var menuRoute: ModalRoute? {
         if let modal { return modal }

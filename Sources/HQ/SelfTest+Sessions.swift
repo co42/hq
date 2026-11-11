@@ -12,6 +12,8 @@ extension SelfTest {
         neverStartedChecks(model)
         clearChecks(model)
         replayOrderChecks(model)
+        await teamChecks(model)
+        await formsChecks(model)
         Ghostty.fake.withLock { $0 = Ghostty.Fake() }
     }
 
@@ -98,7 +100,12 @@ extension SelfTest {
         AppModel.exitWait = .milliseconds(200)
         model.closeSession(id)
         check("Close Session on a working session stops its turn with Escape before /exit",
-              model.ghosttyLog.last == "escape, then type /exit in \(tty)" && model.closingTerminals[pid] == tty, model.ghosttyLog.last ?? "-")
+              model.ghosttyLog.last == "escape, then clear the input, then type /exit in \(tty)" && model.closingTerminals[pid] == tty, model.ghosttyLog.last ?? "-")
+        // Text the user left in Claude's input would turn /exit into a message: Control-C empties it first (T-443).
+        let script = Ghostty.typeScript("/exit", tty: tty, interrupting: true, clearing: true)
+        let keys = ["send key \"escape\"", "send key \"c\" modifiers \"control\"", "input text \"/exit\"", "send key \"enter\""].map { script.range(of: $0)?.lowerBound }
+        check("Close Session's keys: Escape while it works, then Control-C to empty Claude's input, then /exit and Return, in that order",
+              keys.allSatisfy { $0 != nil } && keys.compactMap(\.self) == keys.compactMap(\.self).sorted(), script)
         await expect("a /exit that didn't take never closes the terminal later", model.closingTerminals[pid] == nil)
         AppModel.exitWait = wait
         model.sessions.removeAll { $0.id == id }

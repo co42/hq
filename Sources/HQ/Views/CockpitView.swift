@@ -12,6 +12,8 @@ struct CockpitView: View {
     @FocusState private var keyboard: PageSection?
     /// Each section's top in the scroll view, and the section in view: only the section bar reads it, so scrolling never redraws the page.
     @State private var tops = SectionTops()
+    /// Room at the page's end for an open team's card that reaches past it: only the page's end observes it.
+    @State private var end = PageEnd()
 
     /// The column's leading inset and width: centered on the 4 pt grid, at most `pageMax` wide.
     static func column(_ visible: CGFloat) -> (inset: CGFloat, width: CGFloat) {
@@ -22,6 +24,8 @@ struct CockpitView: View {
 
     var body: some View {
         @Bindable var model = model
+        // Sizes read `Zoom.factor`, which SwiftUI doesn't observe: read here, each step makes the page again at once.
+        let zoom = model.zoom
         let column = Self.column(visible)
         ScrollViewReader { scroller in
             ScrollView {
@@ -32,6 +36,8 @@ struct CockpitView: View {
                         .modifier(SectionTop(section: .pullRequests, tops: tops))
                     SessionsSection(width: column.width)
                         .modifier(SectionTop(section: .sessions, tops: tops))
+                        // An open team's card floats over the next sections.
+                        .zIndex(1)
                     FilesSection(width: column.width)
                         .sectionKeys(.files, focus: $keyboard)
                         .modifier(SectionTop(section: .files, tops: tops))
@@ -39,16 +45,20 @@ struct CockpitView: View {
                         .modifier(SectionTop(section: .tasks, tops: tops))
                 }
                 .frame(width: column.width, alignment: .leading)
+                .uiTestAnchor("page-column")
+                .coordinateSpace(.named(PageEnd.space))
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { end.content = $0 }
+                .onPreferenceChange(OpenTeamBottom.self) { end.openBottom = $0 }
                 .padding(.leading, column.inset)
                 .padding(.top, Metric.pageTitleTop)
-                .padding(.bottom, Space.section)
+                .padding(.bottom, Space.section + end.overflow)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { model.selectSection(nil) }
                 .gridArea("page", inset: 0)
                 .handCursors()
-                .controlSize(Zoom.controlSize(model.zoom))
-                .id(model.zoom)
+                .controlSize(Zoom.controlSize(zoom))
+                .id(zoom)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
             .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.width } action: { _, width in
@@ -70,14 +80,16 @@ struct CockpitView: View {
                 if let problem = model.problem {
                     InlineBanner(message: problem.message, detail: problem.detail, actionTitle: problem.fixTitle) { model.fix(problem) }
                         .frame(width: column.width)
+                        .uiTestAnchor("problem-banner")
                         .padding(.leading, column.inset)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, Space.sm)
+                        .id(zoom)
                 }
             }
             // One row (T-326): the section bar sits in the toolbar, while the window has room for it.
             .toolbar {
-                CockpitToolbar(tops: tops, sections: model.windowSize.width >= Metric.sectionBarWindow) { section in
+                CockpitToolbar(tops: tops, sections: model.windowSize.width >= Metric.sectionBarWindow, zoom: zoom) { section in
                     tops.hold(section)
                     withAnimation(Motion.glide) { scroller.scrollTo(SectionTop.id(section), anchor: .top) }
                 }
@@ -89,6 +101,7 @@ struct CockpitView: View {
                 Ink.content
                 SkyView(mood: model.skyMood)
             }
+            .id(zoom)
             .ignoresSafeArea()
         }
         .navigationTitle("HQ")
@@ -97,11 +110,26 @@ struct CockpitView: View {
         .sheet(isPresented: Binding(get: { model.modal != nil }, set: { if !$0 { model.closeModal() } })) {
             ModalHost()
         }
-        .sheet(isPresented: $model.showSetup) { SetupSheet().handCursors() }
+        .sheet(isPresented: $model.showSetup) { SetupSheet().handCursors().id(zoom) }
     }
 }
 
 /// Where each section starts in the scroll view, unobserved, and the section in view, which the section bar observes.
+/// How far an open team's card reaches past the page's content: the page's end makes that room, and nothing else moves.
+@Observable final class PageEnd {
+    /// The page's content, its coordinate space.
+    nonisolated static let space = "page-content"
+    @ObservationIgnored var content: CGFloat = 0 { didSet { update() } }
+    /// The open team card's bottom in the content; 0 while no team is open.
+    @ObservationIgnored var openBottom: CGFloat = 0 { didSet { update() } }
+    private(set) var overflow: CGFloat = 0
+
+    private func update() {
+        let next = max(0, (openBottom - content).rounded(.up))
+        if next != overflow { overflow = next }
+    }
+}
+
 @Observable final class SectionTops {
     @ObservationIgnored var tops: [PageSection: CGFloat] = [:]
     /// The page scrolls and shows its end: the last section can't reach the line.
@@ -125,7 +153,7 @@ struct CockpitView: View {
 }
 
 /// Reports a section's top as the page scrolls; the section bar follows the section in view.
-private struct SectionTop: ViewModifier {
+struct SectionTop: ViewModifier {
     let section: PageSection
     let tops: SectionTops
 
@@ -222,6 +250,8 @@ private struct SectionBar: View {
 struct CockpitToolbar: ToolbarContent {
     let tops: SectionTops
     let sections: Bool
+    /// The zoom its items were made at: the section bar and the bell are made again at each step.
+    let zoom: CGFloat
     let go: (PageSection) -> Void
     @Environment(AppModel.self) private var model
 
@@ -229,6 +259,7 @@ struct CockpitToolbar: ToolbarContent {
         if sections {
             ToolbarItem(id: "sections", placement: .principal) {
                 SectionBar(tops: tops, go: go)
+                    .id(zoom)
                     .uiTestAnchor("section-bar")
             }
             // Its own glass, with the section in view highlighted inside it.
@@ -236,6 +267,7 @@ struct CockpitToolbar: ToolbarContent {
         }
         ToolbarItem(id: "bell", placement: .navigation) {
             NotificationBell(needs: model.importantCount, updates: model.updateCount, breathing: model.bellBreathes) { model.openCenter() }
+                .id(zoom)
                 .help("\(model.noticeSummary). Open the notifications (⌘J)")
                 .toolbarClickable()
                 .uiTestAnchor("bell")
@@ -290,6 +322,11 @@ struct SessionsSection: View {
         VStack(alignment: .leading, spacing: Space.md) {
             SectionHeader(title: PageSection.sessions.title, count: model.search.isEmpty ? "\(shown.count)" : "\(shown.count) of \(model.gridSessions.count)",
                           open: model.sectionOpen(.sessions), tile: (PageSection.sessions.icon, Ink.section(.sessions))) {
+                // Roles first: it's opened the least.
+                Button { model.openRoles() } label: { HeaderIcon(icon: .roles) }
+                    .help("Roles: what a session starts with, by role")
+                    .accessibilityLabel("Roles")
+                    .uiTestAnchor("roles-button")
                 let closed = model.closedSessions.count
                 Button { model.open(.closedSessions) } label: { HeaderIcon(icon: .closedSessions, count: closed) }
                     .disabled(closed == 0)
@@ -309,7 +346,7 @@ struct SessionsSection: View {
             } else if shown.isEmpty {
                 EmptySection(title: "No Matching Sessions", message: "No session matches “\(model.search)”.") { EmptyView() }
             } else {
-                SessionGrid(sessions: shown, width: width)
+                SessionCards(width: width)
             }
         }
     }

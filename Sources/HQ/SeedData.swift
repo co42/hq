@@ -74,6 +74,47 @@ enum SeedData {
             $0.tool = "Bash"
             $0.toolInput = "kubectl rollout restart deploy/registry-api -n registry-staging"
         })
+        // Teams: a leader with three Workers, one asking, one with a session of its own; a closed leader whose Worker runs.
+        // Children's orders follow their parent's, so the flat list reads as the grid.
+        let lead = "5eed0000-0000-4000-8000-00000000000c", rollout = "5eed0000-0000-4000-8000-00000000000d"
+        sessions += [
+            session(lead, "registry: ready for more customers", .idle, minutes: 180, repo: "registry", branch: "main", order: 3,
+                    last: "Three Workers on the story; the retry budget is in review.") {
+                $0.role = "Leader"
+                $0.tty = "/dev/ttys031"
+            },
+            session("5eed0000-0000-4000-8000-00000000000e", "retry budget: load test", .working, minutes: 6, repo: "registry", branch: "load-test",
+                    order: 3.15, last: "Pushing 40 layers under a 3-attempt budget.") {
+                $0.parent = s1
+                $0.tty = "/dev/ttys032"
+            },
+            session("5eed0000-0000-4000-8000-00000000000f", "registry: dedup layers", .idle, minutes: 300, repo: "registry", branch: "dedup",
+                    order: 3.3, last: "Waiting for the retry budget to land.") {
+                $0.parent = lead
+                $0.role = "Worker"
+                $0.tty = "/dev/ttys033"
+            },
+            session(rollout, "image-sync: v2 rollout", .ended, minutes: 300, repo: "image-sync", branch: "main", order: 4, closed: ago(300),
+                    last: "Workers are on push progress and the canary.") { $0.role = "Leader" },
+        ]
+        for index in sessions.indices {
+            switch sessions[index].id {
+            case s1:
+                sessions[index].parent = lead
+                sessions[index].role = "Worker"
+                sessions[index].order = 3.1
+            case "5eed0000-0000-4000-8000-00000000000b":
+                sessions[index].parent = lead
+                sessions[index].role = "Worker"
+                sessions[index].order = 3.2
+            case s8:
+                sessions[index].parent = rollout
+                sessions[index].role = "Worker"
+                sessions[index].order = 4.1
+            default: break
+            }
+        }
+        model.openTeam = nil
         for index in sessions.indices { sessions[index].faceSalt = 0 }
         model.sessions = sessions
         for index in model.sessions.indices { model.sessions[index].faceSalt = model.faceSalt(for: model.sessions[index].id) }
@@ -194,6 +235,17 @@ enum SeedData {
         ], bellSeenAt: ago(30))
         model.fold = [13: .important]
         model.shownDescriptions = [44]
+        // Roles: the two that ship with HQ, and one of the user's.
+        model.roles = RoleItem.defaults + [
+            RoleItem(name: "Reviewer", color: .pink, line: "Reviews one pull request, never pushes.", text: """
+                You review one pull request; you never push to it.
+
+                - Read the whole diff and the task it closes before writing anything.
+                - Run its checks locally when CI can't tell.
+                - Leave one review: blocking points first, numbered, each with its fix.
+                """, modified: ago(2 * 1_440)),
+        ]
+        model.sortRoles()
     }
 
     /// 500 tasks in nests of up to three levels, and 30 sessions, for the performance check.

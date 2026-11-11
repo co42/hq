@@ -456,11 +456,19 @@ enum AgentCLI {
             return "\(id) [\(status)] \(title)\(tags)\(project)\(flow)\(list)"
         }
         if let id = object["id"] as? String, let state = object["state"] as? String {
-            // A session: its state, name, why it waits, and its folder.
+            // A session: its state, name, role, why it waits, and its folder; in a tree, indented under its parent.
+            let indent = String(repeating: "  ", count: object["depth"] as? Int ?? 0)
+            let role = (object["role"] as? String).map { " · \($0)" } ?? ""
             let reason = (object["reason"] as? String).map { " · \($0)" } ?? ""
             let folder = (object["cwd"] as? String).flatMap { $0.isEmpty ? nil : " · " + ($0 as NSString).abbreviatingWithTildeInPath } ?? ""
             let me = object["thisSession"] as? Bool == true ? " · this session" : ""
-            return "\(id.prefix(8)) [\(state)] \(title)\(reason)\(folder)\(me)"
+            return "\(indent)\(id.prefix(8)) [\(state)] \(title)\(role)\(reason)\(folder)\(me)"
+        }
+        if let name = object["name"] as? String, let color = object["color"] as? String, let line = object["line"] as? String {
+            // A role: its name, color, line, and how many open sessions have it.
+            let users = (object["sessions"] as? [Any])?.count ?? 0
+            let shipped = object["builtin"] as? Bool == true ? " · ships with HQ" + (object["changed"] as? Bool == true ? ", changed" : "") : ""
+            return "\(name) [\(color)]\(line.isEmpty ? "" : " \(line)")\(shipped) · \(users == 0 ? "no" : "\(users)") open session\(users == 1 ? "" : "s")"
         }
         if let url = object["url"] as? String, let state = object["state"] as? String, let number = object["number"] as? Int {
             // "Reviews: Waiting for you", "Yours: Approved by noor".

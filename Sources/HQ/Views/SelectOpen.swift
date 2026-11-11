@@ -88,6 +88,7 @@ extension ModalRoute {
         case .importArtifact: "importArtifact"
         case .start: "start"
         case .closedSessions: "closed"
+        case .roles: "roles"
         case .notifications: "notifications"
         }
     }

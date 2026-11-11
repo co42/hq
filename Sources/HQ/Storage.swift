@@ -37,6 +37,8 @@ final class SessionRecord {
     var faceSalt: Int = 0
     var links: [String] = []
     var faceID: String?
+    var parentID: String?
+    var role: String?
 
     init(_ item: SessionItem) {
         sessionID = item.id
@@ -76,6 +78,8 @@ final class SessionRecord {
         set(\.faceSalt, item.faceSalt)
         set(\.links, item.links)
         set(\.faceID, item.faceID)
+        set(\.parentID, item.parent)
+        set(\.role, item.role)
     }
 
     var item: SessionItem {
@@ -89,7 +93,7 @@ final class SessionRecord {
                            order: order,
                            // A session that ended before the cockpit has no closing time: its state's.
                            closedAt: closedAt ?? (state == .ended ? since : nil),
-                           faceSalt: faceSalt, links: links, faceID: faceID)
+                           faceSalt: faceSalt, links: links, faceID: faceID, parent: parentID, role: role)
     }
 }
 
@@ -236,9 +240,21 @@ enum LaunchLog {
 }
 
 enum AppLog {
+    /// Lines a check makes on purpose, by a part of their text: printed apart from the defects a run finds.
+    static var expected: [String] = []
+    /// The lines written to each log by a test run, those expected aside.
+    static var written: [String: Int] = [:]
+
     static func write(_ line: String, to name: String) {
         // Test runs leave the user's logs alone: the line goes in their output.
-        guard !Store.isOverridden else { return print("  log \(name): \(line)") }
+        if Store.isOverridden, let index = expected.firstIndex(where: line.contains) {
+            expected.remove(at: index)
+            return print("  expected log \(name): \(line)")
+        }
+        guard !Store.isOverridden else {
+            written[name, default: 0] += 1
+            return print("  log \(name): \(line)")
+        }
         let directory = URL.libraryDirectory.appending(path: "Logs/HQ", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: name)

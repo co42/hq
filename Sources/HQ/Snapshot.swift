@@ -55,6 +55,12 @@ enum Snapshot {
             mainWindow?.makeFirstResponder(nil)
             // A page's selected task would dim the next pages' cards.
             if let root = mainWindow?.contentView { views(TaskOutlineView.self, in: root).first?.deselectAll(nil) }
+            // A page's drag over the sessions ends.
+            if let root = mainWindow?.contentView {
+                views(SessionGrid.CardCollection.self, in: root).first?.draggingExited(nil)
+                for team in views(TeamCardView.self, in: root) { team.draggingExited(nil) }
+            }
+            model.openTeam = nil
             scroll(to: 0)
         }
         let pr = "https://github.com/acme/registry/pull/418"
@@ -70,6 +76,16 @@ enum Snapshot {
                 await ready()
                 scrollToBottom()
                 select(task: 36)
+            },
+            // A selected task with every kind of link, one a Slack message too long for a line (T-377, T-429).
+            Page(name: "cockpit-links") { model in
+                reset(model)
+                SeedData.linkEveryKind(model)
+                await ready()
+                if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first {
+                    scroll(toTopOf: outline, below: Metric.skyHeight / 4)
+                }
+                select(task: 13)
             },
             Page(name: "cockpit-descriptions") { model in
                 reset(model)
@@ -88,6 +104,19 @@ enum Snapshot {
                 reset(model)
                 model.folded = [.pullRequests, .files]
             },
+            Page(name: "cockpit-nested") { model in
+                // A block inside a story, with a block of its own: every tray's edges (T-445).
+                reset(model)
+                if let inner = model.addSubtask(to: 51, title: "Token exchange in the init container") {
+                    _ = model.addSubtask(to: inner.id, title: "Read the token from the projected volume")
+                    _ = model.addSubtask(to: inner.id, title: "Refresh it before it expires")
+                }
+                _ = model.addSubtask(to: 51, title: "Retry while the identity isn't ready")
+                await ready()
+                if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first {
+                    scroll(toTopOf: outline, below: Metric.skyHeight / 4)
+                }
+            },
             Page(name: "cockpit-search") { model in
                 reset(model)
                 model.search = "cdn"
@@ -100,11 +129,55 @@ enum Snapshot {
                 reset(model)
                 model.search = "zzzz"
             },
+            // The seed's biggest team open over the cards under it and Files, one of its rows selected.
+            Page(name: "cockpit-team") { model in
+                reset(model)
+                model.openTeam = seedTeam(model)
+                if let lead = model.openTeam, let row = model.team(of: lead).first {
+                    model.selectSection(.sessions)
+                    model.selectedSession = row.session.id
+                }
+                await ready()
+                if let root = mainWindow?.contentView, let grid = views(SessionGrid.GridView.self, in: root).first { scroll(toTopOf: grid, below: Metric.skyHeight / 4) }
+            },
+            // Two drags at once, through AppKit's own drop path, to see both: a session over the second card (its ring) and
+            // over the top of the open team's third row (the line among its rows).
+            Page(name: "cockpit-drop") { model in
+                reset(model)
+                await dragScene(model) { grid, team, rows, loose in
+                    if let row = team.rowFrame(rows[2]) { hover(team, loose, from: grid, at: NSPoint(x: row.midX, y: row.minY + 2)) }
+                    if let card = grid.item(at: IndexPath(item: 1, section: 0))?.view.frame { hover(grid, loose, from: grid, at: NSPoint(x: card.midX, y: card.midY)) }
+                }
+            },
+            // At the user's zoom: its first row's ring, and the line where it lands before the first card, past the grid's edge.
+            Page(name: "cockpit-drop-team") { model in
+                reset(model)
+                model.zoom = 1.15
+                await dragScene(model) { grid, team, rows, loose in
+                    if let row = team.rowFrame(rows[0]) { hover(team, loose, from: grid, at: NSPoint(x: row.midX, y: row.midY)) }
+                    if let card = grid.item(at: IndexPath(item: 0, section: 0))?.view.frame {
+                        let twoColumns = SessionGrid.columns(for: grid.frame.width) > 1
+                        hover(grid, loose, from: grid, at: twoColumns ? NSPoint(x: card.minX + 4, y: card.midY) : NSPoint(x: card.midX, y: card.minY + 3))
+                    }
+                }
+            },
             Page(name: "modal-task", capture: .sheet) { reset($0); $0.open(.task(13)) },
             // Its relations, then its subtasks as the list's cards (2026-11-10).
             Page(name: "modal-task-subtasks", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(16))
+                await ready()
+                guard let sheet = mainWindow?.attachedSheet?.contentView,
+                      let scroll = views(NSScrollView.self, in: sheet).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
+                      let document = scroll.documentView else { return }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(document.frame.height - scroll.contentView.bounds.height, 0)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            },
+            // Its links at the window's end: a long Slack message cut at the end, a web address in the middle (T-429).
+            Page(name: "modal-task-links", capture: .sheet) { model in
+                reset(model)
+                SeedData.linkEveryKind(model)
+                model.open(.task(13))
                 await ready()
                 guard let sheet = mainWindow?.attachedSheet?.contentView,
                       let scroll = views(NSScrollView.self, in: sheet).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
@@ -172,6 +245,41 @@ enum Snapshot {
             Page(name: "modal-review", capture: .sheet) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
             Page(name: "modal-start", capture: .sheet) { reset($0); $0.beginStart(task: 13) },
             Page(name: "modal-closed", capture: .sheet) { reset($0); $0.open(.closedSessions) },
+            // Teams and roles (T-408, T-415, T-411): the form from a team's lead, Roles, a role's text edited, a lead's window,
+            // a team closed together.
+            Page(name: "modal-start-child", capture: .sheet) { model in
+                reset(model)
+                if let lead = seedTeam(model) { model.beginStart(parent: lead) }
+            },
+            Page(name: "modal-start-history", capture: .sheet) { model in
+                reset(model)
+                if let lead = seedTeam(model), let worker = model.team(of: lead).last?.session.id { model.beginStart(history: worker) }
+            },
+            Page(name: "modal-roles", capture: .sheet) { reset($0); $0.openRoles("Leader") },
+            Page(name: "modal-roles-edit", capture: .sheet) { model in
+                reset(model)
+                model.openRoles("Worker")
+                model.beginRoleEdit(.text)
+            },
+            Page(name: "modal-session-team", capture: .sheet) { model in
+                reset(model)
+                if let lead = seedTeam(model) { model.open(.session(lead)) }
+            },
+            Page(name: "modal-closed-team", capture: .sheet) { model in
+                reset(model)
+                if let lead = seedTeam(model) {
+                    for id in [lead] + model.team(of: lead).map(\.session.id) {
+                        guard var item = model.session(id) else { continue }
+                        var live = item.live
+                        live.end(.now)
+                        item.live = live
+                        item.pid = nil
+                        item.closedAt = .now
+                        model.put(item)
+                    }
+                }
+                model.open(.closedSessions)
+            },
             Page(name: "modal-back", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(13))
@@ -198,6 +306,44 @@ enum Snapshot {
     }
 
     private static func scrollToBottom() { scroll(to: 1) }
+
+    /// The page scrolled so a view's top sits `below` points under the window's content top.
+    private static func scroll(toTopOf view: NSView, below: CGFloat) {
+        guard let root = mainWindow?.contentView,
+              let scroll = views(NSScrollView.self, in: root).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
+              let document = scroll.documentView else { return }
+        let frame = view.convert(view.bounds, to: document)
+        let top = -scroll.contentView.contentInsets.top
+        let y = (document.isFlipped ? frame.minY : document.frame.height - frame.maxY) + top - below
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(max(top, y), document.frame.height - scroll.contentView.bounds.height)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+
+    /// The seed's biggest team: its top session.
+    private static func seedTeam(_ model: AppModel) -> String? {
+        model.gridRoots.max { model.team(of: $0.id).count < model.team(of: $1.id).count }.flatMap { model.team(of: $0.id).isEmpty ? nil : $0.id }
+    }
+
+    /// The seed's biggest team open, its card in view, and a session with no team to drag over the grid and its rows.
+    private static func dragScene(_ model: AppModel, _ hovers: (SessionGrid.CardCollection, TeamCardView, [String], String) -> Void) async {
+        model.openTeam = seedTeam(model)
+        await ready()
+        await until { mainWindow?.contentView.map { views(TeamCardView.self, in: $0).contains { $0.content?.open == true } } ?? false }
+        guard let lead = model.openTeam, let root = mainWindow?.contentView, let grid = views(SessionGrid.CardCollection.self, in: root).first,
+              let team = views(TeamCardView.self, in: root).first, case let rows = model.team(of: lead).map(\.session.id), rows.count > 2,
+              let loose = model.gridRoots.last(where: { $0.isRunning && $0.id != lead && model.team(of: $0.id).isEmpty })?.id else {
+            return fail("a drag page: no open team and loose session")
+        }
+        if let page = views(SessionGrid.GridView.self, in: root).first { scroll(toTopOf: page, below: Metric.skyHeight / 4) }
+        hovers(grid, team, rows, loose)
+    }
+
+    /// A dragged session held over a point of a view, as AppKit hands a drag to it.
+    private static func hover(_ view: NSView, _ id: String, from source: NSView, at point: NSPoint) {
+        let drag = FakeDrag(session: id, source: source, at: view.convert(point, to: nil))
+        _ = (view as NSDraggingDestination).draggingEntered?(drag)
+        _ = (view as NSDraggingDestination).draggingUpdated?(drag)
+    }
 
     /// A selected outline row, to see its fill.
     private static func select(task id: Int) {

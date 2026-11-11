@@ -68,11 +68,19 @@ extension AppModel {
             let files = Dictionary(
                 (result.files.filter { !recent.contains($0.path ?? "") } + self.files.filter { recent.contains($0.path ?? "") }).map { ($0.id, $0) },
                 uniquingKeysWith: { _, mine in mine }).values.sorted { $0.id < $1.id }
+            let roles = Dictionary(
+                (result.roles.filter { !recent.contains($0.path ?? "") } + self.roles.filter { recent.contains($0.path ?? "") }).map { ($0.name.lowercased(), $0) },
+                uniquingKeysWith: { _, mine in mine }).values.map { $0 }
             LaunchLog.mark("vault")
             readingVault = true
             if self.tasks != tasks { self.tasks = tasks }
             if self.files != files { self.files = files }
+            if Set(self.roles) != Set(roles) {
+                self.roles = roles
+                sortRoles()
+            }
             readingVault = false
+            writeShippedRoles()
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
@@ -606,7 +614,7 @@ extension AppModel {
             resolveSlack(url)
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: break
         }
     }
 
@@ -622,7 +630,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: break
         }
     }
 
@@ -634,7 +642,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: false
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: false
         }
     }
 
@@ -771,7 +779,7 @@ extension AppModel {
         if let link = url.url { NSWorkspace.shared.open(link) }
     }
 
-    private func trash(_ path: String?) -> URL? {
+    func trash(_ path: String?) -> URL? {
         guard let path else { return nil }
         wrote(path)
         var result: NSURL?
@@ -783,7 +791,7 @@ extension AppModel {
         return result as URL?
     }
 
-    private func untrash(_ trashed: URL?, to path: String?) {
+    func untrash(_ trashed: URL?, to path: String?) {
         guard let trashed, let path else { return }
         wrote(path)
         report { try FileManager.default.moveItem(at: trashed, to: URL(fileURLWithPath: path)) }

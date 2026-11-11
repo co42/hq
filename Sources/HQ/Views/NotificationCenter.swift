@@ -299,7 +299,7 @@ private struct NoticeRow: View {
                 if let session = model.session(notice.source) { SessionFace(session, size: Metric.faceRow + Space.xs) }
                 else { KindTile(icon: .bell, tint: Ink.draftTile) }
             case .github:
-                if let item = model.githubItem(notice.source) { GitHubStateIcon.tile(item) } else { KindTile(icon: .pullRequest, tint: Ink.done) }
+                GitHubStateIcon.tile(url: notice.source ?? "", item: model.githubItem(notice.source))
             case .reminder: KindTile(icon: .reminder, tint: notice.level == .important ? Ink.needsYou : Ink.draftTile)
             }
         }

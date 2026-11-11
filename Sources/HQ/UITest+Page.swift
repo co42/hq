@@ -22,6 +22,91 @@ extension UITest {
         await escapeInForms(model, ui)
         await scenario(model, ui)
         await subtaskToBacklog(model, ui)
+        await scenario(model, ui)
+        await zoomSteps(model, ui)
+        await scenario(model, ui)
+        await linkRows(model, ui)
+    }
+
+    /// View › Zoom In, Zoom Out and Actual Size, as choosing them does. An inactive app's menu bar keeps the state it had,
+    /// so a background run takes their actions; `MenuState`, which turns them on and off, is checked at each step.
+    private static func chooseView(_ model: AppModel, _ title: String) {
+        if NSApp.isActive, let view = NSApp.mainMenu?.items.first(where: { $0.title == "View" })?.submenu,
+           let item = view.items.first(where: { $0.title == title && $0.isEnabled }) {
+            return view.performActionForItem(at: view.index(of: item))
+        }
+        switch title {
+        case "Zoom In": model.zoom(by: 1)
+        case "Zoom Out": model.zoom(by: -1)
+        default: model.zoom = 1
+        }
+    }
+
+    /// Each zoom step lays the page out at once, as a launch at that zoom does: the column, the sky over it, the problem
+    /// banner, the section bar and Quick Open take the step's sizes.
+    private static func zoomSteps(_ model: AppModel, _ ui: Driver) async {
+        model.problem = .githubSignedOut
+        await ui.settle(0.4)
+        func probe(_ name: String) -> NSView? { UITest.anchors[name, default: []].compactMap(\.view).last { $0.window === ui.window } }
+        func gap(_ found: CGFloat?, _ wanted: CGFloat) -> String { found.map { abs($0 - wanted) < 1 ? "" : "\($0) for \(wanted)" } ?? "none for \(wanted)" }
+        /// What's off at this zoom, or nothing.
+        func off() -> [String] {
+            ui.window.layoutIfNeeded()
+            guard let column = probe("page-column"), let visible = column.enclosingScrollView?.contentView.bounds.width else { return ["no column"] }
+            let wanted = CockpitView.column(visible)
+            let sky = ui.find(SkyLayerView.self, in: ui.window.contentView)
+            let bar = probe("section-bar").map { $0.convert($0.bounds, to: nil).height }
+            let shows = model.windowSize.width >= Metric.sectionBarWindow
+            var off = [
+                "column " + gap(column.bounds.width, wanted.width),
+                "inset " + gap(column.convert(column.bounds, to: column.enclosingScrollView?.contentView).minX, wanted.inset),
+                "banner " + gap(probe("problem-banner")?.bounds.width, wanted.width),
+                "sky " + gap(sky?.bounds.height, Metric.skyHeight),
+                "section bar " + (shows ? gap(bar, Metric.sectionBarItem + Metric.lineGap * 2) : bar == nil ? "" : "shown below \(Metric.sectionBarWindow)"),
+                // View's Zoom In, Zoom Out and Actual Size turn on and off by it.
+                "menu " + (MenuState.shared.zoom == model.zoom ? "" : "at \(MenuState.shared.zoom)"),
+            ]
+            if let panel = AppDelegate.shared?.quickOpenPanel {
+                off.append("Quick Open " + gap(panel.contentLayoutRect.width, Metric.quickOpenWidth))
+            }
+            return off.filter { !$0.hasSuffix(" ") }
+        }
+        // Quick Open made at 100%, as the first ⌘K makes it.
+        _ = AppDelegate.shared?.quickOpenPanel.frame
+        for (title, zoom) in [("Zoom In", 1.15), ("Zoom In", 1.3), ("Zoom In", 1.5), ("Zoom Out", 1.3), ("Zoom Out", 1.15), ("Zoom Out", 1), ("Zoom Out", 0.85), ("Actual Size", 1)] as [(String, CGFloat)] {
+            chooseView(model, title)
+            AppDelegate.shared?.quickOpenPanel.fit()
+            await check("View › \(title) to \(Int((zoom * 100).rounded()))%: the page's column, sky, banner, section bar and Quick Open follow at once",
+                        model.zoom == zoom && off().isEmpty, "zoom \(model.zoom): \(off().joined(separator: ", "))")
+        }
+        model.problem = nil
+    }
+
+    /// A task's window lists every kind of link under one title, each with its kind's icon: a PR or an issue GitHub
+    /// hasn't brought yet too.
+    private static func linkRows(_ model: AppModel, _ ui: Driver) async {
+        let pr = "https://github.com/acme/registry/pull/9001", issue = SeedData.unfetchedIssue
+        guard let task = model.addTask(to: .overview, title: "Every kind of link"), let file = model.addFile(title: "Linked note"),
+              let artifact = model.artifacts.first?.id, model.githubItem(pr) == nil, model.githubItem(issue) == nil else {
+            return await check("a task, a file, an artifact and two GitHub links HQ hasn't fetched", false)
+        }
+        let routes: [ModalRoute] = [.github(pr), .github(issue), .file(file.id), .artifact(artifact), .slack(SlackService.fixtureLink), .web(SeedData.webLink)]
+        for route in routes { model.link(route, to: task.id) }
+        await endUndoGroup(model)
+        model.open(.task(task.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(0.6)
+        func missing() -> [String] {
+            routes.filter { route in
+                guard let icon = ui.anchorFrame("kind-icon:\(route.selectionKey)"), let row = ui.anchorFrame("row:\(route.selectionKey)") else { return true }
+                return icon.width < 1 || !row.insetBy(dx: -0.5, dy: -0.5).contains(icon)
+            }.map(\.selectionKey)
+        }
+        await check("each link's row in a task's window shows its kind's icon, a PR and an issue not fetched yet too", missing().isEmpty,
+                    "no icon: \(missing())")
+        await check("and their group's title names every kind: Links", ui.anchorFrame("group:Links") != nil)
+        model.closeModal()
+        await ui.until(2) { ui.window.attachedSheet == nil }
     }
 
     /// A key pressed in the sheet, as AppKit gives it to the key window: its key equivalents first (a button's shortcut),
@@ -118,10 +203,11 @@ extension UITest {
               ui.sheetResponder)
         await typeInSheet(ui, "Sheet note")
         await ui.click(await ui.steadyAnchor("new-file-create"), inSheet: true)
-        let note = model.files.first { $0.title == "Sheet note" }
+        // Looked up again at each try: under load the note comes after the click.
+        func note() -> FileItem? { model.files.first { $0.title == "Sheet note" } }
         await check("Create writes the note and opens it in its editor; Files unfolds with its row selected",
-              note != nil && model.modal == note.map { .file($0.id) } && model.editingFile == note?.id && !model.folded.contains(.files)
-              && model.selectedItem == note.map { ModalRoute.file($0.id).selectionKey }, "\(String(describing: model.modal)) \(model.selectedItem ?? "none")")
+              note() != nil && model.modal == note().map { .file($0.id) } && model.editingFile == note()?.id && !model.folded.contains(.files)
+              && model.selectedItem == note().map { ModalRoute.file($0.id).selectionKey }, "\(String(describing: model.modal)) \(model.selectedItem ?? "none")")
         model.editingFile = nil
         model.closeModal()
         await ui.until(2) { ui.window.attachedSheet == nil }
@@ -171,25 +257,26 @@ extension UITest {
     private static func filteredGridDrag(_ model: AppModel, _ ui: Driver) async {
         guard let collection = ui.find(SessionGrid.CardCollection.self),
               let coordinator = collection.delegate as? SessionGrid.Coordinator else { return await check("the session grid", false) }
-        model.search = "registry"
-        await ui.until(2) { coordinator.ids == model.filteredGrid.map(\.id) }
-        let shown = model.filteredGrid.map(\.id)
-        let all = model.gridSessions.map(\.id)
+        // Two top-level cards say main; the first card doesn't.
+        model.search = "main"
+        await ui.until(2) { coordinator.ids == model.shownRoots.map(\.id) }
+        let shown = model.shownRoots.map(\.id)
+        let all = model.gridRoots.map(\.id)
         guard shown.count >= 2, let first = all.firstIndex(of: shown[0]), first > 0, let moving = shown.last else {
             return await check("a search that hides a card before the first one it shows", false, "\(shown.count) of \(all.count)")
         }
-        let info = FakeDrag(session: moving, source: collection)
+        let info = FakeDrag(session: moving, source: collection, at: cardEdge(0, after: false, collection, coordinator))
         _ = validate(coordinator, collection, info, item: 0, operation: .before)
         await endUndoGroup(model)
-        _ = coordinator.collectionView(collection, acceptDrop: info, indexPath: IndexPath(item: 0, section: 0), dropOperation: .before)
+        _ = coordinator.collectionView(collection, acceptDrop: info, indexPath: IndexPath(item: 0, section: 0), dropOperation: .on)
         await endUndoGroup(model)
         coordinator.dragEnded()
         await ui.settle(0.4)
         var expected = all.filter { $0 != moving }
         expected.insert(moving, at: expected.firstIndex(of: shown[0]) ?? 0)
         await check("a card dropped on a filtered grid lands right before the card it was dropped before",
-              model.gridSessions.map(\.id) == expected, "\(model.gridSessions.map { $0.id.suffix(2) }) for \(expected.map { $0.suffix(2) })")
-        await check("and the grid shows the model's order", coordinator.ids == model.filteredGrid.map(\.id))
+              model.gridRoots.map(\.id) == expected, "\(model.gridRoots.map { $0.id.suffix(2) }) for \(expected.map { $0.suffix(2) })")
+        await check("and the grid shows the model's order", coordinator.ids == model.shownRoots.map(\.id))
     }
 
     /// The cards hold still under a drag: a session that ends mid-drag leaves once it's over, and a drop goes where AppKit
@@ -212,18 +299,18 @@ extension UITest {
         await check("a task dropped on a card links the session it was over, not its new neighbour", model.task(task.id)?.sessions == [target],
               "\(model.task(task.id)?.sessions ?? [])")
         coordinator.dragEnded()
-        await ui.until(2) { coordinator.ids == model.filteredGrid.map(\.id) }
-        await check("the drag over, the card whose session ended leaves", coordinator.ids == model.filteredGrid.map(\.id) && !coordinator.ids.contains(leaving))
+        await ui.until(2) { coordinator.ids == model.shownRoots.map(\.id) }
+        await check("the drag over, the card whose session ended leaves", coordinator.ids == model.shownRoots.map(\.id) && !coordinator.ids.contains(leaving))
 
-        // AppKit's index past the cards: the card goes last, nothing traps.
+        // Let go past the last card, whatever index AppKit gives: the card goes last, nothing traps.
         let moving = coordinator.ids[0]
-        let info = FakeDrag(session: moving, source: collection)
+        let info = FakeDrag(session: moving, source: collection, at: cardEdge(coordinator.ids.count - 1, after: true, collection, coordinator))
         _ = validate(coordinator, collection, info, item: 0, operation: .before)
-        _ = coordinator.collectionView(collection, acceptDrop: info, indexPath: IndexPath(item: coordinator.ids.count + 3, section: 0), dropOperation: .before)
+        _ = coordinator.collectionView(collection, acceptDrop: info, indexPath: IndexPath(item: coordinator.ids.count + 3, section: 0), dropOperation: .on)
         await endUndoGroup(model)
         coordinator.dragEnded()
         await ui.settle(0.4)
-        await check("a drop index past the cards puts the card last", model.gridSessions.last?.id == moving && coordinator.ids.last == moving)
+        await check("a card let go past the last one goes last", model.gridRoots.last?.id == moving && coordinator.ids.last == moving)
     }
 
     /// A PR's page in the modal stays when a poll no longer brings its item (a read notification's thread, a merge from HQ).

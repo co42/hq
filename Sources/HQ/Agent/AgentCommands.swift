@@ -12,15 +12,17 @@ enum AgentCommands {
              "needsYou": model.importantCount, "updates": model.updateCount, "sessions": model.gridSessions.count,
              "tasks": model.tasks.count, "files": model.files.count, "artifacts": model.artifacts.count]
         },
-        AgentCommand(name: "ctx", summary: "Show this session's tasks, what is doing in its project, recent files and artifacts, and the other open sessions.",
+        AgentCommand(name: "ctx", summary: "Show this session's role, the session that started it, its tasks, the sessions it started with their role, state and task, "
+                        + "what is doing in its project, recent files and artifacts, and the other open sessions.",
                      params: [.init(name: "session", help: "a session id (default: the Claude session running the command)"),
                               .init(name: "all", kind: .boolean, help: "the tasks doing in every project, not only this session's")],
                      example: "hq ctx",
-                     output: "{text, session, tasks: [task], overview: [task], elsewhere, files: [file], artifacts: [artifact], sessions: [session]}",
+                     output: "{text, session, startedBy: session, team: [session with depth], tasks: [task], overview: [task], elsewhere, files: [file], artifacts: [artifact], sessions: [session]}",
                      readOnly: true) { args, model in try contextCommand(args, model) },
-        AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts, projects, notifications or reminders. A list that is cut says so on its last line.",
-                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts, projects, notifications (--all: with what was read today) or reminders"),
+        AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts, projects, notifications, reminders or roles. A list that is cut says so on its last line.",
+                     params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts, projects, notifications (--all: with what was read today), reminders or roles"),
                               .init(name: "here", kind: .boolean, help: "sessions: only the ones in this repository (or this folder)"),
+                              .init(name: "tree", kind: .boolean, help: "sessions: the top-level ones, each with the sessions it started under it, indented"),
                               .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
                               .init(name: "parent", help: "tasks: T-12's subtasks, the whole tree under it"),
@@ -30,7 +32,7 @@ enum AgentCommands {
                               .init(name: "limit", kind: .integer, help: "at most this many (default 50; tasks with --overview, --project or --parent: all)"),
                               .init(name: "offset", kind: .integer, help: "skip this many, for the next page")],
                      example: "hq ls tasks --parent T-12",
-                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, list, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, thisSession}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}",
+                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, list, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, role, parent, thisSession, depth (--tree)}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}, a role {name, color, line, builtin, changed, sessions}",
                      readOnly: true) { args, model in try listCommand(args, model) },
         AgentCommand(name: "task show", summary: "Show tasks: the tasks each is part of, its reminders, its description, the tree under it and what's linked to it.",
                      params: [.init(name: "task", required: true, positional: true, list: true, help: "T-12, or several: T-12 T-13"),
@@ -305,29 +307,24 @@ enum AgentCommands {
             model.removeNotice(row.id)
             return ["deleted": row.id.uuidString, "text": row.text]
         },
-        AgentCommand(name: "session new", summary: "Start a fresh, named Claude session in a new Ghostty tab. With --task it works on that task and is linked to it.",
+        AgentCommand(name: "session new", summary: "Start a fresh, named Claude session. Started from a session, it's yours: it sits under you, "
+                        + "opens in your Ghostty window and reports to you. With --task it works on that task and is linked to it.",
                      params: [.init(name: "name", required: true, positional: true, help: "the session's name, short: \"T-12 Dedup layers\""),
                               .init(name: "task", help: "T-12: the task the new session works on"),
-                              .init(name: "cwd", help: "its directory (default: this session's, else the current one)"),
+                              .init(name: "role", help: "a role's name (hq ls roles): the text the session starts with, again on resume and after a compact"),
+                              .init(name: "parent", help: "the session it starts under: its id (6 characters or more) or name; none: the top level (default: this session)"),
+                              .init(name: "beside", kind: .boolean, help: "at this session's level, under the session that started it: a handoff to a fresh session"),
+                              .init(name: "history", help: "a session whose conversation it starts with: its id or name"),
+                              .init(name: "cwd", help: "its directory (default: the --history session's, else this session's, else the current one)"),
                               .init(name: "message", help: "its first message, markdown; - reads stdin (default: one that sends it to the task)")],
-                     example: "hq session new \"T-12 Dedup layers\" --task T-12", output: sessionOutput + "; started") { args, model in
-            var task: TaskItem?
-            if let ref = args.string("task") {
-                guard let found = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
-                task = found
-            }
-            let caller = model.session(args.string(sessionArg))
-            guard let directory = args.string("cwd").map({ ($0 as NSString).expandingTildeInPath }) ?? (caller?.cwd).flatMap({ $0.isEmpty ? nil : $0 }) ?? args.string(cwdArg) else {
-                throw AgentError.usage("name a directory with --cwd")
-            }
-            guard FileManager.default.fileExists(atPath: (directory as NSString).expandingTildeInPath) else { throw AgentError.notFound("no directory \(directory)") }
-            let name = try args.required("name").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { throw AgentError.usage("give the session a name") }
-            let message = args.string("message") ?? task.map { AppModel.taskPrompt($0) } ?? ""
-            let id = model.startSession(named: name, in: directory, task: task?.id, message: message)
-            var json = model.session(id)?.agentJSON(model) ?? ["id": id]
-            json["started"] = "a new Ghostty tab in \(directory)"
-            return json
+                     example: "hq session new \"T-12 Dedup layers\" --task T-12 --role Worker", output: sessionOutput + "; started") { args, model in
+            try newSessionCommand(args, model)
+        },
+        AgentCommand(name: "session edit", summary: "Move a session under another, as Move Under does in HQ, or to the top level with --parent none. Never under its own team.",
+                     params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name"),
+                              .init(name: "parent", help: "the session it goes under: its id or name; none: the top level")],
+                     example: "hq session edit 41ccc6 --parent 8092a3", output: sessionOutput + "; note") { args, model in
+            try editSessionCommand(args, model)
         },
         AgentCommand(name: "session show", summary: "Show a session: its state, name, folder and the tasks it works on.",
                      params: [.init(name: "session", required: true, positional: true, help: "its id, or the start of it (6 characters or more)")],
@@ -339,6 +336,29 @@ enum AgentCommands {
             var json = session.agentJSON(model)
             if session.id == args.string(sessionArg) { json["thisSession"] = true }
             return json
+        },
+        AgentCommand(name: "role show", summary: "Show a role: its color, its line, the text a session with it starts with, and the open sessions that have it.",
+                     params: [.init(name: "role", required: true, positional: true, help: "its name, as hq ls roles lists it")],
+                     example: "hq role show Leader", output: roleOutput + "; body, text", readOnly: true) { args, model in try roleShowCommand(args, model) },
+        AgentCommand(name: "role new", summary: "Make a role: a note in HQ's roles, its text what a session started with it gets, at start, on resume and after a compact.",
+                     params: [.init(name: "name", required: true, positional: true, help: "its name, short: Reviewer"),
+                              .init(name: "line", help: "one line: what a session with it does"),
+                              .init(name: "color", help: "its chip's color: red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown or gray (default: from its name)"),
+                              .init(name: "body", help: "its text in markdown; - reads stdin")],
+                     example: "hq role new Reviewer --line \"Reviews one pull request, never pushes.\" --color pink --body -", output: roleOutput + "; text") { args, model in
+            try roleNewCommand(args, model)
+        },
+        AgentCommand(name: "role edit", summary: "Change a role's name, line, color or text. Its sessions get a new text when they next start, resume or compact; a new name follows to them.",
+                     params: [.init(name: "role", required: true, positional: true, help: "its name"),
+                              .init(name: "name", help: "a new name: the note is renamed"),
+                              .init(name: "line", help: "the new line"),
+                              .init(name: "color", help: "the new color"),
+                              .init(name: "body", help: "the new text in markdown; - reads stdin")],
+                     example: "hq role edit Reviewer --line \"Reviews one PR\"", output: roleOutput + "; text") { args, model in try roleEditCommand(args, model) },
+        AgentCommand(name: "role delete", summary: "Delete a role: its note goes to the Trash. Sessions that have it keep the text they started with.",
+                     params: [.init(name: "role", required: true, positional: true, help: "its name")],
+                     example: "hq role delete Reviewer --yes", output: "{deleted: name}, or without --yes {wouldDelete: name}", destructive: true) { args, model in
+            try roleDeleteCommand(args, model)
         },
         AgentCommand(name: "hook", summary: "Report a Claude Code hook event (used by the hq plugin). Always exits 0; while HQ is off, the event waits for its next launch.",
                      params: [.init(name: "event", help: "the hook's JSON, read from stdin by the CLI"),
@@ -534,7 +554,7 @@ enum AgentCommands {
     static let taskOutput = "{id, title, status, list, project, parent, tags, links, related, sessions, state, flow, blocked, blockedReason, blockedBy, after, modified}"
     static let fileOutput = "{name, title, path, modified, tasks}"
     static let noticeOutput = "{id, section, level, kind, text, at, due, when, read, source, links: [{kind, title, id | name | url}]}"
-    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, thisSession}"
+    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, role, parent, thisSession}"
 
     /// What each session last read of each description, as a digest: `task edit --body` refuses to write over a newer one.
     private static var reads: [String: [Int: Int]] = [:]
@@ -670,6 +690,8 @@ extension SessionItem {
                                 "cwd": cwd, "branch": branch, "tasks": model.tasks(of: id).map(\.key)]
         if let reason { json["reason"] = reason }
         if closedAt != nil { json["closed"] = true }
+        if let role = model.role(named: role) { json["role"] = role.name }
+        if let parent = model.parentSession(of: id) { json["parent"] = parent.id }
         return json
     }
 }
@@ -767,7 +789,7 @@ extension AppModel {
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
         case .web(let url): ["kind": "web", "title": title(of: route), "url": url]
         case .slack(let url): ["kind": "slack", "title": title(of: route), "url": url]
-        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: ["kind": "other", "title": title(of: route)]
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: ["kind": "other", "title": title(of: route)]
         }
     }
 
@@ -813,8 +835,12 @@ extension AgentCommands {
         let files = model.files.filter { file in file.sessions.contains(session.id) || file.tasks.contains(where: mineIDs.contains) }
             .sorted { $0.modified > $1.modified }
         let artifacts = model.artifacts.filter { $0.session == session.id }.sorted { $0.published > $1.published }
-        let others = model.sessions.filter { $0.id != session.id && $0.closedAt == nil }
-        var text = ["This session: \(session.name)"]
+        let team = teamContext(session, model)
+        let teamIDs = Set(model.team(of: session.id).map(\.session.id) + [model.parentSession(of: session.id)?.id].compactMap { $0 })
+        let others = model.sessions.filter { $0.id != session.id && $0.closedAt == nil && !teamIDs.contains($0.id) }
+        let role = model.role(named: session.role)
+        var text = ["This session: \(session.name)" + (role.map { " · \($0.name), its text arrives at start, resume and compact (hq role show \($0.name))" } ?? "")]
+        text += team.started
         text.append(mine.isEmpty ? "Works on: no task yet (hq task link T-n, or the user drops one on its card)" : "Works on:")
         // Open tasks in full; done ones only counted, the latest few named, so a long session's list stays short.
         let open = mine.filter { $0.status != .done }
@@ -823,6 +849,7 @@ extension AgentCommands {
         if !done.isEmpty {
             text.append("  \(done.count) done" + (done.count > 3 ? ", latest " : ": ") + done.prefix(3).map(\.key).joined(separator: ", "))
         }
+        text += team.team
         let shown = every ? 40 : 15
         if !overview.isEmpty {
             text.append(every || projects.isEmpty ? "Doing:" : "Doing in \(projects.sorted().joined(separator: ", ")):")
@@ -844,20 +871,22 @@ extension AgentCommands {
             text.append("Other open sessions:")
             text += others.prefix(12).map { "  \($0.name) (\($0.status.title.lowercased()))" }
         }
-        return ["text": text.joined(separator: "\n"), "session": session.agentJSON(model),
-                "tasks": mine.map { $0.agentJSON(model) }, "overview": overview.prefix(shown).map { $0.agentJSON(model) }, "elsewhere": elsewhere,
-                "files": files.prefix(10).map(\.agentJSON), "artifacts": artifacts.prefix(10).map(\.agentJSON),
-                "sessions": others.map { $0.agentJSON(model) }]
+        var json: JSONObject = ["text": text.joined(separator: "\n"), "session": session.agentJSON(model),
+                                "tasks": mine.map { $0.agentJSON(model) }, "overview": overview.prefix(shown).map { $0.agentJSON(model) }, "elsewhere": elsewhere,
+                                "files": files.prefix(10).map(\.agentJSON), "artifacts": artifacts.prefix(10).map(\.agentJSON),
+                                "sessions": others.map { $0.agentJSON(model) }]
+        json.merge(team.json) { _, new in new }
+        return json
     }
 
     static func listCommand(_ args: Args, _ model: AppModel) throws -> Any {
         let kind = args.string("kind") ?? "sessions"
         // Each filter applies to some kinds only: given to another, it's a mistake, not a no-op.
-        let takes: [String: Set<String>] = ["sessions": ["all", "here"], "tasks": ["overview", "backlog", "parent", "project", "tag", "all"],
+        let takes: [String: Set<String>] = ["sessions": ["all", "here", "tree"], "tasks": ["overview", "backlog", "parent", "project", "tag", "all"],
                                             "prs": ["all"], "notifications": ["all"], "reminders": ["all"]]
-        for flag in ["here", "overview", "backlog", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
+        for flag in ["here", "tree", "overview", "backlog", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
             let kinds = takes.filter { $0.value.contains(flag) }.keys.sorted().joined(separator: ", ")
-            guard ["sessions", "tasks", "prs", "files", "artifacts", "projects", "notifications", "reminders"].contains(kind) else { break }
+            guard ["sessions", "tasks", "prs", "files", "artifacts", "projects", "notifications", "reminders", "roles"].contains(kind) else { break }
             throw AgentError.usage("--\(flag) is for \(kinds), not \(kind)")
         }
         let all = try args.bool("all") ?? false
@@ -865,18 +894,21 @@ extension AgentCommands {
         let items: [JSONObject]
         switch kind {
         case "sessions":
-            var sessions = all ? model.sessions.sorted { $0.order < $1.order } : model.gridSessions
+            // As a tree: each top-level session, then its team, depth first.
+            let tree = try args.bool("tree") == true
+            var rows = tree ? treeRows(model, all: all) : (all ? model.sessions.sorted { $0.order < $1.order } : model.gridSessions).map { (session: $0, depth: 0) }
             if try args.bool("here") == true {
                 let root = repository(of: args.string(cwdArg) ?? FileManager.default.currentDirectoryPath)
-                sessions = sessions.filter { session in
+                rows = rows.filter { session, _ in
                     let cwd = (session.cwd as NSString).expandingTildeInPath
                     return cwd == root || cwd.hasPrefix(root + "/")
                 }
             }
             let caller = args.string(sessionArg)
-            items = sessions.map { session in
+            items = rows.map { session, depth in
                 var json = session.agentJSON(model)
                 if session.id == caller { json["thisSession"] = true }
+                if tree { json["depth"] = depth }
                 return json
             }
         case "tasks":
@@ -898,8 +930,9 @@ extension AgentCommands {
                     && (args.string("tag").map { tag in task.tags.contains(tag.replacingOccurrences(of: "#", with: "")) } ?? true)
             }.map { $0.agentJSON(model) }
         case "prs":
-            // As on the page: Reviews (every one, whatever its filter), then Yours, then the other linked ones.
-            let reviews = model.allReviewRequests, yours = model.ownPullRequests
+            // As on the page: Reviews (every one, whatever its filter, but those reminded later), then Yours, then the other linked ones.
+            let reminded = model.remindedLater
+            let reviews = model.allReviewRequests.filter { !reminded.contains($0.url) }, yours = model.ownPullRequests
             let shown = Set((reviews + yours).map(\.url))
             let others = (model.github?.items ?? []).filter { !shown.contains($0.url) && (all || $0.state == .open || $0.state == .draft) }
             @MainActor func json(_ item: GitHubItem, card: String?) -> JSONObject {
@@ -928,9 +961,11 @@ extension AgentCommands {
             items = model.notices.filter { $0.kind == .reminder && (all || $0.readAt == nil) }
                 .sorted { ($0.dueAt ?? $0.at) < ($1.dueAt ?? $1.at) }
                 .map { model.noticeJSON($0, section: model.section(of: $0)) }
+        case "roles":
+            items = model.roles.map { $0.agentJSON(model) }
         default:
             let hint = kind == "folders" ? " (a project has the folder: hq ls projects)" : ""
-            throw AgentError.usage("no kind \"\(kind)\". Kinds: sessions, tasks, prs, files, artifacts, projects, notifications, reminders\(hint)")
+            throw AgentError.usage("no kind \"\(kind)\". Kinds: sessions, tasks, prs, files, artifacts, projects, notifications, reminders, roles\(hint)")
         }
         let limit = try args.int("limit", default: narrowed ? Int.max : 50)
         let offset = try args.int("offset", default: 0)

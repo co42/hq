@@ -126,9 +126,15 @@ final class QuickOpenPanel: NSPanel {
         isVisible ? dismiss() : show(over: window)
     }
 
+    /// Its size at the zoom it shows at.
+    func fit() {
+        setContentSize(CGSize(width: Metric.quickOpenWidth, height: Metric.quickOpenHeight))
+    }
+
     func show(over window: NSWindow?) {
         model.quickOpenQuery = ""
         model.quickOpenIndex = 0
+        fit()
         if let frame = window?.frame {
             // Centered across, in the upper third, like Spotlight over its window.
             setFrameOrigin(NSPoint(x: frame.midX - self.frame.width / 2,
@@ -161,6 +167,8 @@ struct QuickOpenView: View {
 
     var body: some View {
         @Bindable var model = model
+        // Made again at each zoom step, as the page is.
+        let zoom = model.zoom
         let results = QuickOpen.results(model, query: model.quickOpenQuery)
         let index = min(model.quickOpenIndex, max(results.count - 1, 0))
         VStack(spacing: 0) {
@@ -252,6 +260,7 @@ struct QuickOpenView: View {
         .frame(width: Metric.quickOpenWidth, height: Metric.quickOpenHeight)
         .onChange(of: model.quickOpenQuery) { model.quickOpenIndex = 0 }
         .glassEffect(.regular, in: .rect(cornerRadius: Radius.quickOpen))
+        .id(zoom)
     }
 
     private func actionHint(_ title: String, key: String) -> some View {
@@ -269,7 +278,7 @@ struct QuickOpenView: View {
         case .task(let id):
             if let task = model.task(id) { TaskGlyph(status: task.status) }
         case .github(let url):
-            if let item = model.githubItem(url) { GitHubStateIcon(item: item) }
+            GitHubStateIcon(url: url, item: model.githubItem(url))
         case .file: KitIcon.file.image.foregroundStyle(.secondary)
         case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary)
         default: EmptyView()

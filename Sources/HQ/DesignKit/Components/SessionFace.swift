@@ -21,6 +21,10 @@ struct SessionFace: View {
     var working = false
     /// "registry: retry budget, asks".
     var label: String?
+    /// A team's small face: its state as a glyph badge (working, needs the user, failed, done and unread; idle none).
+    var state: SessionGlyphKind?
+    /// In a team's tray: the card takes its click, and the tray's tooltip names it.
+    var inTray = false
 
     /// `badged`: false where something else already says it needs the user (its own glowing card), or where it doesn't
     /// matter (the maker of a file): orange stays for what waits on the user (2026-11-11).
@@ -32,6 +36,15 @@ struct SessionFace: View {
         working = session.isWorking
         label = "\(session.name), \(session.status.title.lowercased())" + (session.status.isNew ? ", new" : "")
         self.session = session.id
+    }
+
+    /// A team's face on its card (DESIGN.md §10): its state as a glyph badge; its card takes the click.
+    init(team session: SessionItem, size: CGFloat = Metric.faceTeam) {
+        self.init(session, size: size, badged: false)
+        let kind = SessionGlyphKind(session.status)
+        state = [.idle, .ended].contains(kind) ? nil : kind
+        label = "\(session.name), \(session.stateWords.lowercased())"
+        inTray = true
     }
 
     init(spec: FaceSpec, size: CGFloat, badge: FaceArt.Badge? = nil, ended: Bool = false, label: String? = nil) {
@@ -58,12 +71,31 @@ struct SessionFace: View {
                     .accessibilityHidden(true)
             }
         }
-        .overlay { if let session, Self.click != nil { ClickTarget { Self.click?(session, $0) } } }
-        .pointerStyle(session == nil || Self.click == nil ? nil : .link)
-        .help(session == nil ? label ?? "" : "\(label ?? "Session"): click for its menu")
+        .overlay(alignment: .bottomTrailing) {
+            if let state {
+                // The glyph on a disc of the card's color, ringed so it cuts into the face.
+                SessionGlyph(kind: state)
+                    .scaleEffect(Metric.teamBadge / Metric.glyphSlot)
+                    .frame(width: Metric.teamBadge, height: Metric.teamBadge)
+                    .padding(Metric.badgeRing * 0.75)
+                    .background(Ink.card, in: Circle())
+                    .alignmentGuide(.trailing) { $0[.trailing] - Metric.badgeRing - 1 }
+                    .alignmentGuide(.bottom) { $0[.bottom] - Metric.badgeRing - 1 }
+                    .accessibilityHidden(true)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            if !inTray, let session, Self.click != nil {
+                ClickTarget { Self.click?(session, $0) }
+            }
+        }
+        .pointerStyle(!inTray && (session == nil || Self.click == nil) ? nil : .link)
+        // A team's faces leave the tooltip to their tray, which names them all.
+        .modifier(FaceHelp(text: inTray ? nil : session == nil ? label ?? "" : "\(label ?? "Session"): click for its menu"))
         .accessibilityElement()
         .accessibilityLabel(label ?? "Session")
-        .modifier(FaceActions(session: session))
+        .modifier(FaceActions(session: inTray ? nil : session))
     }
 
 }
@@ -97,6 +129,15 @@ struct ClickTarget: NSViewRepresentable {
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) { action?(self) }
         override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+}
+
+/// A face's tooltip, or none where its container's says it.
+private struct FaceHelp: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text { content.help(text) } else { content }
     }
 }
 

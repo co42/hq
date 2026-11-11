@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Every check, in one run, beside your own HQ: the test copy's build, unit tests, lints, self-test, UI test, snapshots
 # and their layout, side by side where they can be. Each step's output goes to /tmp/HQ-check/<step>.log.
-# Usage: tools/check.sh                 everything, on the release build HQ ships (under 2 minutes)
+# Usage: tools/check.sh                 everything, on the release build HQ ships: 2 minutes at most, or it fails
 #        tools/check.sh --fast          the same on a debug build: seconds to build after an edit, while working
 #        tools/check.sh --release       everything, the perf budgets, then the stamp ./build.sh asks for
 #        CHECK_SKIP=uitest,snap tools/check.sh
@@ -56,21 +56,23 @@ step unit swift test --package-path HQKit --scratch-path ~/Library/Developer/HQ/
 step grid-lint tools/grid-lint.sh
 step perf-lint tools/perf-lint.sh
 step code-lint tools/code-lint.sh
-step docs-lint tools/docs-lint.sh
 collect
 if ! verdict build; then
   cat $logs/build.result; tail -20 $logs/build.log; exit 1
 fi
+# docs-lint reads `hq help` from the test copy the build just installed.
+step docs-lint tools/docs-lint.sh
 step selftest tools/selftest.sh
 step uitest tools/uitest.sh
 step snap tools/snap.sh
+# The perf budgets measure the CPU of a test copy at rest: its own, so the runs beside it change it little.
+[[ $mode == release ]] && step perf tools/perf.sh --check
 collect
 verdict snap && step layout zsh -c 'swift tools/check-layout.swift /tmp/HQ-shots/*-layout.json'
-# The perf budgets measure a test copy at rest: alone.
 collect
-[[ $mode == release ]] && { step perf tools/perf.sh --check; collect }
 
-# A run-time repair is a defect found at run time: each one the app logged, from any test copy.
+# A line in outline.log is a defect found at run time, from any test copy: it fails the run. A check that makes one on purpose
+# names it in AppLog.expected, and it prints as "expected log".
 repairs=$(grep -h "^  log outline.log: " $logs/uitest.log $logs/snap.log $logs/selftest.log 2>/dev/null | sed 's/^  log outline.log: //' | sort | uniq -c | sort -rn)
 
 failed=0
@@ -78,8 +80,11 @@ for name in $order; do
   cat $logs/$name.result
   grep -q "^FAIL" $logs/$name.result && failed=1
 done
+# Every run, build included, takes 2 minutes at most: a slower one fails, and the step times above say which grew.
+budget=120
+(( SECONDS - started > budget )) && { print "FAIL  time: $(( SECONDS - started ))s, over the ${budget}s budget"; failed=1 }
 grep -q "warning:" $logs/build.log && print "WARN  build has warnings: $logs/build.log"
-[[ -n $repairs ]] && { print "WARN  the outline repaired itself $(print -r -- $repairs | awk '{n+=$1} END {print n}') times (outline.log):"; print -r -- $repairs | head -8 | sed 's/^/        /' }
+[[ -n $repairs ]] && { print "FAIL  the outline found $(print -r -- $repairs | awk '{n+=$1} END {print n}') defects at run time (outline.log):"; print -r -- $repairs | head -8 | sed 's/^/        /'; failed=1 }
 for log in uitest selftest snap; do grep -h -E "^(UITEST|SELFTEST|SNAPSHOT) (PASS|FAIL|[0-9]+ images)" $logs/$log.log 2>/dev/null | tail -1; done
 # Every failed check by name, and what a test copy that crashed left.
 grep -h -E "^(FAIL|SNAPSHOT FAIL|UITEST .* ended without)" $logs/uitest.log $logs/selftest.log $logs/snap.log 2>/dev/null | head -30 | sed 's/^/  /'

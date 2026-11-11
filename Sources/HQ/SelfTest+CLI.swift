@@ -189,4 +189,113 @@ extension SelfTest {
         model.deleteTasks([story, linked, later, mine, sibling, away].map(id))
         for name in ["CLI dated plan", "CLI today plan"] { if let file = model.files.first(where: { $0.title == name }) { model.deleteFile(file.id) } }
     }
+
+    /// Teams and roles through hq (T-407, T-414): session new under its caller, beside it, with a role and a history;
+    /// session edit --parent; ctx with the team; ls sessions --tree; ls roles; role show, new, edit, delete; each refusal.
+    static func cliTeamChecks(_ model: AppModel) async {
+        func failure(_ result: JSONObject) -> (code: String, message: String)? {
+            (result["error"] as? JSONObject).map { ($0["code"] as? String ?? "", $0["message"] as? String ?? "") }
+        }
+        let lead = "c11ea100-0000-4000-8000-000000000001", other = "c11ea200-0000-4000-8000-000000000002"
+        let folder = NSTemporaryDirectory()
+        model.put(SessionItem(id: lead, customName: "CLI lead", status: SessionStatus(state: .idle, since: .now), cwd: folder, repo: "cli", branch: "main",
+                              started: .now, tty: "/dev/ttys077", order: model.nextGridOrder, role: "Leader"))
+        model.put(SessionItem(id: other, customName: "CLI other lead", status: SessionStatus(state: .idle, since: .now), cwd: "/tmp", repo: "cli", branch: "other",
+                              started: .now, order: model.nextGridOrder))
+        guard let task = model.addTask(to: .overview, title: "CLI team piece", session: lead) else { return check("a task for the team", false) }
+
+        // session new: under its caller, in its Ghostty window, with a role.
+        var log = model.ghosttyLog.count
+        let worker = agent("session new", ["name": "CLI worker", "task": task.key, "role": "worker", "_session": lead])
+        let workerID = worker["id"] as? String ?? ""
+        check("session new from a session starts under it, with its role, in a tab of its Ghostty window",
+              model.session(workerID)?.parent == lead && model.session(workerID)?.role == "Worker" && worker["role"] as? String == "Worker"
+              && worker["parent"] as? String == lead && model.ghosttyLog.count == log + 1
+              && model.ghosttyLog.last?.hasPrefix("new tab in the window of /dev/ttys077, in \(folder): claude --session-id \(workerID)") == true
+              && (worker["started"] as? String)?.contains("it reports to you") == true, "\(worker) \(model.ghosttyLog.last ?? "-")")
+        let beside = agent("session new", ["name": "CLI handoff", "beside": "true", "_session": workerID])
+        check("--beside starts it at the caller's level: under the caller's parent", model.session(beside["id"] as? String)?.parent == lead, "\(beside)")
+        let top = agent("session new", ["name": "CLI top", "parent": "none", "_session": lead])
+        check("--parent none starts it at the top level", (top["id"] as? String).map { model.session($0)?.parent == nil && model.session($0) != nil } == true, "\(top)")
+        log = model.ghosttyLog.count
+        let named = agent("session new", ["name": "CLI under other", "parent": "CLI other lead", "history": String(lead.prefix(8)), "_session": lead])
+        check("--parent takes a name, --history a session's conversation and its folder; a parent not in Ghostty opens a tab in the front window",
+              model.session(named["id"] as? String)?.parent == other && model.ghosttyLog.count == log + 1
+              && model.ghosttyLog.last?.hasPrefix("new tab in \(folder): claude --resume \(lead) --fork-session") == true, model.ghosttyLog.last ?? "-")
+        let both = failure(agent("session new", ["name": "CLI both", "beside": "true", "parent": "none", "_session": lead]))
+        let alone = failure(agent("session new", ["name": "CLI alone", "beside": "true", "cwd": folder]))
+        let noRole = failure(agent("session new", ["name": "CLI no role", "role": "Pilot", "_session": lead]))
+        let noParent = failure(agent("session new", ["name": "CLI no parent", "parent": "nobody-at-all", "_session": lead]))
+        check("--beside with --parent, or outside a session, is refused", both?.code == "usage" && alone?.code == "usage", "\(String(describing: both)) \(String(describing: alone))")
+        check("an unknown role is refused, naming the roles", noRole?.code == "not_found" && noRole?.message.contains("Roles: Leader, Worker") == true, noRole?.message ?? "-")
+        check("an unknown session is refused, naming the open ones, the latest first", noParent?.code == "not_found"
+              && noParent?.message.contains("Open sessions: ") == true && noParent?.message.contains("CLI worker") == true, noParent?.message ?? "-")
+        let refused = model.sessions.filter { ["CLI both", "CLI alone", "CLI no role", "CLI no parent"].contains($0.name) }
+        check("and a refused one starts nothing", refused.isEmpty, "\(refused.map(\.name))")
+
+        // session edit --parent: Move Under, Make Root, never under its own team.
+        let handoff = beside["id"] as? String ?? ""
+        let moved = agent("session edit", ["session": handoff, "parent": String(workerID.prefix(8))])
+        check("session edit --parent moves it under another", model.session(handoff)?.parent == workerID && moved["note"] as? String == "Moved under “CLI worker”", "\(moved)")
+        let loop = failure(agent("session edit", ["session": lead, "parent": handoff]))
+        let itself = failure(agent("session edit", ["session": lead, "parent": lead]))
+        check("never under a session of its own team, nor itself", loop?.code == "invalid" && loop?.message.contains("its own team") == true
+              && itself?.code == "invalid" && model.session(lead)?.parent == nil, "\(String(describing: loop)) \(String(describing: itself))")
+        check("without --parent it says what to change", failure(agent("session edit", ["session": handoff]))?.code == "usage")
+        agent("session edit", ["session": handoff, "parent": "none"])
+        check("--parent none makes it a root", model.session(handoff)?.parent == nil)
+        check("a move that changes nothing says so", (agent("session edit", ["session": handoff, "parent": "none"])["note"] as? String)?.hasPrefix("Nothing changed") == true)
+        agent("session edit", ["session": handoff, "parent": lead])
+
+        // ctx: the role, who started it, and its sessions with their role, state and task.
+        let leadCtx = agent("ctx", ["_session": lead])
+        let leadText = leadCtx["text"] as? String ?? ""
+        check("hq ctx shows the session's role and its sessions with their role, state and task, indented",
+              leadText.hasPrefix("This session: CLI lead · Leader") && leadText.contains("Your sessions (")
+              && leadText.contains("\n  \(workerID.prefix(8)) [idle] CLI worker · Worker · \(task.key)")
+              && (leadCtx["team"] as? [JSONObject])?.compactMap { $0["id"] as? String }.contains(handoff) == true, leadText)
+        let workerText = agent("ctx", ["_session": workerID])["text"] as? String ?? ""
+        check("and the session that started it, with how to message it", workerText.contains("Started by: CLI lead (Leader, idle) · \(lead.prefix(8)). You report to it: SendMessage, to “CLI lead”")
+              && !workerText.contains("Other open sessions:\n  CLI lead"), workerText)
+
+        // ls sessions --tree, ls roles.
+        let tree = agent("ls", ["kind": "sessions", "tree": "true"])
+        let rows = (tree["sessions"] as? [JSONObject] ?? []).map { ($0["id"] as? String ?? "", $0["depth"] as? Int ?? -1) }
+        let at = rows.firstIndex { $0.0 == lead }
+        check("ls sessions --tree lists each team under its top session, with depths", at.map { rows.indices.contains($0 + 1) && rows[$0 + 1] == (workerID, 1) && rows[$0].1 == 0 } == true
+              && AgentCLI.human(tree).contains("\n  \(workerID.prefix(8)) [Idle] CLI worker · Worker"), "\(rows.suffix(6))")
+        check("--tree is for sessions only", failure(agent("ls", ["kind": "tasks", "tree": "true"]))?.code == "usage")
+        let roles = agent("ls", ["kind": "roles"])
+        check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(2).compactMap { $0["name"] as? String } == ["Leader", "Worker"]
+              && AgentCLI.human(roles).hasPrefix("Leader [indigo] Follows a story and keeps it moving. Never writes the code. · ships with HQ · "), AgentCLI.human(roles))
+
+        // role show, new, edit, delete.
+        let shown = AgentCLI.human(agent("role show", ["role": "worker"]))
+        check("role show prints its line, its text and who uses it", shown.hasPrefix("Worker [brown] · ships with HQ · ") && shown.contains(RoleItem.workerText)
+              && shown.contains("\n\nUsed by:\n") && shown.contains("\n  \(workerID.prefix(8)) [idle] CLI worker"), shown)
+        let made = agent("role new", ["name": "CLI Reviewer", "line": "Reviews one PR.", "color": "pink", "body": "Read the diff.\n"])
+        check("role new makes its note", model.role(named: "CLI Reviewer").map { $0.color == .pink && $0.line == "Reviews one PR." && $0.text == "Read the diff." && $0.path != nil } == true
+              && (made["text"] as? String)?.hasPrefix("Made role CLI Reviewer [pink]") == true, "\(made)")
+        check("one with that name again is refused", failure(agent("role new", ["name": "cli reviewer"]))?.code == "invalid")
+        let badColor = failure(agent("role new", ["name": "CLI Painter", "color": "beige"]))
+        check("an unknown color is refused, naming the colors", badColor?.code == "usage" && badColor?.message.contains("indigo") == true, badColor?.message ?? "-")
+        check("a name with a slash is refused: it names a note", failure(agent("role new", ["name": "CLI a/b"]))?.code == "usage")
+        let edited = agent("role edit", ["role": "CLI Reviewer", "name": "CLI Critic", "line": "Reviews one pull request."])
+        check("role edit renames its note and changes its line, saying what changed", model.role(named: "CLI Critic")?.line == "Reviews one pull request."
+              && model.role(named: "CLI Reviewer") == nil && edited["text"] as? String == "Changed role CLI Critic: name, line", "\(edited)")
+        check("role edit with nothing to change is refused", failure(agent("role edit", ["role": "CLI Critic"]))?.code == "usage")
+        check("so is a name another role has", failure(agent("role edit", ["role": "CLI Critic", "name": "Leader"]))?.code == "invalid")
+        check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Worker") == true)
+        let would = agent("role delete", ["role": "CLI Critic"])
+        check("role delete without --yes only says what it would do", would["wouldDelete"] as? String == "CLI Critic" && model.role(named: "CLI Critic") != nil)
+        let deleted = agent("role delete", ["role": "CLI Critic", "yes": "true"])
+        check("with --yes its note goes to the Trash", deleted["deleted"] as? String == "CLI Critic" && model.role(named: "CLI Critic") == nil, "\(deleted)")
+        let names = Set(AgentCommands.all.map(\.name))
+        check("hq help has each command for teams and roles", ["session new", "session edit", "role show", "role new", "role edit", "role delete"].allSatisfy(names.contains)
+              && AgentCommands.all.first { $0.name == "session new" }.map { cmd in ["role", "parent", "beside", "history"].allSatisfy { p in cmd.params.contains { $0.name == p } } } == true)
+
+        model.deleteTasks([task.id])
+        let started = Set([workerID, handoff, top["id"] as? String, named["id"] as? String].compactMap { $0 })
+        model.sessions.removeAll { started.contains($0.id) || [lead, other].contains($0.id) }
+    }
 }

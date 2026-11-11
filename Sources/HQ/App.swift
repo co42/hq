@@ -167,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         model.settleActivity()
         model.saveSessionsNow()
+        if !Store.isOverridden, let mainWindow { WindowFrame.save(mainWindow) }
         Prefs.forget()
         if SelfTest.requested || UITest.requested { exit(SelfTest.exitCode) }
     }
@@ -184,7 +185,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         LaunchLog.mark("window")
         model.window = window
         window.delegate = self
-        if Store.isOverridden { Store.moveToTestScreen(window) }
+        if Store.isOverridden {
+            Store.moveToTestScreen(window)
+        } else {
+            WindowFrame.restore(window)
+        }
+    }
+
+    func windowDidMove(_ notification: Notification) { keepFrame(notification) }
+    func windowDidEndLiveResize(_ notification: Notification) { keepFrame(notification) }
+
+    /// Where the user puts the window is where it reopens (T-373); test runs keep their own place.
+    private func keepFrame(_ notification: Notification) {
+        guard !Store.isOverridden, let window = notification.object as? NSWindow, window === mainWindow else { return }
+        WindowFrame.save(window)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

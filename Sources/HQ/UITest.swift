@@ -67,6 +67,10 @@ enum UITest {
                 ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("storyFlow", storyFlow),
                 ("slackLinks", slackLinks),
                 ("pageFixes", pageFixes),
+                ("rolesAndForms", rolesAndForms),
+                ("teams", teams),
+                ("sessionDrags", sessionDrags),
+                ("taskLinks", taskLinks),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still
@@ -74,8 +78,12 @@ enum UITest {
                 let start = Date.now
                 Motion.still = still && name != "storyFlow"
                 await scenario(model, ui)
+                let logged = AppLog.written["outline.log", default: 0]
                 await run(model, ui)
                 hitSweep(ui, after: name)
+                // A line in outline.log is a defect found at run time.
+                await check("after \(name), the outline logged no defect", AppLog.written["outline.log", default: 0] == logged,
+                            "\(AppLog.written["outline.log", default: 0] - logged) lines in outline.log")
                 print(String(format: "GROUP %@ %.1fs, %d settles at their limit (%.1fs)", name, Date.now.timeIntervalSince(start), Driver.settledAtMost, Driver.settledAtMostSeconds))
                 Driver.settledAtMost = 0
                 Driver.settledAtMostSeconds = 0
@@ -200,9 +208,9 @@ enum UITest {
               Set(outside).sorted().prefix(6).joined(separator: "; "))
     }
 
-    static func skip(_ name: String) {
+    static func skip(_ name: String, because reason: String? = nil) {
         skipped += 1
-        print("SKIP \(name): " + (Store.background ? "a background run is never the active app (HQ_FOREGROUND=1 runs it)" : "HQ can't become the active app (is the screen locked?)"))
+        print("SKIP \(name): " + (reason ?? (Store.background ? "a background run is never the active app (HQ_FOREGROUND=1 runs it)" : "HQ can't become the active app (is the screen locked?)")))
     }
 }
 

@@ -125,20 +125,43 @@ struct KeyLabel: View {
     }
 }
 
-/// A PR's or an issue's state: its symbol in GitHub's colors.
+/// A PR's or an issue's state: its symbol in GitHub's colors; its kind, quiet, until GitHub brings it.
 struct GitHubStateIcon: View {
-    let item: GitHubItem
+    let url: String
+    let item: GitHubItem?
+
+    init(item: GitHubItem) {
+        self.init(url: item.url, item: item)
+    }
+
+    init(url: String, item: GitHubItem?) {
+        self.url = url
+        self.item = item
+    }
 
     var body: some View {
-        KitIcon.github(item).image
-            .foregroundStyle(Self.color(item))
+        Self.icon(url, item).image
+            .foregroundStyle(item.map(Self.color) ?? AnyShapeStyle(.secondary))
             .frame(width: Metric.glyphSlot, height: Metric.glyphSlot)
-            .accessibilityLabel(Self.label(item))
+            .accessibilityLabel(Self.label(url, item))
     }
 
     /// Its kind tile: the state's symbol on the state's color.
     static func tile(_ item: GitHubItem) -> some View {
-        KindTile(icon: KitIcon.github(item), tint: tint(item)).accessibilityLabel(label(item))
+        tile(url: item.url, item: item)
+    }
+
+    static func tile(url: String, item: GitHubItem?) -> some View {
+        KindTile(icon: icon(url, item), tint: item.map(tint) ?? Ink.draftTile).accessibilityLabel(label(url, item))
+    }
+
+    /// Its state's symbol, or its kind's from the address before GitHub brings it.
+    static func icon(_ url: String, _ item: GitHubItem?) -> KitIcon {
+        item.map(KitIcon.github) ?? (isIssue(url, item) ? .issue : .pullRequest)
+    }
+
+    static func isIssue(_ url: String, _ item: GitHubItem?) -> Bool {
+        item.map { $0.kind == .issue } ?? (ItemLine.github(url)?.kind == "Issue")
     }
 
     static func tint(_ item: GitHubItem) -> Color {
@@ -200,8 +223,9 @@ struct GitHubStateIcon: View {
         }
     }
 
-    static func label(_ item: GitHubItem) -> String {
-        let kind = item.kind == .issue ? "Issue" : "Pull request"
+    static func label(_ url: String, _ item: GitHubItem?) -> String {
+        let kind = isIssue(url, item) ? "Issue" : "Pull request"
+        guard let item else { return kind }
         switch item.state {
         case .open: return "\(kind), open"
         case .draft: return "\(kind), draft"
@@ -272,6 +296,7 @@ struct ModalGroup<Content: View, Actions: View>: View {
             .kitType(.groupLabel)
             .foregroundStyle(.secondary)
             .accessibilityAddTraits(.isHeader)
+            .uiTestAnchor("group:\(title)")
     }
 }
 

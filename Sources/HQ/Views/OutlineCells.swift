@@ -611,6 +611,9 @@ final class TaskCell: NSTableCellView {
     private weak var model: AppModel?
     private(set) var stack = Stack()
     private var shownDescription = false
+    /// Its links hid for want of room, as last logged (T-377).
+    private var linksDropped = false
+    private var isSelectedRow: Bool { (superview as? NSTableRowView)?.isSelected ?? false }
     /// The card's end holds its chevron: the first line stops before it.
     var expandable = false { didSet { if expandable != oldValue { needsLayout = true } } }
     /// What it shows of its subtasks, and what a click on its chevron shows next.
@@ -737,12 +740,12 @@ final class TaskCell: NSTableCellView {
         fold.image = chevron.nsImage(.mark, weight: .semibold)
         let shows = switch foldMode {
         case .hidden: "Subtasks hidden"
-        case .important: "Only blocking and doing subtasks"
+        case .important: "Only blocked and doing subtasks"
         case .all: "All subtasks"
         }
         let next = switch foldNext {
         case .hidden: "hide them"
-        case .important: "show only blocking and doing ones"
+        case .important: "show only blocked and doing ones"
         case .all: "show all"
         }
         fold.toolTip = "\(shows): click to \(next) (← →)"
@@ -860,6 +863,11 @@ final class TaskCell: NSTableCellView {
         place(progress, width: progress.started ? progress.naturalWidth : 0, height: line)
         links.compact = right - links.width(compact: false) - x < minimumTitle
         place(links, width: links.tokens.isEmpty ? 0 : links.width(compact: links.compact), height: line)
+        let dropped = links.isHidden && !links.tokens.isEmpty
+        if dropped != linksDropped, let id {
+            linksDropped = dropped
+            if dropped { AppLog.write("T-\(id): its links hide, \(Int(right - x)) pt left on its line\(isSelectedRow ? ", selected" : "")", to: "outline.log") }
+        }
         place(blockers, width: blockers.naturalWidth, height: Metric.chipHeight + 1)
         let chipY = centered(Metric.chipHeight)
         let projectWidth = project.project == nil ? 0 : project.naturalWidth
@@ -957,7 +965,15 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
         /// A PR's status as a symbol after its number, in its color (2026-11-10): dropped when the line is short.
         var mark: KitIcon?
         var markColor: NSColor?
+        /// A line per link, whole.
         var help: String
+
+        /// Its tooltip, in lines read at a glance (T-429): one link's whole text wrapped, several links a cut line each.
+        var tip: String {
+            let lines = help.split(separator: "\n").map(String.init)
+            guard lines.count > 1 else { return LineCut.wrap(help) }
+            return lines.map { LineCut.line($0, middle: routes.allSatisfy(\.isWeb)) }.joined(separator: "\n")
+        }
     }
 
     /// A PR or an issue each, two of them, then "+3"; then a token per kind.
@@ -969,7 +985,7 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
             let item = model.githubItem(url)
             let status = item.flatMap(GitHubStateIcon.status)
             let mark = item.flatMap(GitHubStateIcon.statusMark)
-            tokens.append(Token(routes: [route], icon: item.map(KitIcon.github) ?? .pullRequest,
+            tokens.append(Token(routes: [route], icon: GitHubStateIcon.icon(url, item),
                                 tint: item.map(GitHubStateIcon.nsColor) ?? Ink.secondaryTextNS, text: model.shortTitle(of: route),
                                 mark: mark?.icon, markColor: mark?.color,
                                 help: model.title(of: route) + (status.map { " · \($0.word)" } ?? "")))
@@ -1104,7 +1120,7 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         for (frame, token) in zip(frames, tokens) where frame.contains(point) {
-            return token.help + (token.routes.count > 1 ? "\nClick to pick one" : "\nClick to open")
+            return token.tip + (token.routes.count > 1 ? "\nClick to pick one" : "\nClick to open")
         }
         return ""
     }
@@ -1112,6 +1128,20 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
     override func isAccessibilityElement() -> Bool { !tokens.isEmpty }
     override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
     override func accessibilityLabel() -> String? { "Links: " + tokens.map(\.help).joined(separator: "; ") }
+}
+
+extension NSMenuItem {
+    /// An item named by a link's or a task's title: one line, cut at a word (an address in the middle), the whole title in its tooltip (T-429).
+    convenience init(cutting title: String, middle: Bool = false, action: Selector?) {
+        let line = LineCut.line(title, middle: middle)
+        self.init(title: line, action: action, keyEquivalent: "")
+        if line != title { toolTip = LineCut.wrap(title) }
+    }
+}
+
+extension ModalRoute {
+    /// A web page, named by its address: cut in the middle.
+    var isWeb: Bool { if case .web = self { true } else { false } }
 }
 
 // MARK: Faces column
@@ -1575,7 +1605,7 @@ private struct InlineDescriptionEditor: View {
 
     var body: some View {
         MarkdownEditor(text: draft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
-                       onHeight: { model.descriptionEditorHeight = $0 },
+                       onHeight: { model.descriptionEditorHeight = $0 }, maxHeight: Metric.editorMaximum,
                        onCommit: { save(then: .row(id)) },
                        onCancel: { save(then: .row(id)) },
                        onEnd: { save(then: .left(id)) },
@@ -1640,14 +1670,14 @@ struct OutputChip: View {
             .modifier(ChipClick(route: route, task: task, active: !plain))
             // Under a task's row the outline's AppKit tracking gives the hand (`HandRegionView`).
             .clickable(task == nil)
-            .help(model.title(of: route))
+            .help(LineCut.wrap(model.title(of: route)))
     }
 
     @ViewBuilder
     private var icon: some View {
         switch route {
         case .github(let url):
-            if let item = model.githubItem(url) { GitHubStateIcon(item: item).fontWeight(.semibold) } else { KitIcon.pullRequest.image.fontWeight(.semibold) }
+            GitHubStateIcon(url: url, item: model.githubItem(url)).fontWeight(.semibold)
         // The kinds' colors, as on their rows' tiles.
         case .file: KitIcon.fileTile.image.foregroundStyle(Ink.fileTile).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.fontWeight(.semibold).foregroundStyle(Ink.artifactTile).accessibilityLabel("Artifact")
@@ -1785,6 +1815,7 @@ extension AppModel {
         case .slack(let url): slackMessages[url]?.title ?? (SlackLink(url)?.ts == nil ? "Slack channel" : "Slack message")
         case .start: "Start a session"
         case .closedSessions: "Closed Sessions"
+        case .roles: "Roles"
         case .notifications: "Notifications"
         case .newTask: "New Task"
         case .newReminder: "New Reminder"

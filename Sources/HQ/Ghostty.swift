@@ -58,20 +58,35 @@ enum Ghostty {
         return result.booleanValue
     }
 
-    /// A new tab in the front window (or a new window) in `directory`, with `command` typed into
-    /// the shell and run, so the shell stays when the command exits. Ghostty pastes `initial
-    /// input`, and fish never runs a pasted newline: the command is typed, then Return is pressed.
-    /// It waits for the shell to start: Ghostty gets longer to answer.
-    nonisolated static func newTab(in directory: String, command: String) throws(Failure) {
+    /// A new tab in the window of the terminal on `beside` (a child session opens in its parent's window), else in the
+    /// front window (or a new window), in `directory`, with `command` typed into the shell and run, so the shell stays
+    /// when the command exits. Ghostty pastes `initial input`, and fish never runs a pasted newline: the command is
+    /// typed, then Return is pressed. It waits for the shell to start: Ghostty gets longer to answer.
+    nonisolated static func newTab(in directory: String, command: String, beside tty: String? = nil) throws(Failure) {
         let path = (directory as NSString).expandingTildeInPath
+        // That terminal's window, when a window still has it; any failure there falls back to the front window.
+        let window = tty.map { tty in """
+                try
+                    repeat with candidate in windows
+                        if (count of (terminals of candidate whose tty is "\(escape(tty))")) > 0 then
+                            set target to new tab in (contents of candidate) with configuration config
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+            """ } ?? ""
         try run("""
         tell application id "\(bundleID)"
             set config to {initial working directory:"\(escape(path))"}
-            if (count of windows) is 0 then
-                set made to new window with configuration config
-                set target to selected tab of made
-            else
-                set target to new tab in front window with configuration config
+            set target to missing value
+            \(window)
+            if target is missing value then
+                if (count of windows) is 0 then
+                    set made to new window with configuration config
+                    set target to selected tab of made
+                else
+                    set target to new tab in front window with configuration config
+                end if
             end if
             set term to focused terminal of target
             delay 0.4
@@ -83,19 +98,26 @@ enum Ghostty {
     }
 
     /// Types text and Return into the terminal on `tty` (Close Session's `/exit`); with `interrupting`, Escape first and a
-    /// moment for Claude to stop its turn. False when no Ghostty terminal has it.
-    nonisolated static func type(_ text: String, tty: String, interrupting: Bool = false) throws(Failure) -> Bool {
+    /// moment for Claude to stop its turn; with `clearing`, Control-C first, which empties Claude's input. False when no
+    /// Ghostty terminal has it.
+    nonisolated static func type(_ text: String, tty: String, interrupting: Bool = false, clearing: Bool = false) throws(Failure) -> Bool {
         guard reachable else { return false }
-        let escape = interrupting ? "send key \"escape\" to (item 1 of found)\n    delay 0.5\n" : ""
-        return try run("""
+        return try run(typeScript(text, tty: tty, interrupting: interrupting, clearing: clearing), test: NSAppleEventDescriptor(boolean: true)).booleanValue
+    }
+
+    /// The script `type` runs.
+    nonisolated static func typeScript(_ text: String, tty: String, interrupting: Bool, clearing: Bool) -> String {
+        let escape = interrupting ? "send key \"escape\" to (item 1 of found)\n    delay 0.5\n    " : ""
+        let clear = clearing ? "send key \"c\" modifiers \"control\" to (item 1 of found)\n    delay 0.2\n    " : ""
+        return """
         tell application id "\(bundleID)"
             set found to every terminal whose tty is "\(Self.escape(tty))"
             if (count of found) is 0 then return false
-            \(escape)input text "\(Self.escape(text))" to (item 1 of found)
+            \(escape)\(clear)input text "\(Self.escape(text))" to (item 1 of found)
             send key "enter" to (item 1 of found)
             return true
         end tell
-        """, test: NSAppleEventDescriptor(boolean: true)).booleanValue
+        """
     }
 
     /// Closes the terminal on `tty`: its tab goes with it when it was the tab's only one. False when no Ghostty terminal has it.

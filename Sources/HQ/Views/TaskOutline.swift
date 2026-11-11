@@ -123,16 +123,13 @@ struct OutlineSnapshot: Equatable {
     /// What each task with subtasks shows of them: the user's choice, else what its parent leaves on screen.
     var modes: [Int: FoldMode] = [:]
 
-    /// Showing only what matters, a task shows its first doing subtasks, up to this many.
-    static let foldedDoing = 5
-
-    /// The modes that show a task something different, fewest subtasks first: only blocking and doing is left out
+    /// The modes that show a task something different, fewest subtasks first: only blocked and doing is left out
     /// when it would show nothing or everything.
     static func modes(_ model: AppModel, _ id: Int) -> [FoldMode] {
         let tree = model.taskTree
         let hiding = model.hideDone.contains(model.list(of: id))
         let all = tree.subtree(of: id).dropFirst().filter { !(hiding && model.task($0)?.status == .done) }
-        let important = model.taskFlow.important(under: id, in: tree, doing: foldedDoing)
+        let important = model.taskFlow.blockedOrDoing(under: id, in: tree)
         return important.isEmpty || important.count >= all.count ? [.hidden, .all] : FoldMode.opening
     }
 
@@ -181,7 +178,7 @@ struct OutlineSnapshot: Equatable {
         let tree = model.taskTree
         let flow = model.taskFlow
         /// A task's shown subtasks: Hide Done of its list hides the done ones, a search the ones it didn't find. Then what
-        /// the user chose for it: none, only the blocking and doing ones, or all (2026-11-10); with no choice, what its
+        /// the user chose for it: none, only the blocked and doing ones, or all (2026-11-10); with no choice, what its
         /// parent's choice leaves. A search shows all it found.
         func add(_ id: Int, hiding: Bool, found: Set<Int>?, only: Set<Int>?) {
             var only = only
@@ -193,7 +190,7 @@ struct OutlineSnapshot: Equatable {
             let mode = found == nil ? model.fold[id] : .all
             switch mode {
             case .hidden?: only = []
-            case .important?: only = flow.important(under: id, in: tree, doing: foldedDoing)
+            case .important?: only = flow.blockedOrDoing(under: id, in: tree)
             case .all?: only = nil
             case nil: break
             }
@@ -275,7 +272,7 @@ struct OutlinePlan: Equatable {
                 first = false
                 gap += pending
                 pending = 0
-                // Below a story, a block's header lines up with its siblings: on its tray's edges, the tray's right edge theirs.
+                // Below a story, a block's header lines up with its siblings, on its tray's edges; its subtasks sit the tray's padding inside it.
                 let nested = depth > top
                 if block && !nested { gap += pad }
                 gaps[id] = gap
@@ -289,7 +286,7 @@ struct OutlinePlan: Equatable {
                 if nested { flush.insert(id) }
                 cards[id] = nested ? slot : Edges(left: slot.left + pad, right: slot.right + pad)
                 let indent = depth == 0 ? 0 : Metric.subtaskIndent
-                for kid in kids { visit(kid, depth: depth + 1, slot: Edges(left: slot.left + pad + indent, right: nested ? slot.right : slot.right + pad)) }
+                for kid in kids { visit(kid, depth: depth + 1, slot: Edges(left: slot.left + pad + indent, right: slot.right + pad)) }
                 pending += pad
             }
             for id in tops { visit(id, depth: top, slot: Edges()) }
@@ -651,7 +648,7 @@ final class TaskOutlineView: NSOutlineView {
                 } else {
                     let menu = NSMenu()
                     for id in ids {
-                        let item = NSMenuItem(title: "T-\(id) " + (coordinator.model.task(id)?.title ?? ""), action: #selector(pickLink(_:)), keyEquivalent: "")
+                        let item = NSMenuItem(cutting: "T-\(id) " + (coordinator.model.task(id)?.title ?? ""), action: #selector(pickLink(_:)))
                         item.target = self
                         item.representedObject = DropChoice { [weak coordinator] in coordinator?.reveal(id) }
                         menu.addItem(item)
@@ -731,7 +728,7 @@ final class TaskOutlineView: NSOutlineView {
         let menu = NSMenu()
         guard let model = coordinator?.model else { return menu }
         for route in routes {
-            let item = NSMenuItem(title: model.title(of: route), action: #selector(pickLink(_:)), keyEquivalent: "")
+            let item = NSMenuItem(cutting: model.title(of: route), middle: route.isWeb, action: #selector(pickLink(_:)))
             item.target = self
             item.representedObject = DropChoice { model.open(route) }
             menu.addItem(item)
@@ -743,7 +740,8 @@ final class TaskOutlineView: NSOutlineView {
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { coordinator?.keyboardChanged() }
+        // AppKit also gives it the keyboard mid-change, removing the row whose title had it: the rows are placed after.
+        if accepted { DispatchQueue.main.async { [weak self] in self?.coordinator?.keyboardChanged() } }
         return accepted
     }
 
@@ -829,6 +827,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         return shown.first { $0.root != nil && $0.row(of: id) >= 0 } ?? shown.first { $0.root == nil }
     }
     var onHeight: (CGFloat) -> Void = { _ in }
+    /// The heights reported so far: a container check judges only the last one.
+    private var reports = 0
+    /// The zoom it was made at: the page and a task's window are made again at another (`.id(model.zoom)`).
+    private let zoom = Zoom.factor
     var width: CGFloat = 0 { didSet { if width != oldValue { heights.removeAll(); remeasure = true } } }
     private var outline: TaskOutlineView? { container?.outline }
     private(set) var snapshot = OutlineSnapshot() { didSet { replan() } }
@@ -961,6 +963,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         guard dragged.isEmpty else { return holdUntilDragEnds() }
         // No rows before the outline has its width: they'd be laid out and measured at another.
         guard let outline, !refreshing, width > 0 else { return }
+        // Made at another zoom, it's on its way out: its rows hold still in the frame SwiftUI gave them until it goes.
+        guard zoom == Zoom.factor else { return }
         refreshing = true
         defer { refreshing = false }
         // Another section took the page's selection: the rows unselect, kept aside for when Tab comes back.
@@ -1341,11 +1345,14 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func reportHeight() {
         guard let container else { return }
         let height = container.contentHeight
+        reports += 1
+        let report = reports
         DispatchQueue.main.async { [weak self] in
             self?.onHeight(height)
             // Once the page laid out again, the container holds its rows; a defect if not, logged (no repair).
+            // A later report means rows SwiftUI may not have had yet: that report's check judges them.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let container = self?.container, container.window != nil else { return }
+                guard let self, report == reports, let container = self.container, container.window != nil else { return }
                 let rows = container.contentHeight
                 guard container.frame.height + 0.5 < rows || container.outline.frame != container.bounds else { return }
                 AppLog.write("outline: container \(container.frame.integral), outline \(container.outline.frame.integral), rows \(Int(rows))", to: "outline.log")
@@ -1671,7 +1678,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         select(folder, keyboard: keyboard)
     }
 
-    /// The chevron: from all subtasks to only the blocking and doing ones, to none, back to all; a mode that would show
+    /// The chevron: from all subtasks to only the blocked and doing ones, to none, back to all; a mode that would show
     /// the same is passed.
     func stepFold(_ id: Int) {
         let modes = OutlineSnapshot.modes(model, id)

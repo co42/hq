@@ -11,7 +11,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 | Section | What it shows |
 |---|---|
 | **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every two minutes while its window is on screen, and again as you leave a PR's page |
-| **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab |
+| **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab. A session another one started sits in that one's team, inside its card: their faces with their state, and a toggle that opens the card to a row per session. Cards and a team's rows drag as tasks do: between them a line shows where one lands; dropped on another session, a menu asks to move it under, above or below it; ⇧ with the arrows moves the selected one. New Session… takes a role, a parent session (the new one opens in its Ghostty window) and a history to start from (another session's conversation so far); the masks on the section's header open Roles, where each role's line and text are edited |
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app. A note or a description edits in place, looking as it reads: a double-click puts the caret where you clicked, lists continue on Return, ⌘B, ⌘I and ⌘K mark words, checkboxes tick on a click |
 | **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, a drag moves it. Each task is a card with its session's face first, its key and its links (a PR with its status: Draft, Approved, Merged); each top-level task is a story on its big card, with its progress; a task with subtasks is a block, its subtasks indented, and its chevron shows all of them, only the ones blocking another or doing, or none. A task's window shows its subtasks the same way. A task can be Blocked (with a reason or not), blocked by another task (a red chip on its card, a click shows that task) or come after one (selecting a task lights what it waits on): B, ⇧B, A. A button in a card's corner shows its description; Space opens the task. Under each list, a new task's card takes the next one. Dropped on another task, a task asks where it goes or how it links; dragged out it types its line in Ghostty ("Task T-12: Title", as Copy and ⌘C give for any item). Each task is a note in the vault, linked to its sessions, PRs, files, artifacts and Slack messages. New Task… (⌘N) adds one from a small sheet, with the Slack link you just copied |
 
@@ -83,9 +83,10 @@ Then open HQ. Its Setup sheet checks the three things it needs (the plugin, Ghos
 Mostly for Claude, through the plugin's skills, but it works from any terminal:
 
 ```sh
-hq ctx                                    # what this session works on, and what is doing in its project
-hq ls tasks | sessions | prs | files | artifacts | projects | notifications | reminders
+hq ctx                                    # this session's role and leader, what it works on, the sessions it started
+hq ls tasks | sessions | prs | files | artifacts | projects | notifications | reminders | roles
 hq ls sessions --here                     # the sessions in this repository
+hq ls sessions --tree                     # each team under its top session
 hq task add "Dedup layers on push" --project Registry -q    # prints the new key
 hq task move T-12 doing                   # todo | doing | done | backlog
 hq task show T-12 --deep                  # with each open subtask's description
@@ -95,8 +96,12 @@ hq task link T-12 <PR URL | T-34 | note name | artifact URL | session id>
 hq notify "PR #418 is ready to merge: the canary is green" --task T-12
 hq remind "Look at the canary again" --at "tomorrow 9:00"
 hq file new "Retry budget plan" --task T-12 --body -
-hq session new "T-12 Retry budget" --task T-12   # a new Claude session in a Ghostty tab
+hq session new "T-12 Retry budget" --task T-12 --role Worker   # from a session: under it, in its Ghostty window
+hq session new "T-12 Retry budget" --task T-12 --beside        # a handoff: at this session's level
+hq role show Leader                       # a role's line and text; role new | edit | delete
 ```
+
+Roles are notes in `<vault>/hq/roles/`: a color, one line, and the text a session started with the role gets, at its start, on resume and after a compact. Leader and Worker ship with HQ.
 
 `hq help <command>` gives a command's options, an example and the shape of its `--json`. A list cut at its page says so on its last line.
 

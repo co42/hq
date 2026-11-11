@@ -1,5 +1,52 @@
 # Release notes
 
+## v14 · 2026-11-11 · Leaders
+
+Sessions start sessions and lead them (T-370). A session another one starts sits under it, and any session can have a role: the text it starts with. A Leader follows a story and keeps it moving; Workers do the work and report to it.
+
+**Teams on the page**
+- The grid shows the top-level sessions, every card the same size, two columns from 1060 pt. A card shows its role under its name.
+- A team's card shows its sessions as small faces, each with its state (working, needs you, failed, done), "+3" when they don't fit; one that needs you is never hidden. It glows while one of them needs you, red when one failed.
+- Its round toggle opens the card itself, a row per session, deeper ones indented, floating over the cards below: nothing on the page moves. One team open at a time; a click outside, Escape, ⌘↑ or the toggle folds it.
+- The arrows walk the cards and an open team's rows; ⌘↓ and ⌘↑ show and hide a team's sessions.
+- A closed leader stays on the grid, faded, while one of its sessions runs, and leaves with the last one.
+- A session's menu: Start Child Session…, Start Session from Its History…, Move Under ▸, Make Root, Close Team (N sessions)….
+- Sessions drag as tasks do: between cards or rows a session lands where you let it go; on a card, a menu offers Move Under, Move Above, Move Below, Make Root. The drop ring shows whole.
+- ⇧↑ ⇧↓ ⇧→ ⇧← move the selected session: on one column as tasks (Indent, Outdent), on two in the arrow's direction, never under another; a team's rows keep the task keys.
+- A team's toggle takes every click, however quick.
+
+**Roles**
+- A role is a note in your vault, `hq/roles/<Name>.md`: a color, one line and its text. Leader and Worker ship with HQ; Restore Default brings their text back.
+- The masks button on Sessions opens Roles: the list, each role laid out like a file, edited in place (⌘E), New Role, Delete with Undo.
+- A session with a role gets its text when it starts, resumes, compacts or clears, after HQ's line saying who started it and how to message it.
+
+**Start a Session**
+- Role, Parent and History. A child opens in its parent's Ghostty window. Role starts at the role its siblings have.
+- History replaces Fork Session: a new session that starts with another's conversation, and still gets its own role, task and first message.
+- A session's window shows its role, who started it and its sessions; the menu bar's Focus ▸ and Closed Sessions keep teams together.
+
+**Sessions' `hq`** (plugin 0.11.0)
+- `hq session new --role --parent --beside --history`, `hq session edit --parent`, `hq ls sessions --tree`, `hq ls roles`, `hq role show | new | edit | delete`.
+- `hq ctx` says the session's role, who started it, and the sessions it started.
+- The skill: sessions you start report to you; a handoff is `--beside`; block a task the moment it waits on someone.
+
+**Fixes** (T-430, T-439)
+- Close Session works with text typed in the session: it's cleared, then the session exits.
+- "Only Blocked and Doing" (was Only Blocking and Doing) keeps a task's blocked and doing subtasks and their parents, nothing else.
+- Cards nested two levels deep keep a margin on the right.
+- Each zoom step resizes the whole page at once, and View › Actual Size is on right after a Zoom In.
+- A PR or issue link shows its icon before GitHub has sent it; a task window's group of links is "Links".
+- A session whose prompt you cancel before it answers goes back to Idle within seconds, instead of Working until the next message.
+- A review you set a reminder on for later leaves Reviews and Needs You until the reminder is due.
+- HQ reopens where it was, at its size, for each screen setup.
+- Open HQ, Notifications and New Task… from the menu bar take you to HQ's desktop when it's on another one.
+- A link's long text (a Slack message) is cut in its tooltip, its menu and the task's window.
+- Editing a long description no longer makes the page jump: the page scrolls only to keep the caret in view.
+- The task list no longer repairs its own frame: each case had its cause fixed, and a new one fails the tests.
+
+**Tests**
+- A full check fails past 2 minutes; the perf budgets run beside the tests.
+
 ## v13.1 · 2026-11-11
 
 What the full review of v13 found (T-427): nothing you or a session writes is lost, what was wrong is fixed, and the tests run in 90 seconds instead of 13 minutes.

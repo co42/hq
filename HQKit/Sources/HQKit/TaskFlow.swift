@@ -140,22 +140,13 @@ public struct TaskFlow: Sendable {
         return tally
     }
 
-    /// What a task that shows only what matters shows under it: the tasks blocking another and its first `doing` doing
-    /// ones, the deepest of each branch, with the tasks between them and it (2026-11-10; Blocked ones don't count).
-    public func important(under id: Int, in tree: TaskTree, doing limit: Int) -> Set<Int> {
+    /// What a task that shows only blocked and doing subtasks shows under it: every one Blocked, blocked by an open task
+    /// or doing, at any depth, with the tasks between them and it (2026-11-11).
+    public func blockedOrDoing(under id: Int, in tree: TaskTree) -> Set<Int> {
         var shown = Set<Int>()
-        var doing = 0
         func visit(_ id: Int) -> Bool {
             var any = false
-            for kid in tree.children(of: id) {
-                if visit(kid) {
-                    shown.insert(kid)
-                    any = true
-                    continue
-                }
-                let blocking = isBlocking(kid)
-                guard blocking || (state(kid) == .doing && doing < limit) else { continue }
-                if !blocking { doing += 1 }
+            for kid in tree.children(of: id) where visit(kid) || [.blocked, .blockedBy, .doing].contains(state(kid)) {
                 shown.insert(kid)
                 any = true
             }

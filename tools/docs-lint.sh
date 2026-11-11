@@ -52,18 +52,21 @@ retired=(
   'hq-tasks' 'the hq skill: plugin 0.10.0 merged them'
   'under the task'"'"'s row' 'on the task'"'"'s card (v13)'
   'Exit code 4' 'nothing: hq opens HQ, sessions never met it'
+  'Fork Session' 'Start Session from Its History… (T-408)'
+  'accent bar between' 'a line with a ring where it lands (T-437)'
+  'Only Blocking and Doing' 'Only Blocked and Doing (T-442)'
 )
 
 lint='
   BEGIN {
     open my $s, "<", $ENV{SCHEMA} or die;
     while (<$s>) { chomp; my ($n, $o) = split /\t/; $cmd{$n} = { map { $_ => 1 } split / /, ($o // "") }; }
-    %two = map { $_ => 1 } qw(task project file artifact notification session);
-    %kinds = map { $_ => 1 } qw(sessions tasks prs files artifacts projects notifications reminders);
+    %two = map { $_ => 1 } qw(task project file artifact notification session role);
+    %kinds = map { $_ => 1 } qw(sessions tasks prs files artifacts projects notifications reminders roles);
     %moves = map { $_ => 1 } qw(todo doing done backlog);
     %skill = map { $_ => 1 } split / /, $ENV{SKILLS};
     # The filters each kind of hq ls takes; --limit and --offset go with any.
-    %filters = (sessions => "all here", tasks => "overview backlog parent project tag all", prs => "all", notifications => "all", reminders => "all");
+    %filters = (sessions => "all here tree", tasks => "overview backlog parent project tag all", prs => "all", notifications => "all", reminders => "all");
     @retired = split /\t/, $ENV{RETIRED};
     $count = 0;
   }

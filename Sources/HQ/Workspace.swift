@@ -48,6 +48,10 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var faceID: String?
     /// The subagent whose wait it shows; nil: the main thread's.
     var waiter: String?
+    /// The session that started it, by hq or from the page: its card sits in that one's team.
+    var parent: String?
+    /// The name of the role it started with: a note in hq/roles/.
+    var role: String?
 
     /// The user's name, else Claude's title, else the first prompt, else the repository.
     var name: String {
@@ -270,4 +274,22 @@ nonisolated struct ArtifactItem: Identifiable, Hashable, Sendable {
         [ItemField("title", \.title), ItemField("session", \.session), ItemField("published", \.published), ItemField("tasks", \.tasks),
          ItemField("project", \.project), ItemField("tags", \.tags), ItemField("pinned", \.pinned)]
     }
+}
+
+/// A role: <vault>/hq/roles/<Name>.md, its color and line in the front matter and its text in the body. A session started
+/// with it gets the text at its start, on resume and after a compact (PLAN.md §7).
+nonisolated struct RoleItem: Identifiable, Hashable, Sendable {
+    var id: String { name }
+    /// The note's name, unique, case ignored.
+    var name: String
+    var color: LabelColor
+    /// One line: what a session with it does.
+    var line: String = ""
+    /// What a session with it starts with: markdown.
+    var text: String = ""
+    /// One that ships with HQ (Leader, Worker): Restore Default brings its text back.
+    var builtin = false
+    var modified: Date = .distantPast
+    /// The note on disk; nil for sample data.
+    var path: String?
 }

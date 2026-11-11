@@ -18,6 +18,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var inset: CGFloat = 0
     /// The text's height as it changes: the box grows with it.
     var onHeight: ((CGFloat) -> Void)?
+    /// The box's tallest: up to it the box grows with its text and never scrolls inside (T-378).
+    var maxHeight: CGFloat = .infinity
     var onCommit: () -> Void = {}
     var onCancel: () -> Void = {}
     var onEnd: () -> Void = {}
@@ -50,6 +52,8 @@ struct MarkdownEditor: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         scroll.documentView = editor
+        scroll.maxHeight = onHeight == nil ? .infinity : maxHeight
+        scroll.grows = onHeight != nil
         editor.delegate = context.coordinator
         editor.coordinator = context.coordinator
         editor.isRichText = false
@@ -76,6 +80,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
+        (scroll as? EditorScrollView)?.maxHeight = maxHeight
         guard let editor = scroll.documentView as? NSTextView, editor.string != text, !context.coordinator.typing else { return }
         editor.string = text
         context.coordinator.restyle(editor)
@@ -85,7 +90,8 @@ struct MarkdownEditor: NSViewRepresentable {
         var parent: MarkdownEditor
         var typing = false
         private var ended = false
-        private var reported: CGFloat = 0
+        /// The text's height, as last told to the box.
+        private(set) var reported: CGFloat = 0
 
         init(_ parent: MarkdownEditor) {
             self.parent = parent
@@ -172,9 +178,22 @@ struct MarkdownEditor: NSViewRepresentable {
 
     /// As tall as its text, it hands the scroll wheel to the page around it.
     final class EditorScrollView: NSScrollView {
+        /// Its box follows the text's height, up to `maxHeight`.
+        var grows = false
+        var maxHeight: CGFloat = .infinity
+        /// A caret the page shows once the box has grown to its text.
+        var pendingCaret: NSRange?
+
         override func scrollWheel(with event: NSEvent) {
             guard let document = documentView, document.frame.height <= contentView.bounds.height + 0.5 else { return super.scrollWheel(with: event) }
             nextResponder?.scrollWheel(with: event)
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            guard let caret = pendingCaret, let editor = documentView as? EditorTextView, editor.boxFits else { return }
+            pendingCaret = nil
+            editor.showInPage(caret)
         }
     }
 
@@ -232,9 +251,34 @@ struct MarkdownEditor: NSViewRepresentable {
             }
         }
 
-        /// Grown to its text in a page that scrolls, the page follows the caret.
+        /// Grown to its text in a page that scrolls, the page follows the caret: once the box has its new height, so the box
+        /// never scrolls inside before it grows and the page never scrolls to where the caret was (T-378).
         override func scrollRangeToVisible(_ range: NSRange) {
-            super.scrollRangeToVisible(range)
+            guard let box = enclosingScrollView as? EditorScrollView, box.grows, box.enclosingScrollView != nil, let coordinator else {
+                return super.scrollRangeToVisible(range)
+            }
+            if coordinator.reported > box.maxHeight + 0.5 {
+                super.scrollRangeToVisible(range)
+            } else if box.contentView.bounds.origin.y != 0 {
+                box.contentView.scroll(to: .zero)
+                box.reflectScrolledClipView(box.contentView)
+            }
+            if boxFits {
+                box.pendingCaret = nil
+                showInPage(range)
+            } else {
+                box.pendingCaret = range
+            }
+        }
+
+        /// The box is as tall as its text, or as its tallest.
+        var boxFits: Bool {
+            guard let box = enclosingScrollView as? EditorScrollView, let coordinator else { return true }
+            return box.frame.height + 0.5 >= min(coordinator.reported, box.maxHeight)
+        }
+
+        /// The page around the box scrolls the caret's line into view, no further.
+        func showInPage(_ range: NSRange) {
             guard let page = enclosingScrollView?.enclosingScrollView?.documentView, let layout = layoutManager else { return }
             let length = (string as NSString).length
             var rect = layout.extraLineFragmentRect

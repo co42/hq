@@ -76,6 +76,7 @@ extension AppModel {
         if let replaced { carryTasks(from: replaced.id, to: item.id) }
         if item.status.state == .ended, forgetIfEmpty(item.id) { return }
         watchTitle(of: item)
+        TurnWatch.update(self)
         if item.status.needsYou, !waited { sessionBlocked(item.id) }
         // Done on the terminal the user looks at: read, once Ghostty says which it is, off the main thread.
         if event.name == "Stop", item.status.unread, item.tty != nil, setup.ghosttyAllowed, Ghostty.inFront { checkFocusedTerminal() }
@@ -118,12 +119,18 @@ extension AppModel {
             item.title = replaced.title
             item.firstPrompt = replaced.firstPrompt
             item.links = replaced.links
+            item.parent = replaced.parent
+            item.role = replaced.role
         }
         return item
     }
 
-    /// After /clear: the new id works on the tasks the old one did, those not done.
+    /// After /clear: the new id works on the tasks the old one did, those not done, and leads the sessions it started.
     private func carryTasks(from old: SessionItem.ID, to new: SessionItem.ID) {
+        for var child in sessions where child.parent == old {
+            child.parent = new
+            put(child)
+        }
         let ids = tasks(of: old).filter { $0.status != .done && !$0.sessions.contains(new) }.map(\.id)
         guard !ids.isEmpty else { return }
         editTasks("Link Session") { tasks in
@@ -208,8 +215,217 @@ extension AppModel {
     /// The grid, in the user's order. A Claude outside Ghostty that hasn't had a prompt yet stays off it: the claude daemon
     /// starts spares around background sessions and kills them seconds later (T-354).
     var gridSessions: [SessionItem] {
-        sessions.filter { $0.onGrid && !($0.isRunning && !$0.inGhostty && isEmptySession($0)) }
-            .sorted { ($0.order, $0.started) < ($1.order, $1.started) }
+        sessions.filter(isOpenCard).sorted { ($0.order, $0.started) < ($1.order, $1.started) }
+    }
+
+    private func isOpenCard(_ item: SessionItem) -> Bool {
+        item.onGrid && !(item.isRunning && !item.inGhostty && isEmptySession(item))
+    }
+
+    /// Sessions as teams: a session another one started sits under it (DESIGN.md §4).
+    var sessionTree: SessionTree {
+        SessionTree(sessions.map { SessionTree.Node(id: $0.id, parent: $0.parent, order: $0.order, started: $0.started, open: isOpenCard($0)) })
+    }
+
+    /// The grid's cards: the top-level sessions, and a closed one while a session of its team is open, faded.
+    var gridRoots: [SessionItem] {
+        sessionTree.roots.compactMap { session($0) }
+    }
+
+    /// The sessions inside a team's card, depth first: open ones, and a closed one while one under it is open.
+    func team(of id: SessionItem.ID, in tree: SessionTree? = nil) -> [(session: SessionItem, depth: Int)] {
+        (tree ?? sessionTree).rows(under: id).compactMap { row in session(row.id).map { ($0, row.depth) } }
+    }
+
+    /// A role by its name, case ignored: nil when no note has it (deleted: its sessions lose the chip).
+    func role(named name: String?) -> RoleItem? {
+        name.flatMap { name in roles.first { $0.name.caseInsensitiveCompare(name) == .orderedSame } }
+    }
+
+    /// The session that started it, when it's still known.
+    func parentSession(of id: SessionItem.ID) -> SessionItem? {
+        session(sessionTree.parent(of: id))
+    }
+
+    /// Move Under and Make Root (nil): its place in a team, last among its new siblings; a new root right after the
+    /// team it leaves. Never under itself or a session below it.
+    func setParent(_ id: SessionItem.ID, to parent: SessionItem.ID?) {
+        let tree = sessionTree
+        guard var item = session(id), tree.parent(of: id) != parent else { return }
+        if let parent, !tree.canMove(id, under: parent) { return }
+        let old = (parent: item.parent, order: item.order)
+        item.parent = parent
+        if let parent {
+            item.order = (tree.children(of: parent).compactMap { session($0)?.order }.max() ?? 0) + 1
+        } else {
+            let roots = tree.roots
+            let team = tree.root(of: id)
+            let here = session(team)?.order ?? nextGridOrder
+            let next = roots.firstIndex(of: team).flatMap { roots.indices.contains($0 + 1) ? session(roots[$0 + 1])?.order : nil }
+            item.order = next.map { (here + $0) / 2 } ?? here + 1
+        }
+        put(item)
+        registerUndo(parent == nil ? "Make Root" : "Move Under") { $0.restorePlace(id, parent: old.parent, order: old.order) }
+    }
+
+    private func restorePlace(_ id: SessionItem.ID, parent: SessionItem.ID?, order: Double) {
+        guard var item = session(id) else { return }
+        let current = (parent: item.parent, order: item.order)
+        item.parent = parent
+        item.order = order
+        put(item)
+        registerUndo(parent == nil ? "Make Root" : "Move Under") { $0.restorePlace(id, parent: current.parent, order: current.order) }
+    }
+
+    /// Whether a session can go to a place: never under itself or its own team, nor under an ended one it isn't under yet.
+    func canPlace(_ id: SessionItem.ID, _ place: SessionPlace) -> Bool {
+        guard session(id) != nil else { return false }
+        guard let parent = place.parent else { return true }
+        let tree = sessionTree
+        return tree.canMove(id, under: parent) && (tree.parent(of: id) == parent || session(parent)?.isRunning == true)
+    }
+
+    /// A drop between cards or rows, Move Above or Below, a ⇧ arrow: the session goes under the place's parent (none: the
+    /// grid), right before its `before`, else right after its `after`, else last; its new siblings take 1, 2, 3… in that
+    /// order. One Undo step, named after the move. False when nothing changed.
+    @discardableResult
+    func placeSession(_ id: SessionItem.ID, at place: SessionPlace, name: String? = nil) -> Bool {
+        guard canPlace(id, place) else { return false }
+        let tree = sessionTree
+        let from = tree.parent(of: id)
+        let current = place.parent.map { tree.children(of: $0) } ?? tree.roots
+        var siblings = current.filter { $0 != id }
+        let index = place.before.flatMap { siblings.firstIndex(of: $0) }
+            ?? place.after.flatMap { siblings.firstIndex(of: $0).map { $0 + 1 } } ?? siblings.count
+        siblings.insert(id, at: index)
+        guard from != place.parent || siblings != current else { return false }
+        var old: [SessionItem.ID: SessionPlace.Kept] = [:]
+        for (position, sibling) in siblings.enumerated() {
+            guard var item = session(sibling) else { continue }
+            old[sibling] = SessionPlace.Kept(parent: item.parent, order: item.order)
+            item.order = Double(position + 1)
+            if sibling == id { item.parent = place.parent }
+            put(item)
+        }
+        let name = name ?? (from == place.parent ? "Move Session" : place.parent == nil ? "Make Root" : "Move Under")
+        registerUndo(name) { $0.restorePlaces(old, name: name) }
+        return true
+    }
+
+    private func restorePlaces(_ places: [SessionItem.ID: SessionPlace.Kept], name: String) {
+        var current: [SessionItem.ID: SessionPlace.Kept] = [:]
+        for (id, kept) in places {
+            guard var item = session(id) else { continue }
+            current[id] = SessionPlace.Kept(parent: item.parent, order: item.order)
+            item.parent = kept.parent
+            item.order = kept.order
+            put(item)
+        }
+        registerUndo(name) { $0.restorePlaces(current, name: name) }
+    }
+
+    /// Its siblings as the page shows them: the cards (those the search leaves), or its parent's shown sessions.
+    private func shownSiblings(of id: SessionItem.ID, in tree: SessionTree) -> [SessionItem.ID] {
+        guard let parent = tree.parent(of: id) else { return shownRoots.map(\.id) }
+        return tree.children(of: parent).filter(tree.isShown)
+    }
+
+    /// ⇧↑ ⇧↓ (DESIGN.md §5, Keys): a step among its siblings; past the first or last, out one level, above or below its
+    /// parent, unless the key is held.
+    @discardableResult
+    func shiftSession(_ id: SessionItem.ID, by offset: Int, leavingParent: Bool = true) -> Bool {
+        let tree = sessionTree
+        let siblings = shownSiblings(of: id, in: tree)
+        guard let index = siblings.firstIndex(of: id) else { return false }
+        let name = offset < 0 ? "Move Up" : "Move Down"
+        let parent = tree.parent(of: id)
+        if siblings.indices.contains(index + offset) {
+            let next = siblings[index + offset]
+            return placeSession(id, at: offset < 0 ? SessionPlace(parent: parent, before: next) : SessionPlace(parent: parent, after: next), name: name)
+        }
+        guard leavingParent, let parent else { return false }
+        let out = tree.parent(of: parent)
+        return placeSession(id, at: offset < 0 ? SessionPlace(parent: out, before: parent) : SessionPlace(parent: out, after: parent), name: name)
+    }
+
+    /// ⇧→: under the sibling before it, last of its sessions; not under an ended one.
+    @discardableResult
+    func indentSession(_ id: SessionItem.ID) -> Bool {
+        let siblings = shownSiblings(of: id, in: sessionTree)
+        guard let index = siblings.firstIndex(of: id), index > 0, canDrop(id, on: siblings[index - 1]) else { return false }
+        return placeSession(id, at: SessionPlace(parent: siblings[index - 1]), name: "Indent")
+    }
+
+    /// ⇧←: one level out, right after its parent.
+    @discardableResult
+    func outdentSession(_ id: SessionItem.ID) -> Bool {
+        let tree = sessionTree
+        guard let parent = tree.parent(of: id) else { return false }
+        return placeSession(id, at: SessionPlace(parent: tree.parent(of: parent), after: parent), name: "Outdent")
+    }
+
+    /// A ⇧ arrow on the selected card or row, or its Session menu item: the session moves and stays selected; leaving the
+    /// open team folds it, and joining a folded team opens it (DESIGN.md §5, Keys).
+    func move(session id: SessionItem.ID, _ move: SessionMove, held: Bool = false) {
+        if movesOnScreen(id) {
+            if let target = cardTarget(id, move) { moveCard(id, to: target, move) }
+        } else {
+            switch move {
+            case .up: shiftSession(id, by: -1, leavingParent: !held)
+            case .down: shiftSession(id, by: 1, leavingParent: !held)
+            case .right: if !held { indentSession(id) }
+            case .left: if !held { outdentSession(id) }
+            }
+        }
+        let root = sessionTree.root(of: id)
+        if let open = openTeam, root != open { foldTeam() }
+        if root != id, openTeam != root { openTeam = root }
+        selectedSession = id
+    }
+
+    /// A card on two columns: its ⇧ arrows move it on screen, never under another (DESIGN.md §5, Keys).
+    func movesOnScreen(_ id: SessionItem.ID) -> Bool {
+        gridColumns > 1 && sessionTree.parent(of: id) == nil
+    }
+
+    /// Where a card moves on screen: the place left or right of it in its row, or of the card above or below it; from the
+    /// row before a short last row, down goes last. Nil at an edge.
+    private func cardTarget(_ id: SessionItem.ID, _ move: SessionMove) -> Int? {
+        let cards = shownRoots.map(\.id), columns = max(gridColumns, 1)
+        guard let index = cards.firstIndex(of: id) else { return nil }
+        return switch move {
+        case .left: index % columns > 0 ? index - 1 : nil
+        case .right: index % columns < columns - 1 && index + 1 < cards.count ? index + 1 : nil
+        case .up: index >= columns ? index - columns : nil
+        case .down: index / columns < (cards.count - 1) / columns ? min(index + columns, cards.count - 1) : nil
+        }
+    }
+
+    /// The card goes to the place of the card at `target` among the cards shown. One Undo step, named after the key.
+    private func moveCard(_ id: SessionItem.ID, to target: Int, _ move: SessionMove) {
+        let cards = shownRoots.map(\.id)
+        guard let index = cards.firstIndex(of: id), cards.indices.contains(target), target != index else { return }
+        let place = target < index ? SessionPlace(parent: nil, before: cards[target]) : SessionPlace(parent: nil, after: cards[target])
+        let name = switch move {
+        case .up: "Move Up"
+        case .down: "Move Down"
+        case .left: "Move Left"
+        case .right: "Move Right"
+        }
+        placeSession(id, at: place, name: name)
+    }
+
+    /// What the Session menu's moves can do for a session: Move Up, Move Down, and ⇧→ ⇧←: Indent and Outdent, or on two
+    /// columns a card's Move Right and Move Left.
+    func sessionMoves(_ id: SessionItem.ID) -> (up: Bool, down: Bool, right: Bool, left: Bool) {
+        if movesOnScreen(id) {
+            return (cardTarget(id, .up) != nil, cardTarget(id, .down) != nil, cardTarget(id, .right) != nil, cardTarget(id, .left) != nil)
+        }
+        let tree = sessionTree
+        let siblings = shownSiblings(of: id, in: tree)
+        guard let index = siblings.firstIndex(of: id) else { return (false, false, false, false) }
+        let out = tree.parent(of: id).map { canPlace(id, SessionPlace(parent: tree.parent(of: $0))) } ?? false
+        return (index > 0 || out, index < siblings.count - 1 || out, index > 0 && canDrop(id, on: siblings[index - 1]), out)
     }
 
     /// A session with nothing in it: no prompt, no name or title, no link, no task. Nothing to resume either.
@@ -230,10 +446,12 @@ extension AppModel {
         sessions.removeAll { $0.id == id }
     }
 
-    /// Closed in the last 14 days, newest first.
+    /// Closed in the last 14 days, newest first; a closed parent still on the grid for its team isn't.
     var closedSessions: [SessionItem] {
         let recent = now.addingTimeInterval(-14 * 86_400)
-        return sessions.filter { ($0.closedAt ?? .distantPast) >= recent }.sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+        let tree = sessionTree
+        return sessions.filter { ($0.closedAt ?? .distantPast) >= recent && !tree.isShown($0.id) }
+            .sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
     }
 
     /// Tasks a session works on.
@@ -416,6 +634,7 @@ extension AppModel {
                 put(item)
             }
         }
+        TurnWatch.update(self)
     }
 
     /// Saves a second after the last change: hook events come in bursts.
@@ -435,15 +654,15 @@ extension AppModel {
 
     // MARK: The grid
 
-    /// A card dragged to `index` of the grid as it shows now. One Undo step.
+    /// A card dragged to `index` of the grid's cards, the top-level sessions, as they show now. One Undo step.
     func moveSession(_ id: String, to index: Int) {
-        var grid = gridSessions
+        var grid = gridRoots
         guard let from = grid.firstIndex(where: { $0.id == id }) else { return }
         let moving = grid.remove(at: from)
         let at = min(max(index > from ? index - 1 : index, 0), grid.count)
         guard at != from else { return }
         grid.insert(moving, at: at)
-        let old = Dictionary(gridSessions.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
+        let old = Dictionary(gridRoots.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
         for (position, item) in grid.enumerated() {
             var placed = item
             placed.order = Double(position + 1)
@@ -453,7 +672,7 @@ extension AppModel {
     }
 
     private func restoreOrder(_ orders: [String: Double]) {
-        let current = Dictionary(gridSessions.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
+        let current = Dictionary(orders.keys.compactMap { session($0) }.map { ($0.id, $0.order) }, uniquingKeysWith: { first, _ in first })
         for (id, order) in orders {
             guard var item = session(id) else { continue }
             item.order = order
@@ -475,13 +694,13 @@ extension AppModel {
         let interrupting = item.status.state == .working || item.status.state == .compacting
         if known == nil, let pid = item.pid, let tty { expectExit(pid, closing: tty) }
         if Store.isOverridden {
-            ghosttyLog.append(known.map { "claude stop \($0)" } ?? "\(interrupting ? "escape, then " : "")type /exit in \(tty ?? "no terminal")")
+            ghosttyLog.append(known.map { "claude stop \($0)" } ?? "\(interrupting ? "escape, then " : "")clear the input, then type /exit in \(tty ?? "no terminal")")
             return
         }
         Task {
             let result = await Task.detached { () -> Result<Closed, Ghostty.Failure> in
                 do throws(Ghostty.Failure) {
-                    if known == nil, let tty, try Ghostty.type("/exit", tty: tty, interrupting: interrupting) { return .success(.exited) }
+                    if known == nil, let tty, try Ghostty.type("/exit", tty: tty, interrupting: interrupting, clearing: true) { return .success(.exited) }
                     guard let handle = known ?? Self.backgroundHandle(of: id, pid: item.pid) else { return .success(.unreachable) }
                     return .success(Self.claude(item.pid, ["stop", handle]) == nil ? .unreachable : .stopped(handle))
                 } catch {
@@ -757,38 +976,35 @@ extension AppModel {
     /// message read from a file so any shell takes it whole. Linked to the task it starts for.
     @discardableResult
     func startSession(named name: String, in directory: String, task taskID: Int? = nil, pullRequest: String? = nil, message: String = "",
+                      parent: SessionItem.ID? = nil, role: String? = nil, history: SessionItem.ID? = nil,
                       done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
         let id = UUID().uuidString.lowercased()
         var item = newSession(id, named: name, in: directory)
         // A review session shows on its PR from the start.
         if let pullRequest { item.links.append(pullRequest) }
+        item.parent = session(parent)?.id
+        item.role = role
         put(item)
         if let taskID, task(taskID) != nil { link(task: taskID, session: id) }
         var command = "claude --session-id \(id) --name \(Self.shellQuoted(name))"
+        // History from another session: its conversation so far, as Claude's fork.
+        if let history = session(history)?.id { command = "claude --resume \(history) --fork-session --session-id \(id) --name \(Self.shellQuoted(name))" }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty, let file = writePrompt(text, id: id) {
             command += " \"$(cat \(Self.shellQuoted(file.path)))\""
         }
-        newTab(in: directory, command: command) { [weak self] started in
+        newTab(in: directory, command: command, beside: windowTTY(forChildOf: item.parent)) { [weak self] started in
             if !started { self?.sessions.removeAll { $0.id == id } }
             done(started)
         }
         return id
     }
 
-    /// Fork Session: a new session with this one's conversation so far, in a new Ghostty tab in its folder, named after
-    /// it with Claude's fork mark. HQ gives it its id, so its card joins the end of the grid at once.
-    @discardableResult
-    func forkSession(_ source: SessionItem.ID) -> SessionItem.ID? {
-        guard let original = session(source) else { return nil }
-        let id = UUID().uuidString.lowercased()
-        let name = "\(original.name) ⑂"
-        put(newSession(id, named: name, in: original.cwd))
-        let command = "claude --resume \(original.id) --fork-session --session-id \(id) --name \(Self.shellQuoted(name))"
-        newTab(in: original.cwd, command: command) { [weak self] started in
-            if !started { self?.sessions.removeAll { $0.id == id } }
-        }
-        return id
+    /// Where a session started under `parent` opens: the tty of the parent's Ghostty terminal, whose window gets its tab;
+    /// nil for a new tab in the front window (no parent, or one that isn't running in Ghostty).
+    func windowTTY(forChildOf parent: SessionItem.ID?) -> String? {
+        guard let item = session(parent), item.isRunning, item.inGhostty else { return nil }
+        return item.tty
     }
 
     /// A session HQ starts, before Claude reports it: at the end of the grid, with a face no open session shares.
@@ -835,9 +1051,9 @@ extension AppModel {
     }
 
     /// Ghostty waits for the new shell, so the call runs off the main thread.
-    private func newTab(in directory: String, command: String, done: @escaping (Bool) -> Void) {
+    private func newTab(in directory: String, command: String, beside tty: String? = nil, done: @escaping (Bool) -> Void) {
         if Store.isOverridden {
-            ghosttyLog.append("new tab in \(directory): \(command)")
+            ghosttyLog.append("new tab \(tty.map { "in the window of \($0), " } ?? "")in \(directory): \(command)")
             done(!ghosttyFails)
             if ghosttyFails { problem = .ghosttyUnreachable }
             return
@@ -845,7 +1061,7 @@ extension AppModel {
         Task {
             let failure = await Task.detached { () -> Ghostty.Failure? in
                 do throws(Ghostty.Failure) {
-                    try Ghostty.newTab(in: directory, command: command)
+                    try Ghostty.newTab(in: directory, command: command, beside: tty)
                     return nil
                 } catch {
                     return error
@@ -911,7 +1127,8 @@ extension AppModel {
         registerUndo("Rename Session") { $0.renameSession(id, to: old ?? "") }
     }
 
-    /// What a new Claude session learns at its start (PLAN.md §7): what it works on, and how to keep it current.
+    /// What a Claude session learns at its start, on resume, after a compact and after /clear (PLAN.md §7): what it works
+    /// on, who started it, how to keep HQ current, then its role's text, the whole never past what a hook can add.
     func startContext(_ id: SessionItem.ID) -> String {
         var lines: [String] = []
         let mine = tasks(of: id)
@@ -925,8 +1142,58 @@ extension AppModel {
                 lines.append("A reminder is due on it: \(reminder.text)")
             }
         }
+        // Its team: the session that started it, which it reports to, and the ones it started.
+        if let parent = parentSession(of: id) {
+            let role = role(named: parent.role).map { " (\($0.name))" } ?? ""
+            lines.append(parent.closedAt == nil
+                         ? "The session “\(parent.name)”\(role) started this one: this session reports to it. Message it with SendMessage, to “\(parent.name)”."
+                         : "The session “\(parent.name)”\(role) started this one; it has ended.")
+        }
+        let team = sessionTree.rows(under: id).filter { session($0.id)?.closedAt == nil }.count
+        if team > 0 {
+            lines.append("This session started \(team == 1 ? "1 session that reports" : "\(team) sessions that report") to it: `hq ctx` lists them with their state and task.")
+        }
         lines.append("Load the hq skill before you change a task or notify the user, and hq-files before you write a note. "
                      + "Artifacts you publish land in HQ on their own.")
-        return lines.joined(separator: "\n")
+        let text = lines.joined(separator: "\n")
+        guard let role = role(named: session(id)?.role) else { return text }
+        let summary = role.line.isEmpty ? role.name : "\(role.name): \(role.line)"
+        let head = "\n\nThis session's role is \(summary)\(summary.last.map { ".!?".contains($0) } == true ? "" : ".") Its text, from HQ:\n\n"
+        let cut = "\n\n[HQ cut the role's text here: Claude Code takes \(Self.hookTextLimit) characters from a hook. `hq role show \(role.name)` prints it whole.]"
+        // Claude Code counts UTF-16 units; a margin stays under its cap.
+        let room = Self.hookTextLimit - 100 - text.utf16.count - head.utf16.count
+        guard role.text.utf16.count > room else { return text + head + role.text }
+        var kept = "", used = 0
+        for character in role.text {
+            used += character.utf16.count
+            if used > room - cut.utf16.count { break }
+            kept.append(character)
+        }
+        return text + head + kept + cut
     }
+}
+
+/// Where a session goes (DESIGN.md §5): under `parent` (none: on the grid), right before `before`, else right after `after`,
+/// else last among its sessions.
+struct SessionPlace: Equatable {
+    var parent: SessionItem.ID?
+    var before: SessionItem.ID?
+    var after: SessionItem.ID?
+
+    init(parent: SessionItem.ID?, before: SessionItem.ID? = nil, after: SessionItem.ID? = nil) {
+        self.parent = parent
+        self.before = before
+        self.after = after
+    }
+
+    /// A session's parent and order before a move, for its Undo.
+    struct Kept {
+        var parent: SessionItem.ID?
+        var order: Double
+    }
+}
+
+/// A session's moves by key, as a task's: ⇧↑ ⇧↓ ⇧→ ⇧←.
+enum SessionMove {
+    case up, down, left, right
 }

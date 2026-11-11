@@ -38,9 +38,12 @@ enum SelfTest {
             check("the menu bar icon's menu: Open HQ first, then Notifications, New Task…, New Reminder…, Focus ▸, Restart HQ, Quit HQ (T-325, T-336)",
                   titles.first == "Open HQ" && titles.contains { $0.hasPrefix("Notifications") } && titles.contains("New Task…")
                   && titles.contains("New Reminder…") && titles.last == "Quit HQ" && titles.dropLast().last == "Restart HQ", "\(titles)")
-            check("its Focus lists the sessions that wait on the user first, names cut at 30", model.blockedSessions.first.map { first == MenuBarMenu.title($0) } ?? false
+            let firstTeam = model.menuBarRows.first.map { model.sessionTree.root(of: $0.session.id) }
+            check("its Focus lists the teams that wait on the user first, names cut at 30",
+                  model.menuBarRows.first.map { first == MenuBarMenu.title($0.session) } ?? false
+                  && firstTeam.map { root in model.blockedSessions.contains { model.sessionTree.root(of: $0.id) == root } } ?? false
                   && (focus?.items ?? []).allSatisfy { ($0.title.components(separatedBy: " · ").first ?? "").count <= MenuBarMenu.nameLimit }
-                  && (focus?.items.count ?? 0) == model.menuBarSessions.count, "\(first), \(focus?.items.count ?? 0) of \(model.menuBarSessions.count)")
+                  && (focus?.items.count ?? 0) == model.menuBarRows.count, "\(first), \(focus?.items.count ?? 0) of \(model.menuBarRows.count)")
             let appMenu = (NSApp.mainMenu?.items.first?.submenu?.items ?? []).filter { !$0.isSeparatorItem }.map(\.title)
             let quit = appMenu.firstIndex { $0.hasPrefix("Quit") }
             check("the HQ menu has Restart HQ right above Quit HQ (T-336)", quit.map { $0 > 0 && appMenu[$0 - 1] == "Restart HQ" } ?? false, "\(appMenu)")
@@ -54,6 +57,8 @@ enum SelfTest {
             await vaultChecks(model)
             await cliChecks(model)
             await cliFixChecks(model)
+            await roleChecks(model)
+            await cliTeamChecks(model)
             await githubFixChecks(model)
             await editorChecks(model)
             await slackChecks(model)
@@ -61,6 +66,7 @@ enum SelfTest {
             spoolChecks(model)
             keysChecks()
             await pageFixChecks(model)
+            await stabilityChecks(model)
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
@@ -84,16 +90,16 @@ enum SelfTest {
     private static func noticeChecks(_ model: AppModel) {
         let s1 = "ef032aac-66d1-4b82-b6e1-03b8ee32dc93"
         check("Needs You counts sessions that wait, review requests that wait and unread important rows",
-              model.waitingReviews.count == 2 && model.importantCount == 4 + 2 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
+              model.waitingReviews.count == 1 && model.importantCount == 4 + 1 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
         // T-319: a review request stands until reviewed; Later puts it away, Bring Back Now returns it, Mark Reviewed ends it.
         if let review = model.waitingReviews.first {
             model.putReviewLater(review.url, until: .now.addingTimeInterval(3600))
             check("Later puts a review request away: out of Needs You, in Later with its time",
-                  !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 7)
+                  !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 6)
             model.putReviewLater(review.url, until: nil)
             check("Bring Back Now returns it to Needs You", model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.isEmpty)
             model.markReviewed(review.url)
-            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7)
+            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 6)
             model.undoManager?.undo()
             check("and Undo brings it back", model.waitingReviews.contains { $0.url == review.url })
         }
@@ -201,6 +207,8 @@ enum SelfTest {
               file.map { model.line(of: .file($0.id)) } ?? "no file")
         check("an artifact's, its address and title", artifact.map { model.line(of: .artifact($0.id)) == "Artifact \($0.id.absoluteString): \($0.title)" } ?? false)
         check("a PR HQ doesn't know, from its address", model.line(of: .github("https://github.com/acme/api/issues/9")) == "Issue acme/api#9")
+        check("and its icon is its kind's until GitHub brings it", GitHubStateIcon.icon("https://github.com/acme/api/issues/9", nil) == .issue
+              && GitHubStateIcon.icon("https://github.com/acme/api/pull/10", nil) == .pullRequest && GitHubStateIcon.icon(pr.url, pr) == KitIcon.github(pr))
         if let task {
             model.closeModal()
             model.beginReminder(about: .task(task.id))
@@ -375,12 +383,15 @@ enum SelfTest {
         // A new session's face is set apart from the open ones: background and headwear, skin tone, skin group (T-293).
         let id = "5eed0000-face-4000-8000-000000000001"
         let faces = open.map(\.face)
-        let new = FaceSpec(id: id, salt: model.faceSalt(for: id))
-        let groups = Dictionary(grouping: faces) { FacePalette.group(ofSkin: $0.skin) }.mapValues(\.count)
+        // Six open faces leave a skin tone free of the nine: the seed's ten open sessions show them all.
+        let few = Array(faces.prefix(6))
+        let new = FaceSpec(id: id, salt: FaceSpec.salt(for: id, among: few))
+        let groups = Dictionary(grouping: few) { FacePalette.group(ofSkin: $0.skin) }.mapValues(\.count)
         check("a new session's face shares no background and headwear, nor skin tone, with an open one, in the group they show least",
-              model.faceSalt(for: id) == FaceSpec.salt(for: id, among: faces) && !signatures.contains(new.signature)
-              && !faces.map(\.skin).contains(new.skin) && groups[FacePalette.group(ofSkin: new.skin), default: 0] == groups.values.min() ?? 0,
-              "skin \(new.skin + 1) among \(faces.map { $0.skin + 1 })")
+              model.faceSalt(for: id) == FaceSpec.salt(for: id, among: faces) && !few.map(\.signature).contains(new.signature)
+              && !few.map(\.skin).contains(new.skin)
+              && groups[FacePalette.group(ofSkin: new.skin), default: 0] == FacePalette.SkinGroup.allCases.map { groups[$0] ?? 0 }.min(),
+              "skin \(new.skin + 1) among \(few.map { $0.skin + 1 })")
         check("the open sessions show every skin group", Set(faces.map { FacePalette.group(ofSkin: $0.skin) }).count == 3, "\(faces.map { $0.skin + 1 })")
         // Randomize Face (T-334): another face at once, the open sessions not looked at; Undo gives the old one back.
         if let first = open.first {
@@ -528,7 +539,7 @@ enum SelfTest {
             model.closeSession(id)
             model.processExited(999_999)
             check("Close Session types /exit, then closes its terminal once Claude quits",
-                  model.ghosttyLog.suffix(2) == ["type /exit in /dev/ttys099", "close /dev/ttys099"], "\(model.ghosttyLog.suffix(2))")
+                  model.ghosttyLog.suffix(2) == ["clear the input, then type /exit in /dev/ttys099", "close /dev/ttys099"], "\(model.ghosttyLog.suffix(2))")
             hook("SessionStart", id, #","source":"resume""#)
         }
         // A background session (claude --bg) has no Ghostty terminal: Focus attaches it in a new tab, Close Session stops it.
@@ -549,14 +560,18 @@ enum SelfTest {
             check("an ended background session forgets its handle", model.backgroundHandles[id] == nil)
             hook("SessionStart", id, #","source":"resume""#)
         }
-        // Fork Session: a new interactive session with the conversation so far, in a new Ghostty tab, its card at once.
-        if let original = model.session(id), let fork = model.forkSession(id) {
-            check("Fork Session opens a tab resuming it as a new session HQ knows",
-                  model.ghosttyLog.last == "new tab in \(original.cwd): claude --resume \(id) --fork-session --session-id \(fork) --name '\(original.name) ⑂'"
-                  && model.gridSessions.last?.id == fork && model.session(fork)?.name == "\(original.name) ⑂", model.ghosttyLog.last ?? "-")
-            model.sessions.removeAll { $0.id == fork }
-        } else {
-            check("Fork Session", false)
+        // Start Session from Its History… (Fork Session went, T-408): the form at its level, named ⑂, its conversation so far.
+        if let original = model.session(id) {
+            model.beginStart(history: id)
+            let draft = model.startDraft
+            model.startFromDraft()
+            let started = model.sessions.last { $0.name == "\(original.name) ⑂" }
+            check("Start Session from Its History… fills the form (that session's history and level, ⑂) and resumes its conversation as a new session HQ knows",
+                  draft?.history == id && draft?.parent == original.parent && draft?.folder == original.cwd
+                  && started.map { model.ghosttyLog.last?.contains("claude --resume \(id) --fork-session --session-id \($0.id)") == true } == true,
+                  "\(String(describing: draft)), \(model.ghosttyLog.last ?? "-")")
+            if let started { model.sessions.removeAll { $0.id == started.id } }
+            model.closeModal()
         }
         // A review session shows on its PR from the start.
         let review = model.startSession(named: "Review #7", in: NSTemporaryDirectory(), pullRequest: "https://github.com/acme/registry/pull/7")

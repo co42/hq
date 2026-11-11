@@ -18,8 +18,9 @@ struct ModalHost: View {
     var body: some View {
         let route = route
         let page: GitHubItem? = if case .github(let url) = route { model.githubItem(url) ?? (kept?.url == url ? kept : nil) } else { nil }
-        let small = route == .start || route == .closedSessions
+        let small = route == .closedSessions
         let size = switch route {
+        case .start: Metric.startSheet
         case .newTask: Metric.taskSheet
         case .newReminder: Metric.reminderSheet
         case .newFile: Metric.fileSheet
@@ -45,6 +46,7 @@ struct ModalHost: View {
                 case .importArtifact: ImportArtifactForm()
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
+                case .roles: RolesModal()
                 case .notifications: NotificationCenterView()
                 case nil: EmptyView()
                 }
@@ -166,6 +168,7 @@ private struct ModalHeader: View {
         case .importArtifact: "Import an Artifact"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
+        case .roles: "Roles"
         case .notifications: "Notifications"
         case nil: ""
         }
@@ -223,8 +226,6 @@ private struct ModalActions: View {
                     Button("Close Session") { model.closeSession(id) }
                         .help("Type /exit in its terminal, then close the terminal")
                 }
-                Button("Fork Session") { model.forkSession(id) }
-                    .help("A new session with this one’s conversation, in a new Ghostty tab")
                 Button(session.isRunning ? "Focus" : "Resume") { model.open(id) }
                     .disabled(session.isRunning && session.tty == nil)
                     .buttonStyle(.glassProminent)
@@ -269,6 +270,34 @@ private struct ModalActions: View {
                     .buttonStyle(.glassProminent)
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
+            }
+        case .roles:
+            // The picked role's actions, in the File modal's order; while editing, Cancel and Save.
+            if let role = model.pickedRole {
+                if model.roleEdit != nil {
+                    Button("Cancel") { model.cancelRoleEdit() }.help("Drop the changes (Escape in a name or a line)")
+                        .uiTestAnchor("role-cancel")
+                    Button("Save") { model.commitRoleEdit() }
+                        .buttonStyle(.glassProminent)
+                        .clickable()
+                        .help("Save the changes (Return in a name or a line; Escape or ⌘Return in the text)")
+                        .uiTestAnchor("role-save")
+                } else {
+                    CopyButton(text: { model.line(ofRole: role) }, title: "Copy", icon: .copy, done: "Copied",
+                               help: "Copy \u{201C}\(model.line(ofRole: role))\u{201D}", anchor: "copy-item")
+                    if model.isChangedDefault(role) {
+                        Button("Restore Default") { model.restoreDefault(role.name) }
+                            .help("Give \(role.name) HQ’s text and line again; Undo brings yours back")
+                            .uiTestAnchor("role-restore")
+                    }
+                    Button("Delete") { model.deleteRole(role.name, picking: true) }
+                        .help("Move the role’s note to the Trash; sessions that have it keep what they started with. Undo brings it back")
+                        .uiTestAnchor("role-delete")
+                    Button("Edit") { model.beginRoleEdit(.text) }.help("Edit what a session with this role gets (⌘E)")
+                        .uiTestAnchor("role-edit")
+                    Button("Open in Obsidian") { model.openInObsidian(role.path) }.disabled(role.path == nil)
+                        .help("Open the role’s note in Obsidian")
+                }
             }
         case .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
             EmptyView()

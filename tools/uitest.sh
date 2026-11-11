@@ -2,9 +2,10 @@
 # Drives test copies of HQ with real key and mouse events (Sources/HQ/UITest.swift), each on a fresh store and vault in
 # /tmp. Exit code 0 when every check passed. It runs beside your own HQ, behind your windows.
 # Usage: tools/uitest.sh                        every group: the two that time the main thread alone, then the rest in
-#                                               four test copies side by side
+#                                               five test copies side by side
 #        UITEST_ONLY=outlineKeys,modal tools/uitest.sh    those groups, in one test copy
 #        UITEST_SHARDS=1 tools/uitest.sh        every group in one test copy, one after the other
+#        UITEST_RUN=mine tools/uitest.sh        every group, its copies' files named /tmp/HQ-mine-<n>.*: beside another run
 #        HQ_FOREGROUND=1 tools/uitest.sh        in front, for the real clicks: one test copy (only one app can be in front)
 set -u
 # Background jobs at full priority: zsh nices them, and macOS then keeps them on the efficiency cores.
@@ -46,14 +47,17 @@ alone=idle,performance
 shards=(
   outlineKeys,grid,modal,menuBar,singleSessionFace,prFaces
   storyFlow,typingKeepsRows,pageSelection,lateChecks
-  slackLinks,rowControls,foldedParentOpens,outlineDrops
+  slackLinks,rowControls,foldedParentOpens,outlineDrops,sessionDrags
+  pageFixes,taskLinks,copyAndRemind
 )
-one ui-0 $alone "" 1
-typeset -a runs=(ui-0) pids
+# UITEST_RUN=name: the copies' stores, vaults and logs are /tmp/HQ-<name>-<n>.*, to run beside another run.
+prefix=${UITEST_RUN:-ui}
+one $prefix-0 $alone "" 1
+typeset -a runs=($prefix-0) pids
 for i in {1..${#shards}}; do
-  one ui-$i ${shards[$i]} "" 1.5 & pids+=($!); runs+=(ui-$i)
+  one $prefix-$i ${shards[$i]} "" 1.5 & pids+=($!); runs+=($prefix-$i)
 done
-one ui-$(( ${#shards} + 1 )) "" ${(j:,:)shards},$alone 1.5 & pids+=($!); runs+=(ui-$(( ${#shards} + 1 )))
+one $prefix-$(( ${#shards} + 1 )) "" ${(j:,:)shards},$alone 1.5 & pids+=($!); runs+=($prefix-$(( ${#shards} + 1 )))
 wait $pids
 
 checks=0 failures=0 skips=0 missing=0

@@ -164,8 +164,6 @@ enum Ink {
     }
     /// The capsule of the tasks a task is blocked by.
     static let blockedChipNS = NSColor.systemRed.withAlphaComponent(0.11)
-    /// Where a dragged card lands.
-    static let dropNS = NSColor.controlAccentColor
     /// A row a dragged task would drop onto.
     static let rowDropNS = NSColor.controlAccentColor.withAlphaComponent(0.25)
     /// Hover on custom rows and cards.
@@ -206,12 +204,21 @@ nonisolated enum Metric {
     static var pageMarginNarrow: CGFloat { 20 * Zoom.factor }
     /// Below this window width the page takes the narrow margins.
     static var narrowWindow: CGFloat { 900 * Zoom.factor }
-    /// Session cards: fixed height, columns by content width.
+    /// Session cards: fixed height, two columns from this content width.
     static var card: CGFloat { 68 * Zoom.factor }
     static var cardGap: CGFloat { 12 * Zoom.factor }
-    static var fourColumns: CGFloat { 1200 * Zoom.factor }
-    static var threeColumns: CGFloat { 1060 * Zoom.factor }
-    static var twoColumns: CGFloat { 692 * Zoom.factor }
+    static var twoColumns: CGFloat { 1060 * Zoom.factor }
+    /// A team on its card: the faces in its tray, the toggle after them, their state badges.
+    static var faceTeam: CGFloat { 26 * Zoom.factor }
+    static var teamToggle: CGFloat { 26 * Zoom.factor }
+    static var teamBadge: CGFloat { 13 * Zoom.factor }
+    /// The name keeps at least this much beside a team's faces, and the time over the state takes about this much.
+    static var teamName: CGFloat { 190 * Zoom.factor }
+    static var cardState: CGFloat { 110 * Zoom.factor }
+    /// An open team's rows: their height, their face, and how far each level sits in.
+    static var teamRow: CGFloat { 34 * Zoom.factor }
+    static var faceTeamRow: CGFloat { 24 * Zoom.factor }
+    static var teamIndent: CGFloat { 28 * Zoom.factor }
     /// A session card's state capsule.
     static var statePill: CGFloat { 22 * Zoom.factor }
     /// Card shadows: a contact shadow, and a soft far one (deeper while lifted).
@@ -337,6 +344,16 @@ nonisolated enum Metric {
     static let fileSheet = CGSize(width: 560, height: 160)
     /// Import Artifact…: its link with a word on it, its title, then its buttons.
     static let importSheet = CGSize(width: 560, height: 212)
+    /// Start a Session: name, folder, role, parent, history, the first message, then its buttons.
+    static let startSheet = CGSize(width: 720, height: 600)
+    /// Its pop-ups, one width, so a long folder or session name never pushes the form past the sheet.
+    static var startPicker: CGFloat { 260 * Zoom.factor }
+    /// The Roles modal's list card, beside the role from this modal width, above it under.
+    static var rolesList: CGFloat { 260 * Zoom.factor }
+    static var rolesSideBySide: CGFloat { 900 * Zoom.factor }
+    static var roleRow: CGFloat { 44 * Zoom.factor }
+    /// A team's level in a menu: its sessions' faces step in by this.
+    static let menuIndent: CGFloat = 16
     static var modalHeader: CGFloat { 52 * Zoom.factor }
     /// A push button's height in the modal's header.
     static var modalButton: CGFloat { 24 * Zoom.factor }

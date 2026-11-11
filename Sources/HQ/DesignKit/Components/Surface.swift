@@ -420,11 +420,8 @@ final class CardsView: NSView {
     /// Where a dragged task would land between cards: an accent line with a ring at its start, over the cards
     /// (2026-11-10: the cards hold still under a drag). Nil hides it.
     private(set) var dropLine: CGRect?
-    private lazy var dropLayer: CAShapeLayer = {
-        let line = CAShapeLayer()
-        line.zPosition = 1_000_000
-        line.lineWidth = Metric.selectionRing
-        line.lineCap = .round
+    private lazy var dropLayer: DropLineLayer = {
+        let line = DropLineLayer()
         layer?.addSublayer(line)
         return line
     }()
@@ -432,22 +429,7 @@ final class CardsView: NSView {
     func showDropLine(_ rect: CGRect?) {
         guard rect != dropLine else { return }
         dropLine = rect
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        dropLayer.isHidden = rect == nil
-        if let rect {
-            let ring = Space.sm
-            let path = CGMutablePath()
-            path.addEllipse(in: CGRect(x: rect.minX, y: rect.midY - ring / 2, width: ring, height: ring))
-            path.move(to: CGPoint(x: rect.minX + ring, y: rect.midY))
-            path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-            dropLayer.path = path
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                dropLayer.strokeColor = Ink.accentNS.cgColor
-                dropLayer.fillColor = Ink.surfaceNS.cgColor
-            }
-        }
-        CATransaction.commit()
+        dropLayer.show(rect.map(DropLine.init(across:)), in: effectiveAppearance)
     }
 
     override func viewDidChangeEffectiveAppearance() {

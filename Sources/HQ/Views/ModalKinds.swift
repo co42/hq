@@ -65,7 +65,7 @@ struct TaskModal: View {
                 // What it waits on and what waits on it, and the tasks linked to it: the list shows them as chips and on
                 // selection only (2026-11-10).
                 ModalGroup(title: "Related tasks") { TaskRelations(id: id) } actions: { RelationActions(id: id) }
-                ModalGroup(title: "Files, artifacts, PRs and issues") {
+                ModalGroup(title: "Links") {
                     let outputs = model.outputs(ofTask: id).filter { $0.taskID == nil }
                     if !outputs.isEmpty { OutputRows(routes: outputs, task: id) }
                 } actions: { LinkButton(task: id) }
@@ -483,11 +483,13 @@ struct OutputRows: View {
         ModalBox {
             ForEach(routes, id: \.self) { route in
                 HStack(spacing: Space.sm) {
-                        kindIcon(route)
+                        kindIcon(route).uiTestAnchor("kind-icon:\(route.selectionKey)")
                         if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceChip) }
                         Text(model.title(of: route))
                             .lineLimit(1)
+                            .truncationMode(route.isWeb ? .middle : .tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .help(LineCut.wrap(model.title(of: route)))
                         Text(detail(route)).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
                         if case .github(let url) = route { OpenOnGitHubButton(url: url) }
                         if let task, model.isLinked(route, to: task) {
@@ -513,7 +515,7 @@ struct OutputRows: View {
     @ViewBuilder
     private func kindIcon(_ route: ModalRoute) -> some View {
         switch route {
-        case .github(let url): if let item = model.githubItem(url) { GitHubStateIcon(item: item) }
+        case .github(let url): GitHubStateIcon(url: url, item: model.githubItem(url))
         case .file: KitIcon.file.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("File")
         case .artifact: KitIcon.artifact.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Artifact")
         case .web: KitIcon.link.image.foregroundStyle(.secondary).frame(width: Metric.glyphSlot).accessibilityLabel("Web page")
@@ -527,13 +529,17 @@ struct OutputRows: View {
         case .file(let id): "File · " + (model.file(id)?.modified.formatted(.relative(presentation: .named)) ?? "")
         case .artifact(let url): "Artifact · " + (model.artifacts.first { $0.id == url }?.published.formatted(.relative(presentation: .named)) ?? "")
         // A PR says where it stands, as on the task's card: "PR · Approved · 2 hours ago" (T-393).
-        case .github(let url): (model.githubItem(url)?.kind == .issue ? "Issue · " : "PR · ")
-            + (model.githubItem(url).flatMap(GitHubStateIcon.status).map { $0.word + " · " } ?? "")
-            + (model.githubItem(url)?.updatedAt.formatted(.relative(presentation: .named)) ?? "")
+        case .github(let url): githubDetail(url, model.githubItem(url))
         case .web: "Link · opens in the browser"
         case .slack: "Slack · opens in Slack"
         default: ""
         }
+    }
+
+    /// Its kind, then its status and time once GitHub brought it.
+    private func githubDetail(_ url: String, _ item: GitHubItem?) -> String {
+        [GitHubStateIcon.isIssue(url, item) ? "Issue" : "PR", item.flatMap(GitHubStateIcon.status)?.word,
+         item?.updatedAt.formatted(.relative(presentation: .named))].compactMap(\.self).joined(separator: " · ")
     }
 }
 
@@ -594,7 +600,7 @@ struct LinkPicker: View {
                             HStack(spacing: Space.sm) {
                                 Group {
                                     switch route {
-                                    case .github(let url): if let item = model.githubItem(url) { GitHubStateIcon(item: item) }
+                                    case .github(let url): GitHubStateIcon(url: url, item: model.githubItem(url))
                                     case .file: KitIcon.file.image.foregroundStyle(.secondary)
                                     case .task(let id): if let task = model.task(id) { TaskGlyph(status: task.status) }
                                     case .web: KitIcon.link.image.foregroundStyle(.secondary)
@@ -758,6 +764,11 @@ struct SessionModal: View {
                         }
                     }
                 }
+                // Its team: the sessions under it, as a task's Subtasks (T-411).
+                let team = model.team(of: id)
+                if !team.isEmpty {
+                    ModalGroup(title: "Its sessions · \(team.count)") { TeamRows(rows: team) }
+                }
                 let outputs = model.outputs(ofSession: id)
                 if !outputs.isEmpty {
                     ModalGroup(title: "Made and linked") { OutputRows(routes: outputs) }
@@ -772,6 +783,29 @@ struct SessionModal: View {
                 }
                 ModalGroup(title: "Details") {
                     ModalBox {
+                        if let role = model.role(named: session.role) {
+                            DetailRow(label: "Role") {
+                                Button { model.openRoles(role.name, push: true) } label: { RoleChip(role: role) }
+                                    .buttonStyle(.plain)
+                                    .clickable()
+                                    .help("\(role.name): open it in Roles")
+                                    .uiTestAnchor("session-role")
+                            }
+                        }
+                        if let parent = model.parentSession(of: id) {
+                            DetailRow(label: "Started by") {
+                                Button { model.open(.session(parent.id), push: true) } label: {
+                                    HStack(spacing: Space.xs + 2) {
+                                        SessionFace(parent, size: Metric.faceChip, badged: false)
+                                        Text(parent.name).lineLimit(1)
+                                    }
+                                }
+                                .buttonStyle(.link)
+                                .help("Open \(parent.name)")
+                                .accessibilityLabel("Started by \(parent.name)")
+                                .uiTestAnchor("session-parent")
+                            }
+                        }
                         CopyableValue(label: "Directory", value: session.cwd)
                         if !session.branch.isEmpty { CopyableValue(label: "Branch", value: session.branch) }
                         CopyableValue(label: "Started", value: session.started.formatted(date: .abbreviated, time: .shortened))
@@ -820,6 +854,57 @@ struct SessionModal: View {
         .padding(Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .surface(glow: failed ? Ink.failed : Ink.needsYou)
+    }
+}
+
+/// A detail whose value acts, in the label column of `CopyableValue`: a session's role, who started it.
+private struct DetailRow<Value: View>: View {
+    let label: String
+    @ViewBuilder let value: Value
+
+    var body: some View {
+        HStack(spacing: Space.sm) {
+            Text(label)
+                .kitType(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: Metric.propertyLabel + Space.lg, alignment: .leading)
+            value
+            Spacer(minLength: Space.sm)
+        }
+        .padding(.horizontal, Space.md)
+        .frame(minHeight: Metric.boxRow)
+    }
+}
+
+/// A session's team in its window: a row per session under it, deeper ones stepped in; a click selects, a double-click
+/// opens it over this one (Back returns).
+private struct TeamRows: View {
+    let rows: [(session: SessionItem, depth: Int)]
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ModalBox(rows: true) {
+            ForEach(rows, id: \.session.id) { row in
+                let session = row.session
+                HStack(spacing: Space.sm) {
+                    SessionFace(session, size: Metric.faceRow + Space.xs)
+                    Text(session.name).kitType(.title).lineLimit(1)
+                    if let role = model.role(named: session.role) { RoleChip(role: role) }
+                    Spacer(minLength: Space.sm)
+                    Text(session.isRunning ? session.stateWords : "Ended")
+                        .kitType(.secondary)
+                        .foregroundStyle(session.isRunning && session.status.needsYou
+                                         ? AnyShapeStyle(session.status.state == .failed ? Ink.failedText : Ink.needsYouText) : AnyShapeStyle(.secondary))
+                        .lineLimit(1)
+                }
+                .padding(.leading, Space.sm + Metric.subtaskIndent * CGFloat(row.depth - 1))
+                .padding(.trailing, Space.sm)
+                .frame(height: Metric.boxRow + Space.xs)
+                .selectOpen(ModalRoute.session(session.id).selectionKey) { model.open(.session(session.id), push: true) }
+                .accessibilityLabel("\(session.name), \(session.isRunning ? session.stateWords : "Ended")")
+                .uiTestAnchor("team-row:\(session.id)")
+            }
+        }
     }
 }
 
@@ -1125,23 +1210,48 @@ struct StartSessionForm: View {
             VStack(alignment: .leading, spacing: Space.lg) {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                     GridRow {
-                        Text("Name").kitType(.callout).foregroundStyle(.secondary).frame(width: Metric.propertyLabel, alignment: .leading)
+                        label("Name")
                         TextField("Session name", text: Binding(get: { draft.name }, set: { model.startDraft?.name = $0 }))
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { model.startFromDraft() }
+                            .uiTestAnchor("start-name")
                     }
                     GridRow {
-                        Text("Folder").kitType(.callout).foregroundStyle(.secondary).frame(width: Metric.propertyLabel, alignment: .leading)
+                        label("Folder")
                         Picker("Folder", selection: Binding(get: { draft.folder }, set: { value in
-                            if value == "\u{0}choose" { choose() } else { model.startDraft?.folder = value }
+                            if value == Self.other { choose() } else { model.startDraft?.folder = value }
                         })) {
                             ForEach(folders(draft), id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
                             Divider()
-                            Text("Choose…").tag("\u{0}choose")
+                            Text("Choose…").tag(Self.other)
                         }
                         .labelsHidden()
-                        .fixedSize()
+                        .uiTestAnchor("start-folder")
+                        .frame(width: Metric.startPicker, alignment: .leading)
                         .clickable()
+                    }
+                    GridRow {
+                        label("Role")
+                        HStack(spacing: Space.md) {
+                            rolePicker(draft)
+                            hint(model.role(named: draft.role).map { $0.line.isEmpty ? "No line yet." : $0.line } ?? "No role: its first message says what to do.")
+                        }
+                    }
+                    GridRow {
+                        label("Parent")
+                        HStack(spacing: Space.md) {
+                            sessionPicker("Parent", none: "None: at the top level", selection: draft.parent,
+                                          sessions: model.sessionRows.map(\.session).filter(\.isRunning), anchor: "start-parent") { model.setStartParent($0) }
+                            hint(model.windowTTY(forChildOf: draft.parent) == nil ? "It opens in a new Ghostty tab." : "It opens in that session’s Ghostty window.")
+                        }
+                    }
+                    GridRow {
+                        label("History")
+                        HStack(spacing: Space.md) {
+                            sessionPicker("History", none: "None", selection: draft.history, sessions: model.sessionRows.map(\.session),
+                                          anchor: "start-history") { model.startDraft?.history = $0 }
+                            hint("Starts with that session’s conversation so far.")
+                        }
                     }
                 }
                 VStack(alignment: .leading, spacing: Space.xs) {
@@ -1152,7 +1262,7 @@ struct StartSessionForm: View {
                         .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
                         .uiTestAnchor("start-message")
-                    Text("Sent as the first prompt. Add context here; the task stays as it is.")
+                    Text("Sent as the first prompt, after HQ’s line and its role’s text; the task stays as it is.")
                         .kitType(.secondary).foregroundStyle(.secondary)
                 }
                 HStack {
@@ -1163,7 +1273,8 @@ struct StartSessionForm: View {
                         .clickable()
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .help("Start the session in a new Ghostty tab (⌘Return)")
+                        .help(model.windowTTY(forChildOf: draft.parent).flatMap { _ in model.session(draft.parent) }
+                            .map { "Start the session in \($0.name)’s Ghostty window (⌘Return)" } ?? "Start the session in a new Ghostty tab (⌘Return)")
                         .uiTestAnchor("start-button")
                 }
             }
@@ -1171,6 +1282,63 @@ struct StartSessionForm: View {
             .frame(maxWidth: Metric.pageWidth)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    /// A pop-up's tag for its last item: Choose… a folder, Edit Roles….
+    private static let other = "\u{0}other"
+
+    private func label(_ text: String) -> some View {
+        Text(text).kitType(.callout).foregroundStyle(.secondary).frame(width: Metric.propertyLabel, alignment: .leading)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail).help(text)
+    }
+
+    /// None, the roles each with its color, Edit Roles… (Roles over the form; Back returns).
+    private func rolePicker(_ draft: StartDraft) -> some View {
+        Picker("Role", selection: Binding(get: { model.role(named: draft.role)?.name ?? "" }, set: { value in
+            if value == Self.other { model.openRoles(draft.role, push: true) } else { model.setStartRole(value.isEmpty ? nil : value) }
+        })) {
+            Text("None").tag("")
+            Divider()
+            ForEach(model.roles) { role in
+                Label { Text(role.name) } icon: { Image(nsImage: role.color.swatch) }.tag(role.name)
+            }
+            Divider()
+            Text("Edit Roles…").tag(Self.other)
+        }
+        .labelsHidden()
+        // The control itself, before its column: the checks hold its leading edge to the name field's.
+        .uiTestAnchor("start-role")
+        .frame(width: Metric.startPicker, alignment: .leading)
+        .clickable()
+        .background(Self.shows("start-role", model.role(named: draft.role)?.name ?? "None"))
+    }
+
+    /// None, then sessions with their faces, each team's under its top card.
+    private func sessionPicker(_ title: String, none: String, selection: String?, sessions: [SessionItem], anchor: String,
+                               set: @escaping (String?) -> Void) -> some View {
+        let picked = model.session(selection)
+        let shown = sessions + (picked.map { picked in sessions.contains { $0.id == picked.id } ? [] : [picked] } ?? [])
+        return Picker(title, selection: Binding(get: { picked?.id ?? "" }, set: { set($0.isEmpty ? nil : $0) })) {
+            Text(none).tag("")
+            Divider()
+            ForEach(shown) { session in
+                Label { Text(session.name) } icon: { Image(nsImage: FaceArt.image(session.face, size: Metric.faceMenu, ended: !session.isRunning)) }
+                    .tag(session.id)
+            }
+        }
+        .labelsHidden()
+        .uiTestAnchor(anchor)
+        .frame(width: Metric.startPicker, alignment: .leading)
+        .clickable()
+        .background(Self.shows(anchor, picked?.name ?? none))
+    }
+
+    /// What a pop-up shows, as an anchor of its own for the UI checks: SwiftUI draws the pop-up, AppKit can't read it.
+    private static func shows(_ anchor: String, _ value: String) -> some View {
+        Color.clear.uiTestAnchor("\(anchor)=\(value)").id(value)
     }
 
     private func folders(_ draft: StartDraft) -> [String] {
@@ -1188,6 +1356,29 @@ struct StartSessionForm: View {
     }
 }
 
+extension AppModel {
+    /// The sessions on the page in its order, each team's under its top card with its depth: the form's pop-ups, the menu
+    /// bar's Focus ▸.
+    var sessionRows: [(session: SessionItem, depth: Int)] {
+        let tree = sessionTree
+        return tree.roots.compactMap { session($0) }.flatMap { [($0, 0)] + team(of: $0.id, in: tree) }
+    }
+
+    /// The form's Parent: its folder follows, and its role, until the user picks one.
+    func setStartParent(_ parent: SessionItem.ID?) {
+        guard var draft = startDraft else { return }
+        draft.parent = parent
+        if let folder = session(parent)?.cwd { draft.folder = folder }
+        if !draft.roleChosen { draft.role = siblingsRole(under: parent) }
+        startDraft = draft
+    }
+
+    func setStartRole(_ role: String?) {
+        startDraft?.role = role
+        startDraft?.roleChosen = true
+    }
+}
+
 // MARK: Closed Sessions
 
 struct ClosedSessionsModal: View {
@@ -1195,32 +1386,78 @@ struct ClosedSessionsModal: View {
 
     var body: some View {
         ModalPage {
-            ModalGroup(title: "Closed in the last 14 days") { rows(model.closedSessions) }
+            ModalGroup(title: "Closed in the last 14 days") { rows(model.closedRows) }
         }
     }
 
-    private func rows(_ sessions: [SessionItem]) -> some View {
+    /// A team closed together stays together, its sessions under the one that started them, each with Resume.
+    private func rows(_ rows: [(session: SessionItem, depth: Int)]) -> some View {
         ModalBox {
-            ForEach(sessions) { session in
+            ForEach(rows, id: \.session.id) { row in
+                let session = row.session
+                let closed = session.closedAt.map { "Closed " + $0.formatted(.relative(presentation: .named)) } ?? session.status.title
                 HStack(spacing: Space.sm) {
                     SessionFace(session, size: Metric.faceRow + Space.xs)
                     Button { model.open(.session(session.id), push: true) } label: {
-                        Text(session.name).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                        HStack(spacing: Space.sm) {
+                            Text(session.name).lineLimit(1)
+                            if let role = model.role(named: session.role) { RoleChip(role: role) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .clickable()
-                    Text(session.closedAt.map { "Closed " + $0.formatted(.relative(presentation: .named)) } ?? session.status.title)
-                        .kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
+                    Text(closed).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
                     Button("Resume") { model.open(session.id) }
                         .help("Resume it in a new Ghostty tab")
+                        .accessibilityLabel("Resume \(session.name)")
+                        .uiTestAnchor("resume:\(session.id)")
                 }
                 .kitType(.title)
-                .padding(.horizontal, Space.md)
+                .padding(.leading, Space.md + Metric.subtaskIndent * CGFloat(row.depth))
+                .padding(.trailing, Space.md)
                 .frame(height: Metric.boxRow + Space.xs)
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(model.parentSession(of: session.id).map { "\(session.name), \(closed), started by \($0.name)" } ?? "\(session.name), \(closed)")
+                .uiTestAnchor("closed:\(session.id)")
             }
-            if sessions.isEmpty {
+            if rows.isEmpty {
                 Text("None.").kitType(.callout).foregroundStyle(.secondary).padding(.horizontal, Space.md).frame(height: Metric.boxRow)
             }
         }
+    }
+}
+
+extension AppModel {
+    /// Closed Sessions as rows: newest first, a team closed together kept together under the closed session it sits under.
+    var closedRows: [(session: SessionItem, depth: Int)] {
+        let closed = closedSessions
+        let ids = Set(closed.map(\.id))
+        let tree = sessionTree
+        // The top of its closed team: its highest ancestor reached through closed ones only.
+        func top(_ id: String) -> String {
+            var top = id
+            for ancestor in tree.ancestors(of: id) {
+                guard ids.contains(ancestor) else { break }
+                top = ancestor
+            }
+            return top
+        }
+        var rows: [(session: SessionItem, depth: Int)] = []
+        func walk(_ parent: String, _ depth: Int) {
+            for child in tree.children(of: parent) where ids.contains(child) {
+                if let item = session(child) { rows.append((item, depth)) }
+                walk(child, depth + 1)
+            }
+        }
+        var placed = Set<String>()
+        for item in closed {
+            let head = top(item.id)
+            guard placed.insert(head).inserted, let first = session(head) else { continue }
+            rows.append((first, 0))
+            walk(head, 1)
+        }
+        return rows
     }
 }
