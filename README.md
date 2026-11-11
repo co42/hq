@@ -37,7 +37,7 @@ The look is native macOS 27: raised cards on a calm canvas, a soft sky at the to
 
 - **One process**, the app: a store for what has no file (sessions, artifacts, notifications), an index of the vault, the hook socket, the Ghostty bridge and the GitHub poller. It stays alive when its window closes. With a Slack token, it reads a linked Slack message once to name it, and never writes to Slack.
 - **The `hq` command** is the app's own binary, linked at `~/.local/bin/hq`. It talks to the running app over a Unix socket.
-- **A Claude Code plugin** (`plugin/`): its hooks report every session event through `hq hook`, which always exits 0, fast, and never opens the app. Its skills (`hq`, `hq-tasks`, `hq-files`) teach Claude to keep tasks current (`doing` when it starts, a description kept up to date, a notification when you must check something) and to write plans and reports as notes linked to their task.
+- **A Claude Code plugin** (`plugin/`): its hooks report every session event through `hq hook`, which always exits 0, fast, and never opens the app. Its two skills (`hq`, `hq-files`) teach Claude to keep tasks current (`doing` when it starts, a description kept up to date, a notification when you must check something) and to write plans and reports as notes linked to their task.
 - **Tasks and files are notes** under `<vault>/hq/tasks/` and `<vault>/hq/files/`. HQ writes only the front matter keys it owns, line by line, so everything else in a note keeps its exact text:
 
 ```yaml
@@ -83,22 +83,27 @@ Then open HQ. Its Setup sheet checks the three things it needs (the plugin, Ghos
 Mostly for Claude, through the plugin's skills, but it works from any terminal:
 
 ```sh
-hq ctx                                    # what this session works on, and the overview
-hq ls tasks | sessions | prs | files | artifacts | projects
-hq task add "Dedup layers on push" --project Registry
+hq ctx                                    # what this session works on, and what is doing in its project
+hq ls tasks | sessions | prs | files | artifacts | projects | notifications | reminders
+hq ls sessions --here                     # the sessions in this repository
+hq task add "Dedup layers on push" --project Registry -q    # prints the new key
 hq task move T-12 doing                   # todo | doing | done | backlog
-hq notify "PR #418 is ready to merge: the canary is green" --link T-12
+hq task show T-12 --deep                  # with each open subtask's description
+hq task tick T-12 "At most 3 attempts"    # one checklist item
+hq task edit T-12 --section Status --body -   # one section of the description
+hq task link T-12 <PR URL | T-34 | note name | artifact URL | session id>
+hq notify "PR #418 is ready to merge: the canary is green" --task T-12
 hq remind "Look at the canary again" --at "tomorrow 9:00"
-hq task show T-12
-hq task link T-12 <PR URL | T-34 | file | artifact URL | session id>
 hq file new "Retry budget plan" --task T-12 --body -
 hq session new "T-12 Retry budget" --task T-12   # a new Claude session in a Ghostty tab
 ```
 
+`hq help <command>` gives a command's options, an example and the shape of its `--json`. A list cut at its page says so on its last line.
+
 ## Development
 
 ```
-Sources/HQKit   the model, no UI: task tree, statuses, front matter, GitHub parsing, hook events
+HQKit/          its own package, the model, no UI: task tree, statuses, front matter, GitHub parsing, hook events
 Sources/HQ      the app: CockpitView, SessionGrid (NSCollectionView), TaskOutline (NSOutlineView),
                 ModalHost, DesignKit/ (tokens and parts), Agent/ (the CLI and its socket)
 plugin/         the Claude Code plugin: hooks and skills
@@ -109,11 +114,15 @@ tools/          snapshots, tests and lints
 
 | Check | Command |
 |---|---|
-| Unit tests | `swift test --scratch-path ~/Library/Developer/HQ/test-build` |
+| **Every check below, in one run, with a summary** (the gate) | `tools/check.sh` (`--fast`: a debug build; `--release`: the perf budgets too) |
+| Unit tests | `swift test --package-path HQKit` |
 | Model self-test | `tools/selftest.sh` |
 | UI test: real clicks and keys | `tools/uitest.sh` |
 | Snapshots of every screen, light and dark, at two widths | `tools/snap.sh` (to `/tmp/HQ-shots/`) |
 | The 4 pt grid | `tools/grid-lint.sh` and `swift tools/check-layout.swift /tmp/HQ-shots/*-layout.json` |
+| Performance rules in the code | `tools/perf-lint.sh` |
+| The docs, skills, `hq help` and the hook's start text against the CLI | `tools/docs-lint.sh` |
+| What sessions typed that `hq` refused, since a date | `tools/hq-usage.sh --since 2026-11-10` |
 
 Views use DesignKit's tokens and parts only: no raw colors, fonts, radii, durations or symbol names outside `Sources/HQ/DesignKit/`. A change under `plugin/` reaches sessions after a version bump in `plugin/.claude-plugin/plugin.json`.
 

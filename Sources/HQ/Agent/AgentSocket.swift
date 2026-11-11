@@ -37,6 +37,8 @@ nonisolated enum AgentSocket {
 
     /// Starts listening. `handle` runs on the main actor for each request.
     static func listen(handle: @escaping @MainActor @Sendable (Data) -> Data) {
+        // The build that runs, fixed now: `hq` compares it with its own.
+        _ = (AgentVersion.atLaunch, AgentVersion.launchedAt)
         let path = self.path
         unlink(path)
         let server = socket(AF_UNIX, SOCK_STREAM, 0)

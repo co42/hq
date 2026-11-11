@@ -25,7 +25,13 @@ nonisolated struct Vault: Sendable {
     /// Every task and file. Off the main thread: an iCloud file that isn't downloaded yet blocks.
     /// A task note that can't be read (still downloading, or caught empty mid-write) keeps its last read, uncached,
     /// and is named in `unreadable` so the caller reads it again.
-    func scan(_ cache: Cache) -> (tasks: [TaskItem], files: [FileItem], cache: Cache, unreadable: [String]) {
+    /// A vault that can't be listed (iCloud signed out, access revoked) throws: it isn't an empty one.
+    func scan(_ cache: Cache) throws -> (tasks: [TaskItem], files: [FileItem], cache: Cache, unreadable: [String]) {
+        let vault = root.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: vault.path) else { throw Unreadable.folder(vault.path) }
+        for folder in [tasksDirectory, filesDirectory] where FileManager.default.fileExists(atPath: folder.path) {
+            do { _ = try FileManager.default.contentsOfDirectory(atPath: folder.path) } catch { throw Unreadable.folder(folder.path) }
+        }
         var next = Cache()
         var tasks: [TaskItem] = []
         var files: [FileItem] = []
@@ -48,9 +54,16 @@ nonisolated struct Vault: Sendable {
         }
         for url in Self.notes(in: filesDirectory, recursive: true) {
             let modified = Self.modified(url)
-            let item = cache.files[url.path].flatMap { $0.0 == modified ? $0.1 : nil } ?? Self.file(at: url, in: filesDirectory, modified: modified)
-            files.append(item)
-            next.files[url.path] = (modified, item)
+            if let item = cache.files[url.path].flatMap({ $0.0 == modified ? $0.1 : nil }) ?? Self.file(at: url, in: filesDirectory, modified: modified) {
+                files.append(item)
+                next.files[url.path] = (modified, item)
+            } else {
+                unreadable.append(url.lastPathComponent)
+                if let cached = cache.files[url.path] {
+                    files.append(cached.1)
+                    next.files[url.path] = cached
+                }
+            }
         }
         return (tasks, files, next, unreadable)
     }
@@ -90,9 +103,11 @@ nonisolated struct Vault: Sendable {
                         body: note.body.trimmingCharacters(in: .newlines), path: url.path)
     }
 
-    static func file(at url: URL, in directory: URL, modified: Date) -> FileItem {
+    /// Nil while it can't be read: the scan keeps its last read.
+    static func file(at url: URL, in directory: URL, modified: Date) -> FileItem? {
         let relative = String(url.path.dropFirst(directory.path.count + 1))
-        let note = FrontMatter((try? String(contentsOf: url, encoding: .utf8)) ?? "")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let note = FrontMatter(text)
         let name = url.deletingPathExtension().lastPathComponent
         // The user's convention: "2026-11-03 - Title.md".
         let dated = name.count > 13 && day(String(name.prefix(10))) != nil && name.dropFirst(10).hasPrefix(" - ")
@@ -111,10 +126,30 @@ nonisolated struct Vault: Sendable {
 
     // MARK: Writing
 
+    /// A note HQ can't read is never written over: it would take it for an empty one.
+    enum Unreadable: LocalizedError {
+        case note(String), folder(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .note(let path): "couldn't read \((path as NSString).lastPathComponent), so it wasn't written over"
+            case .folder(let path): "couldn't list \(path)"
+            }
+        }
+    }
+
+    /// What's on disk of a note HQ is about to write: nothing for a new one. One that exists but can't be read throws, and
+    /// so does an empty task note (still downloading, caught mid-write): a task note is never empty.
+    static func existing(_ path: String, emptyIsFine: Bool = false) throws -> FrontMatter {
+        guard FileManager.default.fileExists(atPath: path) else { return FrontMatter("") }
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8), !text.isEmpty || emptyIsFine else { throw Unreadable.note(path) }
+        return FrontMatter(text)
+    }
+
     /// Writes hq's keys of a task, and its description. Other keys keep their text.
     func save(_ task: TaskItem) throws {
         guard let path = task.path else { return }
-        var note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+        var note = try Self.existing(path)
         note.set("title", task.title)
         note.set("status", task.status.rawValue)
         optional(&note, "type", task.type?.rawValue)
@@ -166,7 +201,7 @@ nonisolated struct Vault: Sendable {
     /// Writes hq's keys of a file note: its title, status, sessions, tasks, project, tags and pin.
     func save(_ file: FileItem) throws {
         guard let path = file.path else { return }
-        var note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+        var note = try Self.existing(path, emptyIsFine: true)
         note.set("title", file.title)
         if !note.has("date") { note.set("date", Self.dayString(file.date)) }
         if let status = file.status { note.set("status", status) }
@@ -198,7 +233,7 @@ nonisolated struct Vault: Sendable {
 
     /// The body of a note, keeping its front matter.
     func saveBody(_ body: String, at path: String) throws {
-        var note = FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "")
+        var note = try Self.existing(path, emptyIsFine: true)
         note.body = body
         try write(note, to: URL(fileURLWithPath: path))
     }

@@ -1,57 +1,111 @@
 ---
 name: hq
-description: What HQ is and how to use the hq command, notifications and reminders included. Use at the start of work, when the user mentions HQ, the overview, Tasks, the Backlog, sessions, notifications, or pull requests, files or artifacts in HQ, asks what this session works on, which tasks, notes or artifacts belong to it, or which other sessions run beside it, when work the user asked for is ready for them to look at, and when the user asks to be pinged or reminded.
+description: Keep HQ, the user's cockpit, current - tasks, notifications, reminders and links. Use at the start of work and the moment work on something starts (read the task, move it to doing), whenever work is agreed, planned, blocked, ready for the user to check or finished, when the user mentions HQ, a task key like T-12, a subtask, a story, Tasks, the Backlog, todo, doing or done, sessions, notifications or pull requests in HQ, asks to be pinged or reminded, or asks to note something to do.
 ---
 
 # HQ
 
-HQ is the user's cockpit for their day with Claude Code: a native Mac app beside Ghostty. One page, top to bottom: the **Pull Requests** that wait on them, every open Claude **Session** as a card with a face, **Files and Artifacts**, then their tasks as one outline: **Tasks** (what they work on now) and the **Backlog** (later). A task's row shows the faces of the sessions on it, and under it its PRs, issues, files, artifacts and linked tasks. Anything opens in a sheet over the page. A bell in the toolbar (and the menu bar) opens the **notification center**: **Needs You** (sessions that wait on them, pings, reminders that are due), **Updates** (what sessions tell them, reviews and comments on their PRs), and **Later**.
+HQ is the user's cockpit beside Ghostty: one page with the pull requests that wait on them, every Claude session as a card, files and artifacts, and their tasks as one outline, **Tasks** (now) and the **Backlog** (later). A bell opens the notification center: **Needs You**, **Updates**, **Later**. The user follows your work there, not in the chat. The plugin's hooks report this session on their own; your part is the tasks and telling the user.
 
-This session reports to HQ through the plugin's hooks on its own. Your part is to keep its tasks current, so the user can follow the work without reading the chat, and to tell them when something is ready. In short: a task goes to `doing` the moment work on it starts, and so does each subtask; finished work the user should look at (most of it) stays `doing` with an `hq notify` saying what to check, and they move it to `done`; `done` yourself only when nothing needs their look, its description saying what changed; every task you create gets a `--project` when the work belongs to one. The `hq-tasks` and `hq-files` skills say how.
+Everything goes through `hq`. `hq help <command>` gives its options, an example and the shape of its `--json`. A command or flag `hq help` doesn't list doesn't exist.
 
-## The hq command
+## The rule
 
-`hq` talks to the running app. Every command takes `--json`; `hq help` lists them all, `hq help <command>` shows a command's options.
+- **`doing` the moment work starts**, before the first edit or investigation; each subtask too, as you start it: the parent's doing never covers them. A task left todo while you work on it looks untouched.
+- **Finished, for the user to check** (most work: a PR to review or merge, a page, a choice, an app to restart): its Status says what changed, its checklist is ticked, it stays `doing`, and `hq notify` says what to check. The user moves it to `done`.
+- **Finished, nothing to check** (a chore, a subtask whose parent they'll review): `hq task move T-n done`.
+- **New tasks go to Tasks.** The Backlog only when the user says Backlog, or later.
+
+## Taking a task
+
+When the user hands you one ("do T-12 and its subtasks"):
+
+1. Read it: `hq task show T-12 --deep` prints the tasks it's part of, its reminders, its description, each open subtask's description under its line, and what's linked. The subtasks are your queue.
+2. Take it: `hq task move T-12 doing --not-mine`. This session is then on it and on everything under it: `--not-mine` belongs on this first command for a task the user named, and nowhere after (HQ says so when it isn't needed).
+3. Move each subtask to doing as you start it; `hq task move` on the parent lists the ones still todo.
+4. The user edits the task and adds subtasks while you work: `hq task show T-12 --brief` between pieces and before you finish, and take the new ones in.
+
+No task yet? `hq ctx` shows this session's tasks and what is doing in its project; `hq ls tasks --project Registry` the rest. Reuse one that covers the work; else create it doing: `hq task add "Dedup layers on push" --project Registry --status doing`.
+
+## The description
+
+The user reads it in HQ and in Obsidian: one tidy document that says where things stand now, never a log of dated notes.
+
+```markdown
+Blob uploads retry with no budget: a slow S3 complete turns into minutes of retries.
+
+## Done when
+- [x] At most 3 attempts per part, full jitter
+- [ ] The canary stays green for 30 minutes
+
+## Status
+Merged in #418; the canary runs since 14:00. Next: watch it until 14:30.
+
+## Decisions
+- A budget per upload, not per part: a push of 40 layers must not retry 120 times.
+```
+
+The goal and why first. **Done when**: a checklist, each item ticked once done and verified. **Status**: a few lines rewritten at each milestone. **Decisions**: what was chosen and why, when it matters later. Leave out an empty section; keep what the user wrote.
+
+Change one part at a time; each fails, and says so, when its target isn't there:
 
 ```
-hq ctx                                    # this session's tasks, the overview's Doing, recent files and artifacts, other sessions
-hq status                                 # whether HQ runs, and how much needs the user
-hq ls tasks [--overview|--backlog] [--all] [--project p] [--tag t]
-hq ls sessions | prs | files | artifacts | projects | notifications   # prs: Reviews then Yours, as on the page
-hq notify "…" [--important] [--link T-12,<url>]   # tell the user (below)
-hq remind "…" --at "tomorrow 9:00" [--important] [--link …]   # a reminder: in Later, back at its time
-hq notification done|delete <id>          # one this session sent or set, that no longer needs the user
-hq project edit Registry [--folder ~/code/registry] [--repo acme/registry,acme/image-sync]
-hq task show|add|move|edit|link|unlink …   # see hq-tasks
-hq file new|write|show …                  # see hq-files
-hq session new "T-12 Short name" --task T-12 [--cwd dir] [--message -]   # a fresh Claude session in a new Ghostty tab
+hq task tick T-12 "The canary stays"            # the item that starts so; prints "2 of 2 ticked"; --untick
+hq task edit T-12 --section Status --body -     # replaces that section, or adds it at the end
+hq task edit T-12 --replace "until 14:30" --with "until 15:00"   # an exact text, found once
 ```
+
+`--body -` alone replaces the whole description, and is refused when it changed since this session last read it (the user edits it too): read it again (`hq task show T-12 --body`) and redo the change on that text. PRs, files and other tasks go through `hq task link`, not into the text.
+
+## Fields and the tree
+
+- **Status**: `todo`, `doing`, `done`. `hq task move T-n backlog` is todo in the Backlog; `hq task move T-n todo --list tasks` brings it back. There is no review status.
+- **Project**: the product or area (HQ, Registry, Billing). A task you create always gets one: `--project` on a top-level task; a subtask takes its parent's. Reuse a project in use (`hq ls projects`); naming a new one creates it.
+- **Tags**: optional, for what cuts across projects (`perf`, `security`).
+- **Subtasks**: parts the user wants to see on their own (`--parent T-12`). Steps they don't need stay in the checklist.
+- **Blocked**: it can't be done now (a decision, an answer, a freeze): `hq task block T-n "why"`, then `hq notify`; `hq task unblock T-n` once it moves.
+- **Blocked by** a task until that one is done, for a hard wait (a stacked PR, an API that must ship first): `hq task link T-n --blocked-by T-m`. **After**, the order meant: `--after T-m`. Neither moves a task. Before picking the next one, `hq task show` the story's top task: its Ready line says what can start.
+
+## Links
+
+Link what you make to the task it's for, the moment you make it, so it shows on the task's card: `hq task link T-12 <PR or issue URL | Slack link | web page | T-34 | note name | artifact URL>`. A PR goes on the task it delivers and only that one: the user reads where a task stands from its PR. `hq task add "…" --link <url>` links at creation, and `-q` prints the new key alone. A wrong link: `hq task unlink T-12 <the same item>`.
+
+A task you create, or move to doing, shows this session's face on its card. Notes from `hq file new` and artifacts you publish link themselves (the `hq-files` skill).
 
 ## Telling the user
 
-The user doesn't watch every session. When a turn ends, its card shows it quietly; nothing notifies. Tell them yourself when they should look:
+Nothing notifies when a turn ends. Tell them when they should look:
 
-- **`hq notify "…"`** (Updates): the work they asked for is ready to check, a write-up or a page is done, a PR is open for their review, a decision of theirs unblocks the next step. A sentence or two: what's ready, then what to check, like `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west's retries look fine to you."` The center shows two lines, and all of it when the user selects the row. It links this session's open tasks and the files, artifacts and PRs it made since its last notification; `--link` names other things instead. A second notification from this session before they read the first updates it, so don't hold back the last one. Not at every turn end, and not when the turn only waits on a background job or a build: notify when the result is there.
-- **`--important`** (Needs You, with a banner): a ping. **"Ping me" always means `hq notify --important "…"`**, sent when what they're waiting for happens ("ping me when the deploy is green": notify the moment it's green, or failed). Also when you can't go on without them and a question doesn't fit ("unlock the screen", "log in to AWS"). Nothing else: a question you ask with AskUserQuestion, a permission or a plan already shows in Needs You on its own.
-- **`hq remind "…" --at <when>`**: the user asks to be reminded (`--important`), or a follow-up you can't do now needs them later ("look at the canary again"). `--at`: `16:00`, `in 2h`, `tomorrow 9:00`, `monday`, `next week`, `2026-11-09T09:00`.
-- **One that no longer holds**: the follow-up you set a reminder for got done early, a ping you sent is moot. `hq notification done <id>` (read, or done for a reminder) or `hq notification delete <id>`. The id starts the line `hq notify` and `hq remind` print; `hq ls notifications` lists them. Only yours: another's needs `--not-mine`, when the user names it.
+- **`hq notify "…" --task T-12`** (Updates): work they asked for is ready, a write-up or page is done, a PR waits for them, a decision of theirs unblocks you. What's ready, then what to check: `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west looks fine."` Without `--task` or `--link` it links this session's open tasks and what it made since its last notification. Not at every turn end, nor while a build runs: when the result is there.
+- **`--important`** (Needs You, with a banner): a ping. "Ping me" always means `hq notify --important`, sent when what they wait for happens. Also when you can't go on without them and a question doesn't fit ("unlock the screen"). A ping covers the thing it was asked for; the next notification is an update again.
+- **`hq remind "…" --at "tomorrow 9:00"`**: the user asks to be reminded (`--important`), or a follow-up needs them later. `--at` takes `16:00`, `in 2h`, `tomorrow at 15:00`, `friday 3pm`, `next week`. A task's reminders show in `hq task show`.
+- One that no longer holds: `hq notification done <id>` or `hq notification delete <id>`; the id starts the line `notify` printed.
 
-## What links where
+## Commands
 
-- A task you create, move or edit from this session is linked to it: this session's face shows on the task's row. The user can also drop a task on a session's card.
-- Link what you make to the task it's for, so it shows on the task's card: `hq task link T-12 <PR or issue URL | Slack message link | any web page | T-34 | file | artifact URL>`. HQ never links a PR on its own: link each PR to the task it delivers, that one only, the moment you open it. `hq task link T-12 T-34` lists T-34 in T-12's window, not the other way; the list doesn't draw it. A wrong link: `hq task unlink T-12 <the same item>`.
-- A file you create links to its task (`hq file new --task`). An artifact you publish links to this session, and to its task when the session works on exactly one. Either one made for a task is in the task's project.
+```
+hq ctx [--all]                       # this session's tasks, what is doing in its project, its files, other sessions
+hq ls tasks [--overview|--backlog] [--parent T-12] [--project p] [--tag t] [--all]
+hq ls sessions [--here] | prs | files | artifacts | projects | notifications | reminders
+hq task show T-12 [T-13 …] [--deep|--brief|--body]
+hq task add "Title" [--project p] [--parent T-12] [--status doing] [--backlog] [--link url] [--body -]
+hq task move T-12 todo|doing|done|backlog [--list tasks]
+hq task edit T-12 [--title t] [--section S --body -] [--replace "old" --with "new"] [--project p] [--add-tag t] [--parent T-34]
+hq task tick T-12 "item" [--untick]
+hq task link T-12 <item>             # task unlink takes the same; --blocked-by T-34, --after T-34
+hq task block T-12 "why"             # task unblock T-12
+hq task delete T-12 --yes            # only when the user asks; without --yes: what it would delete
+hq task history T-12                 # a change gone wrong: task undo T-12 --yes puts it back
+```
 
-## Projects
-
-A project (HQ, Registry, Billing) groups tasks, files and artifacts. It has a folder, where sessions on its tasks start, and its GitHub repositories, whose PRs' review sessions start there too. `hq ls projects` shows each with its folder (or `folderGuess`, the folder its sessions ran in most) and repositories. When you work in a project's repository and it has no folder or misses that repository, set them: `hq project edit Registry --folder <repo dir> --repo owner/name`. A new project needs no command: naming it on a task (`--project "New Name"`) makes it.
-
-## Artifacts
-
-A page you publish with the Artifact tool lands in Files and Artifacts on its own; one HQ missed (published before, elsewhere, or a link the user gives you) goes in with `hq artifact add <url> --title "…" [--date 2026-11-03] [--task T-n]`. Before publishing a page on a subject, look for one (`hq ctx`, `hq ls artifacts`): to revise it, republish to its URL instead of making a new one. A note the user keeps and edits is an HQ file (`hq-files`); a page to look at or share is an artifact.
+A list cut at its page ends with a line like `50 of 112: --limit 200`. The text output is short; `--json` has every field.
 
 ## Rules
 
-- Never edit HQ's store, socket or vault folder. Go through `hq`.
-- If `hq help` doesn't list a command or flag, it doesn't exist: don't guess.
-- Exit code 4 means HQ isn't running. Say so once; don't retry in a loop.
+- Change tasks only through `hq`; never edit HQ's store or its vault folder.
+- A task this session isn't on, nor under one it's on, is refused (exit code 5), naming the task the key hit: check the key. `--not-mine` only for the task the user named, never on a key you guessed (a new task's key is the first word of `task add`'s line).
+- Titles plain and short: the user reads them on one row.
+
+## Continue a task in a fresh session
+
+When the user asks to take a task to a new conversation: make its description the handoff (what's done, the decisions, what's left, the next step), then `hq session new "T-12 Short name" --task T-12`. It opens a new Claude session in a Ghostty tab, in this session's folder (`--cwd` for another), sent to the task. Tell the user, and leave the task to it.

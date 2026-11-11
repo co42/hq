@@ -12,7 +12,7 @@ struct FilesSection: View {
         let files = model.listedFiles
         let artifacts = model.listedArtifacts
         let total = model.files.count + model.artifacts.count
-        let filtered = !model.search.isEmpty || !model.filesSearch.isEmpty || model.pinnedOnly
+        let filtered = model.filesFiltered
         VStack(alignment: .leading, spacing: Space.md) {
             SectionHeader(title: PageSection.files.title, count: filtered ? "\(files.count + artifacts.count) of \(total)" : "\(total)",
                           open: model.sectionOpen(.files), tile: (PageSection.files.icon, Ink.section(.files))) {
@@ -23,18 +23,24 @@ struct FilesSection: View {
                     .clickable()
                     .help("Pinned Only: show pinned files and artifacts only")
                     .accessibilityLabel("Pinned Only")
-                NewFileButton()
-                ImportArtifactButton()
+                Button { model.beginNewFile() } label: { HeaderIcon(icon: .new) }
+                    .help("New File: write a note in the vault (⌃⌘N)")
+                    .accessibilityLabel("New File")
+                    .uiTestAnchor("new-file")
+                Button { model.beginImport() } label: { HeaderIcon(icon: .importItem) }
+                    .help("Import Artifact: add a claude.ai artifact by its link")
+                    .accessibilityLabel("Import Artifact")
+                    .uiTestAnchor("import-artifact")
             }
             if !model.folded.contains(.files) {
                 let layout = width >= Metric.prSideBySide
                     ? AnyLayout(HStackLayout(alignment: .top, spacing: Metric.cardGap))
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: Metric.cardGap))
                 layout {
-                    ItemGroup(title: "Files", routes: files.map { .file($0.id) }, total: model.files.count, filtered: filtered,
+                    ItemGroup(title: "Files", card: .files, routes: files.map { .file($0.id) }, total: model.files.count, filtered: filtered,
                               empty: emptyText(kind: "files"))
-                    ItemGroup(title: "Artifacts", routes: artifacts.map { .artifact($0.id) }, total: model.artifacts.count, filtered: filtered,
-                              empty: emptyText(kind: "artifacts"))
+                    ItemGroup(title: "Artifacts", card: .artifacts, routes: artifacts.map { .artifact($0.id) }, total: model.artifacts.count,
+                              filtered: filtered, empty: emptyText(kind: "artifacts"))
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -48,135 +54,15 @@ struct FilesSection: View {
     }
 }
 
-/// New File: a note in the vault by its title, opened to write in.
-private struct NewFileButton: View {
-    @Environment(AppModel.self) private var model
-    @State private var shown = false
-    @State private var title = ""
-    @FocusState private var focused: Bool
-
-    private var ready: Bool { !title.trimmingCharacters(in: .whitespaces).isEmpty }
-
-    var body: some View {
-        Button { open() } label: { HeaderIcon(icon: .new) }
-            .help("New File: write a note in the vault")
-            .accessibilityLabel("New File")
-            .uiTestAnchor("new-file")
-            .popover(isPresented: $shown, arrowEdge: .bottom) { form }
-            .onChange(of: model.newFileRequests) { open() }
-    }
-
-    private var form: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            Text("New File").kitType(.titleStrong)
-            TextField("Title", text: $title)
-                .focused($focused)
-                .onSubmit(save)
-            HStack {
-                Spacer()
-                Button("Cancel") { shown = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Create", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!ready)
-            }
-        }
-        .textFieldStyle(.roundedBorder)
-        .padding(Space.lg)
-        .frame(width: Metric.sheetWidth)
-    }
-
-    private func open() {
-        title = ""
-        shown = true
-        focused = true
-    }
-
-    private func save() {
-        guard ready else { return }
-        shown = false
-        model.newFile(title: title)
-    }
-}
-
-/// Import Artifact…: a claude.ai artifact HQ didn't capture, by its URL and a title.
-private struct ImportArtifactButton: View {
-    @Environment(AppModel.self) private var model
-    @State private var shown = false
-    @State private var link = ""
-    @State private var title = ""
-    @FocusState private var focus: Field?
-
-    private enum Field { case link, title }
-
-    private var url: URL? { AppModel.artifactURL(link) }
-    private var ready: Bool { url != nil && !title.trimmingCharacters(in: .whitespaces).isEmpty }
-
-    var body: some View {
-        Button { open() } label: { HeaderIcon(icon: .importItem) }
-            .help("Import Artifact: add a claude.ai artifact by its link")
-            .accessibilityLabel("Import Artifact")
-            .uiTestAnchor("import-artifact")
-            .popover(isPresented: $shown, arrowEdge: .bottom) { form }
-            .onChange(of: model.importRequests) { open() }
-    }
-
-    private var form: some View {
-        VStack(alignment: .leading, spacing: Space.md) {
-            Text("Import an Artifact").kitType(.titleStrong)
-            VStack(alignment: .leading, spacing: Space.xs) {
-                TextField("https://claude.ai/artifact/…", text: $link)
-                    .focused($focus, equals: .link)
-                if !link.isEmpty, url == nil {
-                    Text("Not a claude.ai artifact link.").kitType(.meta).foregroundStyle(Ink.failedText)
-                } else if let url, model.artifacts.contains(where: { $0.id == url }) {
-                    Text("Already in HQ: importing renames it.").kitType(.meta).foregroundStyle(.secondary)
-                }
-            }
-            TextField("Title", text: $title)
-                .focused($focus, equals: .title)
-                .onSubmit(save)
-            HStack {
-                Spacer()
-                Button("Cancel") { shown = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Import", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!ready)
-            }
-        }
-        .textFieldStyle(.roundedBorder)
-        .padding(Space.lg)
-        .frame(width: Metric.sheetWidth)
-    }
-
-    /// The link on the clipboard when it's an artifact's; the title next.
-    private func open() {
-        let copied = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        link = AppModel.artifactURL(copied) == nil ? "" : copied
-        title = link.isEmpty ? "" : AppModel.artifactURL(link).flatMap { url in model.artifacts.first { $0.id == url }?.title } ?? ""
-        shown = true
-        focus = link.isEmpty ? .link : .title
-    }
-
-    private func save() {
-        guard ready, let url else { return }
-        let artifact = model.importArtifact(url, title: title.trimmingCharacters(in: .whitespaces))
-        model.pinnedOnly = model.pinnedOnly && artifact.pinned
-        model.selectedItem = ModalRoute.artifact(artifact.id).selectionKey
-        model.selectSection(.files)
-        shown = false
-    }
-}
-
-/// One of the two cards: its title and count, then its rows, five before "Show N More".
+/// One of the two cards: its title and count, then its rows, five before "Show N More" (every one while a filter narrows them).
 private struct ItemGroup: View {
     let title: String
+    let card: RowCard
     let routes: [ModalRoute]
     let total: Int
     let filtered: Bool
     let empty: String
-    @State private var expanded = false
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -194,20 +80,13 @@ private struct ItemGroup: View {
                     .frame(height: Metric.boxRow, alignment: .top)
             } else {
                 VStack(spacing: 0) {
-                    let rows = expanded ? routes : Array(routes.prefix(PRCards.shown))
+                    let rows = model.shown(routes, in: card)
                     ForEach(rows, id: \.self) { route in
                         ItemRow(route: route)
                             .id(route.selectionKey)
                             .overlay(alignment: .bottom) { if route != rows.last { RowRule() } }
                     }
-                    if routes.count > PRCards.shown {
-                        Button(expanded ? "Show Fewer" : "Show \(routes.count - PRCards.shown) More") { expanded.toggle() }
-                            .buttonStyle(.borderless)
-                            .clickable()
-                            .kitType(.callout)
-                            .padding(.leading, Space.sm)
-                            .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
-                    }
+                    ShowMoreButton(card: card, count: routes.count)
                 }
                 .padding(.horizontal, Space.xs + 2)
                 .padding(.bottom, Space.sm)
@@ -231,7 +110,7 @@ private struct ItemRow: View {
         HStack(spacing: Space.sm) {
             RowLead {
                 Group {
-                    if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceRow) } else { FaceStack(sessions: [], size: Metric.faceRow) }
+                    if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceRow, badged: false) } else { FaceStack(sessions: [], size: Metric.faceRow) }
                 }
                 .frame(width: Metric.faceRow, height: Metric.faceRow)
             } icon: {
@@ -316,6 +195,49 @@ extension ModalRoute {
 }
 
 extension AppModel {
+    /// The page's search, the section's or Pinned Only narrows Files and Artifacts.
+    var filesFiltered: Bool { !search.isEmpty || !filesSearch.isEmpty || pinnedOnly }
+
+    /// New File… (⌃⌘N): its own small sheet, over what's open, as New Task….
+    func beginNewFile() {
+        guard modal != .newFile else { return }
+        showWindow()
+        open(.newFile, push: modal != nil)
+    }
+
+    /// File › Import Artifact…: its own small sheet, over what's open.
+    func beginImport() {
+        guard modal != .importArtifact else { return }
+        showWindow()
+        open(.importArtifact, push: modal != nil)
+    }
+
+    /// A new note by its title, opened in its modal to write in: over the item New File… was asked from, else from the page,
+    /// its row selected there.
+    func newFile(title: String) {
+        guard let file = addFile(title: title) else { return }
+        pinnedOnly = false
+        filesSearch = ""
+        if modal == nil { show(onPage: .file(file.id)) }
+        open(.file(file.id), push: modal != nil)
+        beginFileEdit(file.id)
+    }
+
+    /// An artifact Import Artifact… added: from the page, its row selected and in view.
+    func show(imported artifact: ArtifactItem) {
+        guard modal == nil else { return }
+        pinnedOnly = pinnedOnly && artifact.pinned
+        show(onPage: .artifact(artifact.id))
+    }
+
+    /// A file's or an artifact's row selected: Files and Artifacts unfolds and the page brings the row into view.
+    private func show(onPage route: ModalRoute) {
+        folded.remove(.files)
+        selectedItem = route.selectionKey
+        selectSection(.files)
+        scrollTarget = route.selectionKey
+    }
+
     /// A claude.ai artifact's link, without its share key and fragment; nil for anything else.
     static func artifactURL(_ raw: String) -> URL? {
         guard var parts = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)), parts.scheme == "https",

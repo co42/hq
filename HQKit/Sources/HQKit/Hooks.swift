@@ -26,6 +26,8 @@ public struct HookEvent: Sendable, Hashable {
     public var artifact: PublishedArtifact?
     /// Pull requests the session opened (`gh pr create` in a PostToolUse of Bash).
     public var pullRequests: [String] = []
+    /// The subagent or teammate the event fired in (`agent_id`); nil: the session's main thread.
+    public var agentID: String?
     /// Claude's process and terminal, added by `hq hook`.
     public var pid: Int32?
     public var tty: String?
@@ -61,6 +63,7 @@ public struct HookEvent: Sendable, Hashable {
         error = object["error"] as? String
         title = (object["session_title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         prompt = object["prompt"] as? String
+        agentID = (object["agent_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         if name == "PostToolUse", toolName == "Artifact" {
             artifact = PublishedArtifact(input: input ?? [:], response: object["tool_response"])
         }
@@ -70,6 +73,11 @@ public struct HookEvent: Sendable, Hashable {
         self.pid = pid
         self.tty = tty
         self.inGhostty = inGhostty
+    }
+
+    /// A replayed event from before the session's current state: a live event already said what came after it.
+    public func isStale(for status: SessionStatus) -> Bool {
+        at.map { $0 < status.since } ?? false
     }
 
     /// A tool response as text, whatever its shape.
@@ -208,13 +216,16 @@ public struct SessionLive: Sendable, Hashable {
     public var planPath: String?
     public var error: String?
     public var lastMessage: String?
+    /// The subagent whose question, plan or permission the session waits on; nil: the main thread's.
+    public var waiter: String?
 
     public init(status: SessionStatus) {
         self.status = status
     }
 
     public mutating func apply(_ event: HookEvent, now: Date) {
-        status.lastActivity = now
+        guard !event.isStale(for: status) else { return }
+        status.lastActivity = max(status.lastActivity, now)
         let state = status.state
         switch event.name {
         case "SessionStart":
@@ -228,25 +239,25 @@ public struct SessionLive: Sendable, Hashable {
             case "AskUserQuestion":
                 question = event.question
                 options = event.options
-                set(.waiting(.question), now)
+                wait(.question, for: event, now)
             case "ExitPlanMode":
                 planPath = event.planPath
-                set(.waiting(.plan), now)
+                wait(.plan, for: event, now)
             default:
-                set(.working, now)
+                if !elsewhere(event) { set(.working, now) }
             }
         case "PostToolUse", "PostToolUseFailure":
-            set(.working, now)
+            if !elsewhere(event) { set(.working, now) }
         case "PermissionRequest", "Elicitation":
             // AskUserQuestion and ExitPlanMode raise one too: they stay a question or a plan.
             guard !state.waitsOnQuestionOrPlan else { break }
             tool = event.toolName ?? (event.name == "Elicitation" ? "an MCP tool" : nil)
             toolInput = event.toolSummary
-            set(.waiting(.permission), now)
+            wait(.permission, for: event, now)
         case "Notification":
             guard event.notificationType == "permission_prompt", !state.waitsOnQuestionOrPlan,
                   state != .waiting(.permission) else { break }
-            set(.waiting(.permission), now)
+            wait(.permission, for: event, now)
         case "Stop":
             lastMessage = event.lastMessage ?? lastMessage
             status.unread = true
@@ -262,11 +273,21 @@ public struct SessionLive: Sendable, Hashable {
             set(beforeCompact ?? .idle, now)
             beforeCompact = nil
         case "SessionEnd":
-            // After /clear the conversation goes on under a new id; this one can be resumed.
+            // /clear too: the new id takes over the card (PLAN.md §6), this one can be resumed.
             set(.ended, now)
         default:
             break
         }
+    }
+
+    /// A tool event from another thread than the wait's, or a subagent's during a compaction: it answers nothing.
+    private func elsewhere(_ event: HookEvent) -> Bool {
+        status.needsYou ? event.agentID != waiter : status.state == .compacting && event.agentID != nil
+    }
+
+    private mutating func wait(_ reason: WaitReason, for event: HookEvent, _ now: Date) {
+        set(.waiting(reason), now)
+        waiter = event.agentID
     }
 
     /// The process exited without a SessionEnd.
@@ -295,6 +316,7 @@ public struct SessionLive: Sendable, Hashable {
         guard status.state != state else { return }
         status.state = state
         status.since = now
+        waiter = nil
     }
 }
 

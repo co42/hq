@@ -222,7 +222,7 @@ struct EditOnDoubleClick: NSViewRepresentable {
         var edit: ((CGPoint) -> Void)?
         private var monitor: Any?
 
-        override var isFlipped: Bool { true }
+        nonisolated override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override func viewDidMoveToWindow() {

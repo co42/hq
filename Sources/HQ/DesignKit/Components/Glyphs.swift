@@ -229,13 +229,13 @@ class TaskGlyphView: NSView {
     /// White on a selected row.
     var onSelection = false { didSet { needsDisplay = true } }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: Metric.glyphSlot, height: Metric.glyphSlot) }
 
     /// A short spring around its center when the user changes the status: the change is felt, as Things' checkbox.
     func pop() {
         wantsLayer = true
-        guard let layer else { return }
+        guard let layer, !Motion.still else { return }
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         func scaled(_ scale: CGFloat) -> NSValue {
             var transform = CATransform3DMakeTranslation(center.x, center.y, 0)

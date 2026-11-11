@@ -8,18 +8,27 @@ struct ModalHost: View {
     /// The route and Back stack last shown: the sheet keeps them while it animates out, so it never
     /// flashes empty or jumps to another size.
     @State private var shown: (route: ModalRoute, stack: [ModalRoute])?
+    /// The content takes Escape itself: a form's Cancel, the center's reminder editor.
+    @State private var contentEscapes = false
+    /// The PR or issue last shown: a poll that no longer brings it leaves its page as it was.
+    @State private var kept: GitHubItem?
 
     private var route: ModalRoute? { model.modal ?? shown?.route }
 
     var body: some View {
         let route = route
+        let page: GitHubItem? = if case .github(let url) = route { model.githubItem(url) ?? (kept?.url == url ? kept : nil) } else { nil }
         let small = route == .start || route == .closedSessions
-        let size = if case .newTask = route { Metric.taskSheet } else if route == .newReminder { Metric.reminderSheet } else if small { Metric.modalMin } else {
-            CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
-                     height: max(Metric.modalMin.height, (model.windowSize.height * Metric.modalShare).rounded()))
+        let size = switch route {
+        case .newTask: Metric.taskSheet
+        case .newReminder: Metric.reminderSheet
+        case .newFile: Metric.fileSheet
+        case .importArtifact: Metric.importSheet
+        default: small ? Metric.modalMin : CGSize(width: max(Metric.modalMin.width, (model.windowSize.width * Metric.modalShare).rounded()),
+                                                  height: max(Metric.modalMin.height, (model.windowSize.height * Metric.modalShare).rounded()))
         }
         VStack(spacing: 0) {
-            ModalHeader(route: route, stack: model.modal == nil ? shown?.stack ?? [] : model.modalStack)
+            ModalHeader(route: route, page: page, stack: model.modal == nil ? shown?.stack ?? [] : model.modalStack, escapes: !contentEscapes)
             Group {
                 switch route {
                 case .task(let id): if model.task(id) != nil { TaskModal(id: id).id(id) } else { gone }
@@ -27,11 +36,13 @@ struct ModalHost: View {
                 case .file(let id): if let file = model.file(id) { FileModal(file: file).id(id) } else { gone }
                 case .artifact(let url):
                     if let artifact = model.artifacts.first(where: { $0.id == url }) { ArtifactReader(artifact: artifact).id(url) } else { gone }
-                case .github(let url): if let item = model.githubItem(url) { GitHubModal(item: item).id(url) } else { gone }
+                case .github(let url): if let page { GitHubModal(item: page).id(url) } else { gone }
                 // A web page or a Slack link opens outside HQ, never here.
                 case .web, .slack: gone
                 case .newTask(let list): NewTaskForm(list: list)
                 case .newReminder: NewReminderForm(about: model.reminderAbout)
+                case .newFile: NewFileForm()
+                case .importArtifact: ImportArtifactForm()
                 case .start: StartSessionForm()
                 case .closedSessions: ClosedSessionsModal()
                 case .notifications: NotificationCenterView()
@@ -50,15 +61,19 @@ struct ModalHost: View {
                     .opacity(0.7)
             }
         }
+        .environment(\.inModal, true)
+        .onPreferenceChange(OwnsEscape.self) { contentEscapes = $0 }
         .noInitialFocus()
         .handCursors()
         .controlSize(Zoom.controlSize(model.zoom))
         .id(model.zoom)
         .gridArea("modal", inset: 0)
+        .onChange(of: page, initial: true) { _, page in if let page { kept = page } }
         .onChange(of: model.modal, initial: true) { _, next in
             if let next {
                 shown = (next, model.modalStack)
             } else {
+                model.modalSelection = nil
                 // Once the sheet is gone, nothing is drawn: a host SwiftUI keeps around stays cheap.
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(0.6))
@@ -73,13 +88,29 @@ struct ModalHost: View {
 
     private var gone: some View {
         ContentUnavailableView("This Item Is Gone", icon: .trash)
+            .onAppear { Snapshot.goneShown += 1 }
     }
+}
+
+extension EnvironmentValues {
+    /// Inside the modal: a row selects there, not on the page.
+    @Entry var inModal = false
+}
+
+/// The modal's content takes Escape itself (a form's Cancel goes back, an inline editor cancels): the header's Close doesn't.
+struct OwnsEscape: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 /// Close, Back, the title, then the kind's actions.
 private struct ModalHeader: View {
     let route: ModalRoute?
+    /// The PR or issue shown, kept when a poll drops it.
+    let page: GitHubItem?
     let stack: [ModalRoute]
+    /// Escape closes the modal, unless its content takes Escape.
+    let escapes: Bool
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -89,8 +120,8 @@ private struct ModalHeader: View {
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .clickable()
-                .keyboardShortcut(.cancelAction)
-                .help("Close (Escape)")
+                .keyboardShortcut(escapes ? .cancelAction : nil)
+                .help(escapes ? "Close (Escape)" : "Close")
                 .uiTestAnchor("modal-close")
             if let previous = stack.last {
                 Button { model.back() } label: {
@@ -112,7 +143,7 @@ private struct ModalHeader: View {
             Spacer(minLength: Space.sm)
             // The kind's actions float as one glass group, as a toolbar's do.
             GlassEffectContainer(spacing: Space.sm) {
-                HStack(spacing: Space.sm) { ModalActions(route: route) }
+                HStack(spacing: Space.sm) { ModalActions(route: route, page: page) }
                     .buttonStyle(.glass)
             }
         }
@@ -126,11 +157,13 @@ private struct ModalHeader: View {
         case .session: "Session"
         case .file: "File"
         case .artifact: "Artifact"
-        case .github(let url): model.githubItem(url).map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
+        case .github: page.map { $0.kind == .issue ? "Issue \($0.reference)" : "Pull Request \($0.reference)" } ?? "GitHub"
         case .web: "Link"
         case .slack: "Slack"
         case .newTask: "New Task"
         case .newReminder: "New Reminder"
+        case .newFile: "New File"
+        case .importArtifact: "Import an Artifact"
         case .start: "Start a Session"
         case .closedSessions: "Closed Sessions"
         case .notifications: "Notifications"
@@ -149,6 +182,7 @@ private struct ModalHeader: View {
 /// The open item's actions, one prominent at most.
 private struct ModalActions: View {
     let route: ModalRoute?
+    let page: GitHubItem?
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -157,13 +191,30 @@ private struct ModalActions: View {
             if let task = model.task(id) {
                 CopyItemButton(route: .task(id))
                 RemindMeButton(route: .task(id))
-                Button("Delete") { model.deleteTasks([id]) }
-                    .help("Move the task’s note to the Trash; Undo brings it back")
-                Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
-                    .help(model.list(of: id) == .backlog ? "Put it on the overview (⇧⌘B)" : "Move it to the Backlog (⇧⌘B)")
-                Button("Open in Obsidian") { model.openInObsidian(task.path) }
-                    .disabled(task.path == nil)
-                    .help("Open the task’s note in Obsidian (⇧⌘O)")
+                // The rare ones in More, with their keys; the main action last and prominent, as a session's and a PR's (2026-11-11).
+                Menu {
+                    Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
+                    Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
+                    Divider()
+                    Button("Delete") { model.deleteTasks([id]) }
+                } label: {
+                    Label("More", icon: .more)
+                }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Move to Backlog or Tasks (⇧⌘B), Open in Obsidian (⇧⌘O), Delete (⌘⌫; Undo brings it back)")
+                .uiTestAnchor("task-more")
+                if let session = model.byImportance(model.sessions(on: id)).first(where: \.isRunning), session.tty != nil {
+                    Button("Focus") { model.open(session.id) }
+                        .buttonStyle(.glassProminent)
+                        .help("Bring \(session.name)’s terminal forward")
+                        .uiTestAnchor("task-main-action")
+                } else {
+                    Button("Start Session…") { model.beginStart(task: id, push: true) }
+                        .buttonStyle(.glassProminent)
+                        .help("Start a Claude session on this task (⌥⌘Return)")
+                        .uiTestAnchor("task-main-action")
+                }
             }
         case .session(let id):
             if let session = model.session(id) {
@@ -205,7 +256,7 @@ private struct ModalActions: View {
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
                 .help("Open the artifact in the browser (⇧⌘O)")
         case .github(let url):
-            if let item = model.githubItem(url) {
+            if let item = page {
                 ReloadButton(page: url)
                 CopyItemButton(route: .github(url))
                 RemindMeButton(route: .github(url))
@@ -219,7 +270,7 @@ private struct ModalActions: View {
                     .clickable()
                     .help("Open it on github.com (⇧⌘O)")
             }
-        case .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, nil:
+        case .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
             EmptyView()
         }
     }
@@ -315,9 +366,15 @@ private struct CopyButton: View {
 }
 
 extension AppModel {
+    /// The PRs and issues open in the modal or under it: the poll keeps asking for them.
+    var modalGitHubURLs: [String] {
+        ([modal].compactMap(\.self) + modalStack).compactMap { if case .github(let url) = $0 { url } else { nil } }
+    }
+
     /// Edit (⌘E) on a file: its markdown in the editor.
     func beginFileEdit(_ id: FileItem.ID) {
-        fileDraft = fileBody(id)
+        fileDraftBase = fileBody(id)
+        fileDraft = fileDraftBase
         editingFile = id
     }
 }

@@ -108,10 +108,11 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
         self.checkRuns = checkRuns
     }
 
-    /// Waits for the user's review: requested, open, and neither reviewed nor marked reviewed since the last commit.
+    /// Waits for the user's review: requested, open, and neither reviewed nor marked reviewed since the last commit or
+    /// the last time their review was asked.
     public func waitsForReview(markedReviewedAt: Date?) -> Bool {
         guard reviewRequested, state == .open || state == .draft else { return false }
-        let since = lastCommitAt ?? .distantPast
+        let since = max(lastCommitAt ?? .distantPast, reviewRequestedAt ?? .distantPast)
         if let mine = myReviewAt, mine >= since { return false }
         if let marked = markedReviewedAt, marked >= since { return false }
         return true
@@ -129,6 +130,47 @@ public struct GitHubSnapshot: Sendable, Hashable, Codable {
         self.items = items
         self.fetchedAt = fetchedAt
     }
+
+    /// Linked items a poll didn't ask about keep what the last one knew; the ones it answered win.
+    public mutating func keep(_ urls: Set<String>, from previous: GitHubSnapshot?) {
+        let answered = Set(items.map(\.url))
+        let kept = (previous?.items ?? []).filter { urls.contains($0.url) && !answered.contains($0.url) }
+        guard !kept.isEmpty else { return }
+        items = (items + kept).sorted { ($0.updatedAt, $0.url) > ($1.updatedAt, $1.url) }
+    }
+}
+
+/// When the poller asks GitHub: its pace, its back-off and GitHub's rate limit.
+public enum GitHubPoll {
+    /// Fewer GraphQL points left than this: polls wait for the limit's reset.
+    public static let lowRemaining = 100
+    /// HQ back in front or on screen asks again only after this long.
+    public static let returnFloor: TimeInterval = 60
+
+    /// The next poll: in 2 minutes while HQ shows, 5 otherwise; doubled per failure up to 30 minutes; never before a
+    /// limit lifts.
+    public static func delay(onScreen: Bool, failures: Int, limitedUntil: Date?, now: Date) -> TimeInterval {
+        let base: Double = onScreen ? 120 : 300
+        let delay = failures == 0 ? base : min(base * pow(2, Double(failures)), 1_800)
+        guard let limitedUntil else { return delay }
+        return max(delay, limitedUntil.timeIntervalSince(now) + 1)
+    }
+
+    /// HQ back in front or on screen asks only when the last try is a minute old, the last one didn't fail and no limit
+    /// holds: while it fails, only the back-off's retry and Refresh ask.
+    public static func asksOnReturn(lastAttempt: Date?, failures: Int, limitedUntil: Date?, now: Date) -> Bool {
+        guard failures == 0, (limitedUntil ?? .distantPast) <= now else { return false }
+        return lastAttempt.map { now.timeIntervalSince($0) >= returnFloor } ?? true
+    }
+
+    /// Until when an answer's headers say to wait: `retry-after` on a refusal, else the reset of a nearly spent limit.
+    public static func limitedUntil(status: Int, headers: [String: String], now: Date) -> Date? {
+        if status == 403 || status == 429, let seconds = headers["retry-after"].flatMap(Double.init) { return now.addingTimeInterval(seconds) }
+        guard let remaining = headers["x-ratelimit-remaining"].flatMap(Int.init), remaining < lowRemaining,
+              let reset = headers["x-ratelimit-reset"].flatMap(Double.init) else { return nil }
+        let date = Date(timeIntervalSince1970: reset)
+        return date > now ? date : nil
+    }
 }
 
 /// The GraphQL queries and their answers.
@@ -137,12 +179,31 @@ public enum GitHubQuery {
     public static let linkedLimit = 60
     /// Linked URLs per request: 30 take GitHub about 4 s.
     public static let linkedPerRequest = 20
+    /// A merged or closed item is asked again after this long.
+    public static let finalRecheck: TimeInterval = 86_400
+
+    /// The linked URLs a poll asks about, at most `linkedLimit`: the never-read and `fresh` ones first, in all but one
+    /// request; then the others, least recently asked first, so each comes in turn; a merged or closed one waits a day.
+    public static func pick(fresh: [String], rest: [String], known: [String: GitHubItem.State], asked: [String: Date], now: Date) -> [String] {
+        var seen = Set<String>()
+        let all = (fresh + rest).filter { seen.insert($0).inserted }
+        let live = Set(fresh)
+        func final(_ url: String) -> Bool { known[url] == .merged || known[url] == .closed }
+        let unread = all.filter { known[$0] == nil && asked[$0] == nil }
+        let first = Array((unread + all.filter { known[$0] != nil && live.contains($0) && !final($0) }).prefix(linkedLimit - linkedPerRequest))
+        let chosen = Set(first)
+        let others = all.enumerated()
+            .filter { !chosen.contains($0.element) && (!final($0.element) || asked[$0.element].map { now.timeIntervalSince($0) >= finalRecheck } ?? true) }
+            .sorted { (asked[$0.element] ?? .distantPast, $0.offset) < (asked[$1.element] ?? .distantPast, $1.offset) }
+            .map(\.element)
+        return first + others.prefix(linkedLimit - first.count)
+    }
 
     /// One poll's requests, sent together: review requests, the open PRs the user reviewed and their own open PRs,
     /// each alone, then the linked URLs 20 at a time.
     public static func queries(linked urls: [String]) -> [String] {
         let searches = [
-            "viewer { login }\n  rateLimit { remaining resetAt }\n  review: search(query: \"is:pr is:open user-review-requested:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
+            "viewer { login }\n  review: search(query: \"is:pr is:open user-review-requested:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
             "reviewed: search(query: \"is:pr is:open reviewed-by:@me -author:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
             "mine: search(query: \"is:pr is:open author:@me archived:false\", type: ISSUE, first: 30) { nodes { __typename ...pr } }",
         ].map { "query {\n  \($0)\n}\n\(prFragment)" }
@@ -305,8 +366,10 @@ public enum GitHubQuery {
 
     static func date(_ value: Any?) -> Date? {
         guard let text = value as? String else { return nil }
-        return ISO8601DateFormatter().date(from: text)
+        return try? iso.parse(text)
     }
+
+    private static let iso = Date.ISO8601FormatStyle()
 
     static func quoted(_ text: String) -> String {
         "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""

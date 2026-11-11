@@ -1,3 +1,6 @@
 #!/bin/sh
-# The hq CLI on the plugin PATH. The real binary is linked by build.sh.
+# The hq CLI on the plugin PATH. The real binary is linked by build.sh; a hook exits 0 even while that link is missing.
+case "$1" in
+  hook) [ -x "$HOME/.local/bin/hq" ] && "$HOME/.local/bin/hq" "$@"; exit 0 ;;
+esac
 exec "$HOME/.local/bin/hq" "$@"

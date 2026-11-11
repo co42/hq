@@ -4,14 +4,13 @@ import PackageDescription
 let package = Package(
     name: "HQ",
     platforms: [.macOS(.v27)],
+    // Model, rules and parsing with no UI, so tests run without the app: swift test --package-path HQKit.
+    dependencies: [.package(path: "HQKit")],
     targets: [
-        // Model, rules and parsing with no UI, so tests run without the app.
-        .target(name: "HQKit"),
         .executableTarget(
             name: "HQ",
-            dependencies: ["HQKit"],
+            dependencies: [.product(name: "HQKit", package: "HQKit")],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
-        .testTarget(name: "HQKitTests", dependencies: ["HQKit"]),
     ]
 )

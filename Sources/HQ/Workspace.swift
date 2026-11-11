@@ -44,13 +44,17 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var faceSalt = 0
     /// Pull requests it opened.
     var links: [String] = []
+    /// The session whose face it wears: the one it continues after /clear.
+    var faceID: String?
+    /// The subagent whose wait it shows; nil: the main thread's.
+    var waiter: String?
 
     /// The user's name, else Claude's title, else the first prompt, else the repository.
     var name: String {
         customName ?? title ?? firstPrompt.map { String($0.prefix(120)) } ?? (repo.isEmpty ? "New session" : repo)
     }
 
-    var face: FaceSpec { FaceSpec(id: id, salt: faceSalt) }
+    var face: FaceSpec { FaceSpec(id: faceID ?? id, salt: faceSalt) }
 
     /// On the grid: open.
     var onGrid: Bool { closedAt == nil }
@@ -68,6 +72,7 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
             live.planPath = planPath
             live.error = error
             live.lastMessage = lastMessage
+            live.waiter = waiter
             return live
         }
         set {
@@ -79,6 +84,7 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
             planPath = newValue.planPath
             error = newValue.error
             lastMessage = newValue.lastMessage
+            waiter = newValue.waiter
         }
     }
 
@@ -99,6 +105,25 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
 
     var isRunning: Bool { status.state != .ended }
     var isWorking: Bool { status.state == .working }
+}
+
+/// One field of an item: compared, and copied from another copy of the item. An edit's Undo puts back the fields
+/// it changed only, so it never reverts what a session or Obsidian changed since.
+nonisolated struct ItemField<Item> {
+    let name: String
+    let differs: (Item, Item) -> Bool
+    let copy: (inout Item, Item) -> Void
+
+    init<Value: Equatable>(_ name: String, _ path: WritableKeyPath<Item, Value>) {
+        self.name = name
+        differs = { $0[keyPath: path] != $1[keyPath: path] }
+        copy = { $0[keyPath: path] = $1[keyPath: path] }
+    }
+
+    /// `old`'s values of the fields `edited` changed, put back on `current`.
+    static func undo(_ fields: [ItemField], from old: Item, into current: inout Item) {
+        for field in fields { field.copy(&current, old) }
+    }
 }
 
 /// A task note: <vault>/hq/tasks/T-<n>.md.
@@ -144,11 +169,18 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
 
     /// Everything hq writes back: all but the file's own dates.
     func sameNote(as other: TaskItem) -> Bool {
-        title == other.title && status == other.status && type == other.type && project == other.project
-            && tags == other.tags && parent == other.parent && list == other.list && order == other.order
-            && review == other.review && reviewBy == other.reviewBy && reviewAt == other.reviewAt && done == other.done
-            && links == other.links && related == other.related && blocked == other.blocked && blockedReason == other.blockedReason
-            && blockedBy == other.blockedBy && after == other.after && sessions == other.sessions && body == other.body
+        !Self.noteFields.contains { $0.differs(self, other) }
+    }
+
+    typealias Field = ItemField<TaskItem>
+    /// Every stored field but the id, the note's path and its dates. Undo puts back only the fields an edit changed,
+    /// so it never reverts what a session wrote since; the self-test holds this list to the type's fields.
+    static var noteFields: [Field] {
+        [Field("title", \.title), Field("status", \.status), Field("type", \.type), Field("project", \.project),
+         Field("tags", \.tags), Field("parent", \.parent), Field("list", \.list), Field("order", \.order),
+         Field("review", \.review), Field("reviewBy", \.reviewBy), Field("reviewAt", \.reviewAt), Field("done", \.done),
+         Field("links", \.links), Field("related", \.related), Field("blocked", \.blocked), Field("blockedReason", \.blockedReason),
+         Field("blockedBy", \.blockedBy), Field("after", \.after), Field("sessions", \.sessions), Field("body", \.body)]
     }
 
     var node: TaskTree.Node { TaskTree.Node(id: id, parent: parent, list: list, order: order) }
@@ -212,6 +244,12 @@ nonisolated struct FileItem: Identifiable, Hashable, Sendable {
         title == other.title && status == other.status && sessions == other.sessions && tasks == other.tasks
             && project == other.project && tags == other.tags && pinned == other.pinned
     }
+
+    /// What hq writes back of a file note, and what Undo puts back.
+    static var noteFields: [ItemField<FileItem>] {
+        [ItemField("title", \.title), ItemField("status", \.status), ItemField("sessions", \.sessions), ItemField("tasks", \.tasks),
+         ItemField("project", \.project), ItemField("tags", \.tags), ItemField("pinned", \.pinned)]
+    }
 }
 
 /// A page Claude published on claude.ai.
@@ -226,4 +264,10 @@ nonisolated struct ArtifactItem: Identifiable, Hashable, Sendable {
     var pinned = false
 
     var searchText: String { "\(title) \(tags.map { "#\($0)" }.joined(separator: " ")) \(project ?? "")" }
+
+    /// What Undo puts back of an artifact.
+    static var fields: [ItemField<ArtifactItem>] {
+        [ItemField("title", \.title), ItemField("session", \.session), ItemField("published", \.published), ItemField("tasks", \.tasks),
+         ItemField("project", \.project), ItemField("tags", \.tags), ItemField("pinned", \.pinned)]
+    }
 }

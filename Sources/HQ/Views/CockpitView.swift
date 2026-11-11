@@ -262,14 +262,17 @@ extension AppModel {
     /// The sky's mood: warm while something needs the user, calm otherwise.
     var skyMood: SkyMood { importantCount > 0 ? .needsYou : .calm }
 
-    /// "3 working · 2 wait for your review · 8 tasks open": one line under the day.
+    /// "4 sessions need you · 2 reviews wait · 3 working · 8 tasks open": one line under the day, what needs the user first
+    /// (2026-11-11).
     var daySummary: String {
+        let needYou = gridSessions.filter { $0.isRunning && $0.status.needsYou }.count
         let working = gridSessions.filter { $0.isRunning && ($0.status.state == .working || $0.status.state == .compacting) }.count
         let waiting = reviewRequests.filter(waitsForReview).count
         let open = taskTree.top(.overview).filter { task($0)?.status != .done }.count
         var parts: [String] = []
-        if working > 0 { parts.append("\(working) session\(working == 1 ? "" : "s") working") }
-        if waiting > 0 { parts.append("\(waiting) pull request\(waiting == 1 ? "" : "s") wait\(waiting == 1 ? "s" : "") for your review") }
+        if needYou > 0 { parts.append("\(needYou) session\(needYou == 1 ? " needs" : "s need") you") }
+        if waiting > 0 { parts.append("\(waiting) review\(waiting == 1 ? " waits" : "s wait")") }
+        if working > 0 { parts.append("\(working) working") }
         if open > 0 { parts.append("\(open) task\(open == 1 ? "" : "s") open") }
         return parts.isEmpty ? "A quiet day: nothing running, nothing open." : parts.joined(separator: " · ")
     }

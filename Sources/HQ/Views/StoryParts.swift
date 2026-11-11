@@ -119,8 +119,8 @@ struct HoldPicker: View {
     }
 }
 
-/// A top-level task's progress on its big card: its subtasks by state in a bar, then how many are done, doing, blocked
-/// and ready.
+/// A top-level task's progress on its big card: its subtasks by state in a bar, then how many are done, doing and blocked;
+/// ready, the rest, needs no mark (2026-11-11).
 struct StorySummary: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -135,7 +135,6 @@ struct StorySummary: View {
                 .monospacedDigit()
             if tally.doing > 0 { count(tally.doing, "doing", Ink.doing) }
             if tally.blocked > 0 { count(tally.blocked, "blocked", Ink.blocked) }
-            if tally.ready > 0 { count(tally.ready, "ready", Ink.accent) }
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)

@@ -7,10 +7,12 @@
 #        ./build.sh --debug    debug build, install
 #        ./build.sh --open     install, then quit the running copy and open the new one
 #        ./build.sh --dev      install the test copy only (tools/*.sh use it); combine with --debug
+#        ./build.sh --force "why"   install a tree tools/check.sh --release hasn't passed, and say why
 set -euo pipefail
 here=${0:A:h}
 name="HQ"
-scratch="$HOME/Library/Developer/$name/build"
+# HQ_BUILD_DIR and HQ_DEV_APP: a build folder and a test copy of your own, to build beside another run.
+scratch="${HQ_BUILD_DIR:-$HOME/Library/Developer/$name/build}"
 config=release
 [[ " $* " == *" --debug "* ]] && config=debug
 
@@ -23,16 +25,27 @@ fi
 [[ -n "$identity" ]] || identity=-
 
 # A running tools/check.sh tests the test copy: replacing it mid-run mixes two builds in one result.
-if [[ " $* " == *" --dev "* && -z "${HQ_CHECK_RUN:-}" && -d /tmp/HQ-check.lock ]] && kill -0 "$(cat /tmp/HQ-check.lock/pid 2>/dev/null)" 2>/dev/null; then
+if [[ " $* " == *" --dev "* && -z "${HQ_CHECK_RUN:-}" && -z "${HQ_DEV_APP:-}" && -d /tmp/HQ-check.lock ]] && kill -0 "$(cat /tmp/HQ-check.lock/pid 2>/dev/null)" 2>/dev/null; then
   echo "build refused: tools/check.sh is testing the test copy; wait for it, or stop it"
   exit 1
+fi
+# Your HQ gets only a tree the release gate passed (its stamp); --force "why" installs another, out loud.
+if [[ " $* " != *" --dev "* ]]; then
+  if [[ " $* " == *" --force "* ]]; then
+    why=${@[$(( ${@[(i)--force]} + 1 ))]:-}
+    [[ -n "$why" && "$why" != --* ]] || { echo "--force needs a reason: ./build.sh --force \"why\""; exit 1; }
+    echo "installing without the release gate: $why"
+  elif ! "$here/tools/stamp.sh" verify; then
+    echo "install refused: tools/check.sh --release hasn't passed for this tree; or ./build.sh --force \"why\""
+    exit 1
+  fi
 fi
 swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | grep -E "error|warning|Build complete" | grep -v "^\[" || true
 bin="$scratch/$config/$name"
 [[ -x "$bin" ]] || { echo "build failed"; exit 1; }
 # swift build can report success while an edited file failed to compile: a second build shows its errors. With none,
 # the newer files only had their dates bumped (a checkout, a merge) and SwiftPM had nothing to relink.
-stale=$(find "$here/Sources" -name '*.swift' -newer "$bin" | head -1)
+stale=$(find "$here/Sources" "$here/HQKit/Sources" -name '*.swift' -newer "$bin" | head -1)
 if [[ -n "$stale" ]]; then
   errors=$(swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | sed $'s/\e\\[[0-9;]*m//g' | grep -E "error:" | head -20 || true)
   if [[ -n "$errors" ]]; then
@@ -46,7 +59,7 @@ fi
 # --dev installs a copy for tests (~/Library/Developer/HQ/HQ.app), leaving the user's /Applications/HQ.app and the hq link alone.
 dev=0
 [[ " $* " == *" --dev "* ]] && dev=1
-if (( dev )); then app="$HOME/Library/Developer/$name/$name.app"; else app="/Applications/$name.app"; fi
+if (( dev )); then app="${HQ_DEV_APP:-$HOME/Library/Developer/$name/$name.app}"; else app="/Applications/$name.app"; fi
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/$name"

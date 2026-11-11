@@ -135,22 +135,14 @@ extension AppModel {
         }
     }
 
-    /// The rows a SwiftUI section shows, top to bottom, left card first.
+    /// The rows a SwiftUI section shows, top to bottom, left card first: what its cards show.
     func sectionRoutes(_ section: PageSection) -> [ModalRoute] {
-        let limit = search.isEmpty ? PRCards.shown : Int.max
-        switch section {
-        case .pullRequests:
-            func shown(_ items: [GitHubItem]) -> [ModalRoute] {
-                items.filter { search.isEmpty || "\($0.title) \($0.reference) \($0.author)".localizedStandardContains(search) }
-                    .prefix(limit).map { .github($0.url) }
-            }
-            return shown(reviewRequests) + shown(ownPullRequests)
-        case .files:
-            let limit = search.isEmpty && !pinnedOnly ? PRCards.shown : Int.max
-            return listedFiles.prefix(limit).map { .file($0.id) } + listedArtifacts.prefix(limit).map { .artifact($0.id) }
-        case .sessions, .tasks:
-            return []
+        let cards: [RowCard] = switch section {
+        case .pullRequests: [.reviews, .yours]
+        case .files: [.files, .artifacts]
+        case .sessions, .tasks: []
         }
+        return cards.flatMap { shown(cardRoutes($0), in: $0) }
     }
 
     /// The row selected when Tab last left the section, else the first. A row a click selected stays.

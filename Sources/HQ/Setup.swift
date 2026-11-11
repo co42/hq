@@ -80,7 +80,7 @@ extension AppModel {
         panel.prompt = "Use This Vault"
         panel.message = "Choose your Obsidian vault. HQ keeps its tasks and files in its hq folder."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if !Store.isOverridden { UserDefaults.standard.set(url.path, forKey: "vault.path") }
+        Prefs.defaults.set(url.path, forKey: "vault.path")
         vault = Vault(vault: url)
         vaultCache = Vault.Cache()
         startVault()
@@ -100,6 +100,12 @@ extension AppModel {
         case .githubFailing:
             self.problem = nil
             gitHubService?.poll()
+        case .vaultUnreadable:
+            self.problem = nil
+            rescanVault()
+        case .movedAside:
+            self.problem = nil
+            NSWorkspace.shared.activateFileViewerSelecting(movedAside.map { URL(fileURLWithPath: $0) })
         }
     }
 

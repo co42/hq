@@ -62,9 +62,13 @@ enum QuickOpen {
             add(.artifact(artifact.id), .artifacts, artifact.title, nil)
         }
         let limit = query.isEmpty ? 3 : perKind
-        return QuickOpenResult.Kind.allCases.flatMap { kind in
+        let groups = QuickOpenResult.Kind.allCases.map { kind in
             Array(all.filter { $0.kind == kind }.sorted { $0.score > $1.score }.prefix(limit))
         }
+        // Typed, the kind with the best match comes first, so the top hit is the first row (2026-11-11).
+        guard !query.isEmpty else { return groups.flatMap(\.self) }
+        return groups.enumerated().sorted { ($0.element.first?.score ?? .min, -$0.offset) > ($1.element.first?.score ?? .min, -$1.offset) }
+            .flatMap(\.element)
     }
 
     /// ⌘Return: the item's outside action.

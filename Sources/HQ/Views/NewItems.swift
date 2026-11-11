@@ -1,9 +1,47 @@
+import AppKit
 import HQKit
 import SwiftUI
 
-// New Task… and New Reminder…: two small sheets laid out as Start a Session (DESIGN.md §7, §11), labels on the left,
-// the keyboard in the first field. What they link is a Links row: a Slack link on the clipboard comes on its own,
-// Link… finds anything else.
+// New Task…, New Reminder…, New File… and Import Artifact…: small sheets laid out as Start a Session (DESIGN.md §6, §7,
+// §11), labels on the left, the keyboard in the first field. What a task or a reminder links is a Links row: a Slack link
+// on the clipboard comes on its own, Link… finds anything else.
+
+/// A sheet's label, on the left of its field.
+struct FormLabel: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text).kitType(.callout).foregroundStyle(.secondary).fixedSize()
+    }
+}
+
+/// A sheet's buttons: Cancel (Escape) goes back to what was under it; the prominent one adds (⌘Return).
+struct FormButtons: View {
+    let title: String
+    let ready: Bool
+    let anchor: String
+    let add: () -> Void
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button("Cancel") { model.back() }
+                .keyboardShortcut(.cancelAction)
+                .clickable()
+                .uiTestAnchor("\(anchor)-cancel")
+            Button(title, action: add)
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .clickable()
+                .disabled(!ready)
+                .uiTestAnchor(anchor)
+        }
+        .preference(key: OwnsEscape.self, value: true)
+    }
+}
 
 /// What a sheet being written links: its chips, × on each, and Link… to search or paste an address (T-333). A Slack
 /// link on the clipboard comes on its own, unless the sheet is about an item already (Remind Me…, T-343).
@@ -112,7 +150,7 @@ struct NewTaskForm: View {
         VStack(alignment: .leading, spacing: Space.lg) {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
-                    label("Task")
+                    FormLabel("Task")
                     TextField("Retry budget for blob uploads", text: $title)
                         .textFieldStyle(.roundedBorder)
                         .focused($typing)
@@ -120,14 +158,14 @@ struct NewTaskForm: View {
                         .uiTestAnchor("new-task-title")
                 }
                 GridRow {
-                    label("Description")
+                    FormLabel("Description")
                     TextField("Optional, in markdown", text: $notes, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(2...4)
                         .uiTestAnchor("new-task-notes")
                 }
                 GridRow {
-                    label("In")
+                    FormLabel("In")
                     Picker("In", selection: $list) {
                         Text("Tasks").tag(TaskList.overview)
                         Text("Backlog").tag(TaskList.backlog)
@@ -138,7 +176,7 @@ struct NewTaskForm: View {
                     .uiTestAnchor("new-task-list")
                 }
                 GridRow {
-                    label("Project")
+                    FormLabel("Project")
                     Picker("Project", selection: $project) {
                         Text("None").tag(String?.none)
                         if !model.allProjects.isEmpty { Divider() }
@@ -149,33 +187,18 @@ struct NewTaskForm: View {
                     .uiTestAnchor("new-task-project")
                 }
                 GridRow {
-                    label("Links")
+                    FormLabel("Links")
                     LinksField(links: $links, anchor: "new-task")
                 }
             }
             Spacer(minLength: 0)
-            HStack {
-                Spacer()
-                Button("Cancel") { model.back() }
-                    .keyboardShortcut(.cancelAction)
-                    .clickable()
-                Button("Add Task", action: add)
-                    .buttonStyle(.glassProminent)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .clickable()
-                    .disabled(DraftWords.words(title, links: links, in: model).isEmpty)
-                    .uiTestAnchor("new-task-add")
-            }
+            FormButtons(title: "Add Task", ready: !DraftWords.words(title, links: links, in: model).isEmpty, anchor: "new-task-add", add: add)
         }
         .padding(Space.xl)
         .onAppear { DispatchQueue.main.async { typing = true } }
         .onChange(of: title) { DraftWords.takeLink(from: &title, into: &links) }
         .onChange(of: links) { words.name(&title, after: links, in: model) }
         .onChange(of: links.lazy.compactMap(\.slackURL).first.flatMap { model.slackMessages[$0] }) { words.name(&title, after: links, in: model) }
-    }
-
-    private func label(_ text: String) -> some View {
-        Text(text).kitType(.callout).foregroundStyle(.secondary).fixedSize()
     }
 
     private func add() {
@@ -233,7 +256,7 @@ struct NewReminderForm: View {
         VStack(alignment: .leading, spacing: Space.lg) {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
-                    label("Remind me to")
+                    FormLabel("Remind me to")
                     TextField(subject.map { model.title(of: $0) } ?? "Call noor about the GPU quota", text: $text)
                         .textFieldStyle(.roundedBorder)
                         .focused($typing)
@@ -241,11 +264,11 @@ struct NewReminderForm: View {
                         .uiTestAnchor("new-reminder-text")
                 }
                 GridRow {
-                    label("Links")
+                    FormLabel("Links")
                     LinksField(links: $links, autofill: about == nil, subject: about, anchor: "new-reminder")
                 }
                 GridRow {
-                    label("When")
+                    FormLabel("When")
                     Button { picking = true } label: { Label(ReminderTime.describe(due, now: model.now), icon: .later) }
                         .clickable()
                         .fixedSize()
@@ -260,25 +283,14 @@ struct NewReminderForm: View {
                         .uiTestAnchor("new-reminder-when")
                 }
                 GridRow {
-                    label("Important")
+                    FormLabel("Important")
                     Toggle(isOn: $important) { Text("It needs you when it comes back, with a banner") }
                         .clickable()
                         .uiTestAnchor("new-reminder-important")
                 }
             }
             Spacer(minLength: 0)
-            HStack {
-                Spacer()
-                Button("Cancel") { model.back() }
-                    .keyboardShortcut(.cancelAction)
-                    .clickable()
-                Button("Add Reminder", action: add)
-                    .buttonStyle(.glassProminent)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .clickable()
-                    .disabled(reminder.isEmpty)
-                    .uiTestAnchor("new-reminder-add")
-            }
+            FormButtons(title: "Add Reminder", ready: !reminder.isEmpty, anchor: "new-reminder-add", add: add)
         }
         .padding(Space.xl)
         // The sheet may come up as HQ comes forward from another app: the keyboard goes in once it has the window.
@@ -288,14 +300,117 @@ struct NewReminderForm: View {
         .onChange(of: links.lazy.compactMap(\.slackURL).first.flatMap { model.slackMessages[$0] }) { words.name(&text, after: links, in: model) }
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text).kitType(.callout).foregroundStyle(.secondary).fixedSize()
-    }
-
     private func add() {
         let reminder = reminder
         guard !reminder.isEmpty else { return }
         model.remind(reminder, at: due, level: important ? .important : .update, links: links.map(\.selectionKey))
         model.back()
+    }
+}
+
+/// New File… (⌃⌘N, + › New File…, the Files header's +): a note in the vault by its title, opened in its editor.
+struct NewFileForm: View {
+    @Environment(AppModel.self) private var model
+    @State private var title = ""
+    @FocusState private var typing: Bool
+
+    private var name: String { title.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
+                GridRow {
+                    FormLabel("Title")
+                    TextField("Jobs network", text: $title)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($typing)
+                        .onSubmit(add)
+                        .uiTestAnchor("new-file-title")
+                }
+            }
+            Spacer(minLength: 0)
+            FormButtons(title: "Create", ready: !name.isEmpty, anchor: "new-file-create", add: add)
+        }
+        .padding(Space.xl)
+        .onAppear { DispatchQueue.main.async { typing = true } }
+    }
+
+    private func add() {
+        guard !name.isEmpty else { return }
+        model.back()
+        model.newFile(title: name)
+    }
+}
+
+/// Import Artifact… (File menu, the Files header): a claude.ai artifact HQ didn't capture, by its link and a title. A link on
+/// the clipboard fills the link.
+struct ImportArtifactForm: View {
+    @Environment(AppModel.self) private var model
+    @State private var link = ""
+    @State private var title = ""
+    @FocusState private var focus: Field?
+
+    private enum Field { case link, title }
+
+    private var url: URL? { AppModel.artifactURL(link) }
+    private var name: String { title.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.lg) {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
+                GridRow {
+                    FormLabel("Link")
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        // Verbatim: a localized key would turn the address into a link.
+                        TextField("Link", text: $link, prompt: Text(verbatim: "https://claude.ai/artifact/…"))
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focus, equals: .link)
+                            .uiTestAnchor("import-link")
+                        if !link.isEmpty, url == nil {
+                            Text("Not a claude.ai artifact link.").kitType(.meta).foregroundStyle(Ink.failedText)
+                        } else if let url, model.artifacts.contains(where: { $0.id == url }) {
+                            Text("Already in HQ: importing renames it.").kitType(.meta).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                GridRow {
+                    FormLabel("Title")
+                    TextField("Title", text: $title, prompt: Text("HQ Notification Center"))
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focus, equals: .title)
+                        .onSubmit(add)
+                        .uiTestAnchor("import-title")
+                }
+            }
+            Spacer(minLength: 0)
+            FormButtons(title: "Import", ready: url != nil && !name.isEmpty, anchor: "import-add", add: add)
+        }
+        .padding(Space.xl)
+        .onAppear { DispatchQueue.main.async { focus = .link } }
+        .task { await fill() }
+    }
+
+    /// The link on the clipboard when it's an artifact's, and its title when HQ has it; then the keyboard in the title.
+    private func fill() async {
+        let copied = await Self.copiedLink()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard link.isEmpty, let url = AppModel.artifactURL(copied) else { return }
+        link = copied
+        title = model.artifacts.first { $0.id == url }?.title ?? ""
+        focus = .title
+    }
+
+    /// The clipboard's text, read only when it holds a link, so macOS asks about pasting only then; a test run's own.
+    private static func copiedLink() async -> String? {
+        if Store.isOverridden { return SlackClipboard.testText }
+        let pasteboard = NSPasteboard.general
+        guard let patterns = try? await pasteboard.detectedPatterns(for: [\.probableWebURL]), !patterns.isEmpty else { return nil }
+        return pasteboard.string(forType: .string)
+    }
+
+    private func add() {
+        guard let url, !name.isEmpty else { return }
+        let artifact = model.importArtifact(url, title: name)
+        model.back()
+        model.show(imported: artifact)
     }
 }

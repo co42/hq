@@ -12,7 +12,7 @@ extension AppModel {
             return Vault(vault: URL(fileURLWithPath: path))
         }
         guard !Store.isOverridden else { return nil }
-        let chosen = UserDefaults.standard.string(forKey: "vault.path")
+        let chosen = Prefs.defaults.string(forKey: "vault.path")
         let notes = URL(fileURLWithPath: ((chosen ?? SetupStatus.defaultVault) as NSString).expandingTildeInPath)
         return FileManager.default.fileExists(atPath: notes.path) ? Vault(vault: notes) : nil
     }
@@ -46,7 +46,19 @@ extension AppModel {
         let cache = vaultCache
         let started = Date.now
         Task {
-            let result = await Task.detached { vault.scan(cache) }.value
+            let scanned = await Task.detached { Result { try vault.scan(cache) } }.value
+            guard case .success(let result) = scanned else {
+                // Nothing changes: the tasks and files stay as last read, and nothing is written over.
+                if problem != .vaultUnreadable {
+                    if case .failure(let error) = scanned { AppLog.write("vault: \(error.localizedDescription); kept what HQ had", to: "vault.log") }
+                    problem = .vaultUnreadable
+                }
+                vaultScanning = false
+                try? await Task.sleep(for: .seconds(5))
+                rescanVault()
+                return
+            }
+            if problem == .vaultUnreadable { problem = nil }
             vaultCache = result.cache
             // A note HQ wrote after the scan began: the scan read it too early, HQ's copy is newer.
             let recent = Set(vaultWrites.filter { $0.value >= started }.keys)
@@ -197,20 +209,33 @@ extension AppModel {
         var byID = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let before = byID
         edit(&byID)
-        var previous: [TaskItem] = []
+        // Per task, the fields this edit changed and their old values: Undo puts back those only, never what a session
+        // or Obsidian changed since.
+        var changes: [(old: TaskItem, fields: [TaskItem.Field])] = []
         var next = tasks
         for index in next.indices {
-            guard let edited = byID[next[index].id], let old = before[next[index].id], !edited.sameNote(as: old) else { continue }
-            previous.append(old)
+            guard let edited = byID[next[index].id], let old = before[next[index].id] else { continue }
+            var fields = TaskItem.noteFields.filter { $0.differs(old, edited) }
+            guard !fields.isEmpty else { continue }
+            // Parent, list and order are one place: a subtask's list is read back as the Backlog's, so Undo puts all three.
+            let place: Set = ["parent", "list", "order"]
+            if fields.contains(where: { place.contains($0.name) }) {
+                fields = TaskItem.noteFields.filter { place.contains($0.name) || fields.map(\.name).contains($0.name) }
+            }
+            changes.append((old, fields))
             var changed = edited
             changed.modified = .now
             next[index] = changed
         }
-        guard !previous.isEmpty else { return }
+        guard !changes.isEmpty else { return }
         tasks = next
         registerUndo(action) { model in
             model.editTasks(action) { tasks in
-                for task in previous where tasks[task.id] != nil { tasks[task.id] = task }
+                for change in changes {
+                    guard var task = tasks[change.old.id] else { continue }
+                    for field in change.fields { field.copy(&task, change.old) }
+                    tasks[change.old.id] = task
+                }
             }
         }
     }
@@ -441,6 +466,35 @@ extension AppModel {
         changeTask(id, "Edit Description") { $0.body = text.trimmingCharacters(in: .newlines) }
     }
 
+    /// An editor's description, as it ends: nothing when untouched, else written over the note as it is now, joined
+    /// with what a session wrote meanwhile when they touched other lines (TextMerge).
+    func commitDescription(_ draft: TextDraft) {
+        guard let current = task(draft.id)?.body else { return }
+        switch TextMerge.commit(base: draft.base, mine: draft.text, theirs: current) {
+        case .unchanged: break
+        case .write(let text): setDescription(draft.id, text)
+        case .conflict(let mine):
+            setDescription(draft.id, mine)
+            changedUnder("T-\(draft.id)'s description", link: "task:\(draft.id)")
+        }
+    }
+
+    /// A file's text, as its editor ends: the same rule.
+    func commitFile(_ id: FileItem.ID, base: String, text: String) {
+        switch TextMerge.commit(base: base, mine: text, theirs: fileBody(id)) {
+        case .unchanged: break
+        case .write(let merged): editFileBody(id, merged + "\n")
+        case .conflict(let mine):
+            editFileBody(id, mine + "\n")
+            changedUnder("“\(file(id)?.title ?? id)”", link: "file:\(id)")
+        }
+    }
+
+    /// Both the user and someone else changed the same lines: the user's text was kept; Undo brings back the other.
+    private func changedUnder(_ what: String, link: String) {
+        _ = notify("\(what) changed while you edited it: yours is kept, and ⌘Z brings back the other.", level: .update, source: nil, links: [link])
+    }
+
     /// A checkbox ticked in a rendered description.
     func toggleCheckbox(_ id: Int, at index: Int) {
         guard let body = task(id)?.body, let toggled = Markdown.toggleTask(body, at: index) else { return }
@@ -552,7 +606,7 @@ extension AppModel {
             resolveSlack(url)
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newTask, .newReminder: break
+        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: break
         }
     }
 
@@ -568,7 +622,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications, .newTask, .newReminder: break
+        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: break
         }
     }
 
@@ -580,7 +634,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications, .newTask, .newReminder: false
+        case .start, .closedSessions, .notifications, .newTask, .newReminder, .newFile, .importArtifact: false
         }
     }
 
@@ -589,9 +643,10 @@ extension AppModel {
         let old = artifacts[index]
         var new = old
         change(&new)
-        guard new != old else { return }
+        let fields = ArtifactItem.fields.filter { $0.differs(old, new) }
+        guard !fields.isEmpty else { return }
         artifacts[index] = new
-        registerUndo(action) { model in model.changeArtifact(url, action) { $0 = old } }
+        registerUndo(action) { model in model.changeArtifact(url, action) { ItemField.undo(fields, from: old, into: &$0) } }
     }
 
     // MARK: Outline state
@@ -610,10 +665,10 @@ extension AppModel {
 
     /// A note named by its date and title, linked to the session that wrote it and to a task.
     @discardableResult
-    func addFile(title: String, body: String = "", session: String? = nil, task: Int? = nil) -> FileItem? {
+    func addFile(title: String, body: String = "", session: String? = nil, task: Int? = nil, date: Date = .now) -> FileItem? {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return nil }
-        var item = FileItem(id: "\(Vault.dayString(.now)) - \(title).md", title: title, date: .now, modified: .now,
+        var item = FileItem(id: "\(Vault.dayString(date)) - \(title).md", title: title, date: date, modified: .now,
                             sessions: session.map { [$0] } ?? [], tasks: task.map { [$0] } ?? [])
         // A note for a task is in the task's project.
         item.project = project(ofTask: task)
@@ -637,9 +692,10 @@ extension AppModel {
         let old = files[index]
         var new = old
         change(&new)
-        guard !new.sameNote(as: old) else { return }
+        let fields = FileItem.noteFields.filter { $0.differs(old, new) }
+        guard !fields.isEmpty else { return }
         files[index] = new
-        registerUndo(action) { model in model.changeFile(id, action) { $0 = old } }
+        registerUndo(action) { model in model.changeFile(id, action) { ItemField.undo(fields, from: old, into: &$0) } }
     }
 
     /// Delete on a file: its note goes to the Trash; Undo brings it back.

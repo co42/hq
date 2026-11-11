@@ -226,7 +226,7 @@ private struct BlockedRow: View {
         }
         .noticeRowStyle(selected: selected, hovering: hovering, active: active)
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { model.open(session.id) }
+        .onTapGesture(count: 2) { model.open(session.id) } // lint: ok the center's rows keep their own selection
         .help("\(session.name): \(session.reason ?? session.status.title)")
         .uiTestAnchor("blocked:\(session.id)")
     }
@@ -277,7 +277,7 @@ private struct NoticeRow: View {
             }
         }
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { if reminder && notice.links.isEmpty { edit() } else { model.openNotice(notice) } }
+        .onTapGesture(count: 2) { if reminder && notice.links.isEmpty { edit() } else { model.openNotice(notice) } } // lint: ok the center's rows keep their own selection
         .contextMenu { menu }
         .help(notice.text)
         .uiTestAnchor("notice:\(notice.id.uuidString)")
@@ -534,6 +534,8 @@ struct ReminderEditor: View {
         .padding(.vertical, Space.sm)
         .frame(minHeight: Metric.boxRow + Space.sm)
         .background(Ink.hoverFill, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
+        // Escape cancels the edit; the center stays.
+        .preference(key: OwnsEscape.self, value: true)
         .onAppear { typing = true }
     }
 
@@ -681,7 +683,7 @@ private struct ReviewRow: View {
         }
         .noticeRowStyle(selected: selected, hovering: hovering, active: active)
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { model.open(.github(item.url), push: true) }
+        .onTapGesture(count: 2) { model.open(.github(item.url), push: true) } // lint: ok the center's rows keep their own selection
         .contextMenu {
             Button("Review") { model.open(.github(item.url), push: true) }
             Button("Open on GitHub") { if let link = URL(string: item.url) { NSWorkspace.shared.open(link) } }

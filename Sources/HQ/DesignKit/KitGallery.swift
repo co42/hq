@@ -79,11 +79,11 @@ struct KitGallery: View {
             }
             section("Pull request rows") {
                 if let github = model.github {
-                    PRGroup(title: "Reviews", items: github.items.filter(\.reviewRequested), total: 3, empty: "Nothing waits.")
+                    PRGroup(title: "Reviews", card: .reviews, items: github.items.filter(\.reviewRequested), total: 3, empty: "Nothing waits.")
                         .frame(width: 600)
-                    PRGroup(title: "Yours", items: github.items.filter { $0.mine && !$0.reviewRequested }, total: 4, empty: "No PRs.")
+                    PRGroup(title: "Yours", card: .yours, items: github.items.filter { $0.mine && !$0.reviewRequested }, total: 4, empty: "No PRs.")
                         .frame(width: 600)
-                    PRGroup(title: "Empty", items: [], total: 0, empty: "Nothing waits for your review.")
+                    PRGroup(title: "Empty", card: .reviews, items: [], total: 0, empty: "Nothing waits for your review.")
                         .frame(width: 600)
                 }
             }

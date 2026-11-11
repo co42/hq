@@ -10,7 +10,6 @@ enum KitIcon: String, CaseIterable {
     case markRead = "checkmark.circle"
     case bell = "bell"
     case bellFill = "bell.fill"
-    case bellBadge = "bell.badge.fill"
     case reminder = "alarm"
     case later = "clock"
     case newReminder = "alarm.waves.left.and.right"
@@ -24,6 +23,8 @@ enum KitIcon: String, CaseIterable {
     case closedSessions = "clock.arrow.circlepath"
     case disclosure = "chevron.right"
     case disclosed = "chevron.down"
+    /// A task showing only its blocking and doing subtasks: still a chevron, shorter.
+    case partlyDisclosed = "chevron.compact.down"
     /// A task no session works on: the plain avatar in its face slot.
     case noSession = "person.fill"
     // Section tiles
@@ -35,7 +36,6 @@ enum KitIcon: String, CaseIterable {
     case startSession = "apple.terminal"
     case description = "text.alignleft"
     case toBacklog = "tray.and.arrow.down"
-    case toTasks = "tray.and.arrow.up"
     case trash = "trash"
     case project = "shippingbox"
     case tag = "tag"
@@ -68,7 +68,6 @@ enum KitIcon: String, CaseIterable {
     case slack = "text.bubble"
     case copied = "checkmark"
     case filter = "line.3.horizontal.decrease"
-    case filterOn = "line.3.horizontal.decrease.circle.fill"
     case importItem = "square.and.arrow.down"
     case hideDone = "checklist.checked"
     // Health and Settings

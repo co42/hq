@@ -137,7 +137,7 @@ private func fixture() throws -> GitHubSnapshot {
     let cdn = try #require(snapshot.items.first { $0.number == 512 })
     #expect(cdn.reviewRequested && !cdn.mine && cdn.review == .required && cdn.checks == .passed && cdn.reference == "static-cdn #512")
     #expect(cdn.waitsForReview(markedReviewedAt: nil))
-    #expect(!cdn.waitsForReview(markedReviewedAt: cdn.lastCommitAt))
+    #expect(!cdn.waitsForReview(markedReviewedAt: cdn.reviewRequestedAt))
     let tokio = try #require(snapshot.items.first { $0.number == 430 })
     #expect(tokio.checks == .running && tokio.checkRuns == [.init(name: "ci / test", checks: .running)])
     // The user commented after the last commit: quiet until the next commit.

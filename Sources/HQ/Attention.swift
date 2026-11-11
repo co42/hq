@@ -125,4 +125,11 @@ extension AppModel {
             self.storage?.save(seen: self.seen)
         }
     }
+
+    /// At quit: what the last second changed.
+    func saveAttentionNow() {
+        attentionSave?.cancel()
+        attentionSave = nil
+        storage?.save(seen: seen)
+    }
 }

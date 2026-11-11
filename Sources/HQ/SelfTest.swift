@@ -22,7 +22,8 @@ enum SelfTest {
             return
         }
         Task {
-            try? await Task.sleep(for: .seconds(0.5))
+            // The window brings the Undo manager.
+            for _ in 0..<100 where model.window == nil { try? await Task.sleep(for: .milliseconds(20)) }
             let missing = KitIcon.allCases.filter { $0.nsImage == nil }.map(\.name)
             check("every KitIcon symbol exists", missing.isEmpty, missing.joined(separator: ", "))
             menuBarChecks()
@@ -49,12 +50,17 @@ enum SelfTest {
             noticeChecks(model)
             faceChecks(model)
             await sessionChecks(model)
+            await sessionFixChecks(model)
             await vaultChecks(model)
             await cliChecks(model)
+            await cliFixChecks(model)
+            await githubFixChecks(model)
+            await editorChecks(model)
             await slackChecks(model)
             labelChecks(model)
             spoolChecks(model)
             keysChecks()
+            await pageFixChecks(model)
             print(failures == 0 ? "SELFTEST PASS \(count) checks" : "SELFTEST FAIL \(failures) of \(count) checks")
             finish(code: failures == 0 ? 0 : 1)
         }
@@ -102,7 +108,7 @@ enum SelfTest {
         model.closeModal()
         model.openCenter()
         check("⌘J opens the center, and the bell stops breathing", model.modal == .notifications && !model.bellBreathes)
-        guard let id = row?.id else { return }
+        guard let id = row?.id else { return check("a session's notice for the center's checks", false) }
         model.noticeSelection = id.uuidString
         let below = model.notices(in: .updates).drop { $0.id != id }.dropFirst().first?.id
         model.markRead(id)
@@ -259,11 +265,9 @@ enum SelfTest {
         if let reminded { model.removeNotice(reminded.id) }
 
         model.setSlackToken("xoxp-selftest")
-        await settle()
-        check("a Slack token names its account in Settings", model.slackAccount == SlackService.fixtureAccount)
+        await expect("a Slack token names its account in Settings", model.slackAccount == SlackService.fixtureAccount)
         model.setSlackToken(nil)
-        await settle()
-        check("and removing it forgets the account", model.slackAccount == nil)
+        await expect("and removing it forgets the account", model.slackAccount == nil)
 
         // The clipboard, as a test run keeps it: its Slack link comes every time, until × drops that copy (T-333).
         SlackClipboard.testText = "see \(url)"
@@ -396,7 +400,7 @@ enum SelfTest {
 
     /// A command through the socket's router, as `hq` sends it.
     @discardableResult
-    private static func agent(_ command: String, _ args: [String: String]) -> JSONObject {
+    static func agent(_ command: String, _ args: [String: String]) -> JSONObject {
         let reply = AgentRouter.handle(JSON.data(["command": command, "args": args]))
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? JSONObject
         return object?["result"] as? JSONObject ?? object ?? [:]
@@ -443,7 +447,7 @@ enum SelfTest {
         hook("Stop", id, #","last_assistant_message":"Done.""#)
         check("Stop leaves the session done and unread, not orange", model.session(id)?.status.isNew == true && model.session(id)?.status.needsYou == false)
         // A /rename writes the transcript only: HQ sees it without waiting for the next prompt.
-        let transcript = "/tmp/HQ-self-transcript.jsonl"
+        let transcript = Store.url.path + "-transcript.jsonl"
         try? "{\"type\":\"ai-title\",\"aiTitle\":\"Registry push path\"}\n".write(toFile: transcript, atomically: false, encoding: .utf8)
         hook("Stop", id, ",\"transcript_path\":\"\(transcript)\"")
         check("Stop reads the transcript's title", model.session(id)?.name == "Registry push path", model.session(id)?.name ?? "-")
@@ -456,8 +460,7 @@ enum SelfTest {
         // A name HQ gave the session gives way to a /rename.
         model.renameSession(id, to: "Named by HQ")
         append("{\"type\":\"custom-title\",\"customTitle\":\"Registry retries\"}\n")
-        try? await Task.sleep(for: .seconds(1.6))
-        check("a /rename shows within a second or two, over a name HQ gave", model.session(id)?.name == "Registry retries", model.session(id)?.name ?? "-")
+        await expect("a /rename shows within a second or two, over a name HQ gave", model.session(id)?.name == "Registry retries", model.session(id)?.name ?? "-")
         // Far past the end HQ reads, Claude's next title doesn't undo the /rename.
         append(String(repeating: "{\"type\":\"progress\"}\n", count: 4_000) + "{\"type\":\"ai-title\",\"aiTitle\":\"Something else\"}\n")
         hook("Stop", id, ",\"transcript_path\":\"\(transcript)\"")
@@ -478,15 +481,13 @@ enum SelfTest {
             handle.write(Data("\n".utf8))
             try? handle.close()
         }
-        try? await Task.sleep(for: .seconds(1.6))
-        check("Esc in its terminal stops Working within a second or two", model.session(id)?.status.state == .idle,
+        await expect("Esc in its terminal stops Working within a second or two", model.session(id)?.status.state == .idle,
               String(describing: model.session(id)?.status.state))
         let order = model.gridSessions.map(\.id)
         model.moveSession(id, to: 0)
         check("a card moves to where it's dropped", model.gridSessions.first?.id == id)
         model.undoManager?.undo()
-        try? await Task.sleep(for: .milliseconds(100))
-        check("Undo puts the cards back", model.gridSessions.map(\.id) == order, "\(model.gridSessions.map { $0.id.prefix(4) })")
+        await expect("Undo puts the cards back", model.gridSessions.map(\.id) == order, "\(model.gridSessions.map { $0.id.prefix(4) })")
         hook("SessionEnd", id, #","reason":"prompt_input_exit""#)
         check("an ended session leaves the grid for Closed", !model.gridSessions.contains { $0.id == id } && model.closedSessions.first?.id == id)
         let before = model.ghosttyLog.count
@@ -563,12 +564,88 @@ enum SelfTest {
         model.sessions.removeAll { $0.id == review }
     }
 
+    // MARK: Two writers
+
+    /// The user's editors and Undo beside sessions writing the same notes: nothing either wrote is lost unseen.
+    private static func editorChecks(_ model: AppModel) async {
+        let body = "Goal.\n\n## Done when\n- [ ] one\n- [ ] two\n\n## Status\nStarted."
+        guard let task = model.addTask(to: .overview, title: "Written by two", body: body),
+              let other = model.addTask(to: .overview, title: "Opened next", body: "Mine alone.") else { return check("two tasks to edit", false) }
+        func session(_ text: String) { agent("task edit", ["task": task.key, "body": text]) }
+        await UITest.endUndoGroup(model)
+
+        // The outline's editor.
+        model.editingDescription = task.id
+        session("Goal.\n\n## Status\nRewritten by a session.")
+        model.editingDescription = nil
+        check("an untouched editor, closed after a session wrote, writes nothing", model.task(task.id)?.body == "Goal.\n\n## Status\nRewritten by a session.",
+              model.task(task.id)?.body ?? "-")
+        model.setDescription(task.id, body)
+        model.editingDescription = task.id
+        model.outlineDraft?.text = body.replacingOccurrences(of: "- [ ] one", with: "- [x] one")
+        session(body.replacingOccurrences(of: "Started.", with: "Merged in #418."))
+        model.editingDescription = nil
+        check("the user's tick and the session's Status, on other lines, both stay",
+              model.task(task.id)?.body == body.replacingOccurrences(of: "- [ ] one", with: "- [x] one").replacingOccurrences(of: "Started.", with: "Merged in #418."),
+              model.task(task.id)?.body ?? "-")
+        let notices = model.notices.count
+        await UITest.endUndoGroup(model)
+        model.editingDescription = task.id
+        model.outlineDraft?.text = "Mine."
+        session("Theirs.")
+        model.editingDescription = nil
+        check("the same lines changed by both: the user's text, and a notification says so", model.task(task.id)?.body == "Mine."
+              && model.notices.count == notices + 1 && model.notices.last?.links == ["task:\(task.id)"], model.task(task.id)?.body ?? "-")
+        model.undoManager?.undo()
+        await expect("and Undo brings back the other", model.task(task.id)?.body == "Theirs.", model.task(task.id)?.body ?? "-")
+
+        // The task window's editor, left by ⌘J: the draft stays with its task (it went into the next task opened).
+        model.open(.notifications)
+        model.open(.task(task.id), push: true)
+        model.beginModalDescription(task.id)
+        model.descriptionDraft = "Typed in the window."
+        model.openCenter()
+        model.open(.task(other.id))
+        model.closeModal()
+        check("a description left by ⌘J is saved in its task, never in the next one opened",
+              model.task(task.id)?.body == "Typed in the window." && model.task(other.id)?.body == "Mine alone." && !model.modalEditingDescription,
+              "\(model.task(task.id)?.body ?? "-") / \(model.task(other.id)?.body ?? "-")")
+
+        // Undo puts back what the user's edit changed, not what a session changed since.
+        await UITest.endUndoGroup(model)
+        model.setStatus(other.id, .doing)
+        await UITest.endUndoGroup(model)
+        agent("task edit", ["task": other.key, "body": "A session's update."])
+        model.undoManager?.undo()
+        await expect("⌘Z after a session's change keeps that change", model.task(other.id)?.status == .todo && model.task(other.id)?.body == "A session's update.",
+                     "\(String(describing: model.task(other.id)?.status)) \(model.task(other.id)?.body ?? "-")")
+        // Quit and Restart HQ with editors open.
+        model.editingDescription = other.id
+        model.outlineDraft?.text = "Typed just before Quit."
+        let noticesFile = Store.directory.appending(path: "notifications.json")
+        try? FileManager.default.removeItem(at: noticesFile)
+        _ = model.notify("The second before Quit", level: .update, source: nil)
+        model.saveForQuit()
+        check("Quit saves an open editor and the notifications of the last second", model.task(other.id)?.body == "Typed just before Quit."
+              && model.editingDescription == nil && FileManager.default.fileExists(atPath: noticesFile.path), model.task(other.id)?.body ?? "-")
+        let fields = Set(Mirror(reflecting: other).children.compactMap(\.label))
+        check("Undo knows every field of a task note", fields.subtracting(["id", "created", "modified", "path"]) == Set(TaskItem.noteFields.map(\.name)),
+              "\(fields.symmetricDifference(TaskItem.noteFields.map(\.name)).subtracting(["id", "created", "modified", "path"]))")
+        model.deleteTasks([task.id, other.id])
+
+        // notifications.json: a row a newer build wrote costs that row only; a field added later never empties the file.
+        let rows = #"{"notices":[{"kind":"reminder","level":"important","text":"Kept","at":"2026-11-10T09:00:00Z"},{"kind":"someday","level":"update","text":"New kind","at":"2026-11-10T09:00:00Z"}],"bellSeenAt":"2026-11-10T09:00:00Z"}"#
+        let store = try? AppModel.noticeDecoder.decode(NoticeStore.self, from: Data(rows.utf8))
+        check("notifications.json: a row HQ can't read costs that row, a missing field takes its default",
+              store?.notices.map(\.text) == ["Kept"] && store?.dropped == 1 && store?.notices.first?.count == 1)
+    }
+
     // MARK: Vault
 
     /// The board's notes on a scratch vault: the migration with its backup, then edits through the tree.
     private static func vaultChecks(_ model: AppModel) async {
         func settle(_ seconds: Double = 0.3) async { try? await Task.sleep(for: .seconds(seconds)) }
-        let root = URL(fileURLWithPath: "/tmp/HQ-self-vault")
+        let root = URL(fileURLWithPath: Store.url.path + "-vault")
         let tasks = root.appending(path: "hq/tasks")
         try? FileManager.default.removeItem(at: root)
         try? FileManager.default.removeItem(at: Store.backups)
@@ -601,39 +678,32 @@ enum SelfTest {
 
         // Edits write only what changed, one Undo each.
         model.indent(4)
-        await settle()
-        check("Tab nests a task: parent written, list dropped", note(4).string("parent") != nil && !note(4).has("list"), note(4).text)
+        await expect("Tab nests a task: parent written, list dropped", note(4).string("parent") != nil && !note(4).has("list"), note(4).text)
         model.undoManager?.undo()
-        await settle()
-        check("Undo Indent puts it back at the top", note(4).string("parent") == nil && note(4).string("list") == "backlog", note(4).text)
+        await expect("Undo Indent puts it back at the top", note(4).string("parent") == nil && note(4).string("list") == "backlog", note(4).text)
         model.move(1, to: .overview)
-        await settle()
-        check("Move to Tasks writes the list", note(1).string("list") == "overview" && model.taskTree.top(.overview).last == 1)
+        await expect("Move to Tasks writes the list", note(1).string("list") == "overview" && model.taskTree.top(.overview).last == 1)
         // Review was a status: a task still in Review becomes doing, and on the overview its reason a notification.
         check("an old note in Review reads as doing", TaskStatus(parsing: "review") == .doing)
         model.move(3, to: .overview)
         model.changeTask(3, "Seed") { $0.review = "PR is ready" }
         model.migrateReviews()
-        await settle()
-        check("a task in Review moves on: no reason left, a notification instead", model.task(3)?.review == nil && !note(3).has("review")
+        await expect("a task in Review moves on: no reason left, a notification instead", model.task(3)?.review == nil && !note(3).has("review")
               && model.notices.contains { $0.text == "T-3 was in Review: PR is ready" && $0.links == ["task:3"] })
         model.setDescription(2, "- [ ] one\n- [ ] two")
         model.toggleCheckbox(2, at: 1)
-        await settle()
-        check("a checkbox ticks in the note", note(2).body == "- [ ] one\n- [x] two\n", note(2).body)
+        await expect("a checkbox ticks in the note", note(2).body == "- [ ] one\n- [x] two\n", note(2).body)
         // Nothing moves on its own (T-345): a task done days ago stays on Tasks through a vault read.
         model.setStatus(1, .done)
         model.changeTask(1, "Seed") { $0.done = Date.now.addingTimeInterval(-72 * 3600) }
         await settle()
         model.rescanVault()
-        await settle(0.6)
+        for _ in 0..<100 where model.vaultScanning { try? await Task.sleep(for: .milliseconds(20)) }
         check("a task done days ago stays on Tasks", model.list(of: 1) == .overview, "list \(model.list(of: 1))")
         model.deleteTasks([3])
-        await settle()
-        check("Delete moves the note to the Trash", !FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path))
+        await expect("Delete moves the note to the Trash", !FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path))
         model.undoManager?.undo()
-        await settle(0.6)
-        check("Undo brings it back", FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path) && model.task(3) != nil)
+        await expect("Undo brings it back", FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path) && model.task(3) != nil)
     }
 
     // MARK: Labels
@@ -690,15 +760,25 @@ enum SelfTest {
         try? "---\ntitle: Parent\nlist: overview\n---\n".write(to: taskNotes.appending(path: "T-1.md"), atomically: true, encoding: .utf8)
         try? "---\ntitle: Child\nparent: T-1\n---\n".write(to: child, atomically: true, encoding: .utf8)
         let vault = Vault(vault: notes)
-        let first = vault.scan(Vault.Cache())
+        let first = try? vault.scan(Vault.Cache())
         try? "".write(to: child, atomically: false, encoding: .utf8)
         try? FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(5)], ofItemAtPath: child.path)
-        let early = vault.scan(first.cache)
-        check("a subtask's note read empty keeps its parent and says so", early.tasks.first { $0.id == 2 }?.parent == 1
-              && early.unreadable == ["T-2.md"], "\(early.unreadable) \(String(describing: early.tasks.first { $0.id == 2 }))")
+        let early = try? vault.scan(first?.cache ?? Vault.Cache())
+        check("a subtask's note read empty keeps its parent and says so", early?.tasks.first { $0.id == 2 }?.parent == 1
+              && early?.unreadable == ["T-2.md"], "\(early?.unreadable ?? []) \(String(describing: early?.tasks.first { $0.id == 2 }))")
+        // HQ never writes over a note it couldn't read: it would take it for an empty one.
+        if let read = early?.tasks.first(where: { $0.id == 2 }) {
+            var renamed = read
+            renamed.title = "Saved over"
+            check("a save over a task note read empty writes nothing", (try? vault.save(renamed)) == nil
+                  && (try? String(contentsOf: child, encoding: .utf8)) == "")
+        } else {
+            check("the subtask's last read", false)
+        }
         try? "---\ntitle: Child, renamed\nparent: T-1\n---\n".write(to: child, atomically: true, encoding: .utf8)
-        let again = vault.scan(early.cache)
-        check("and is read again once it's whole", again.tasks.first { $0.id == 2 }?.title == "Child, renamed" && again.unreadable.isEmpty)
+        let again = try? vault.scan(early?.cache ?? Vault.Cache())
+        check("and is read again once it's whole", again?.tasks.first { $0.id == 2 }?.title == "Child, renamed" && again?.unreadable.isEmpty == true)
+        check("a vault that isn't there can't be scanned: it isn't an empty one", (try? Vault(vault: notes.appending(path: "gone")).scan(Vault.Cache())) == nil)
         try? FileManager.default.removeItem(at: notes)
         let completions = model.titleCompletions("do")
         check("completions after # list statuses first, then projects and tags", completions.first == "doing", "\(completions)")
@@ -1054,11 +1134,10 @@ enum SelfTest {
                 let subtasks = model.taskTree.children(of: mine).count
                 let refusals = [
                     code(agent("task link", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "_session": other])),
-                    code(agent("link", ["item": "https://github.com/acme/registry/pull/418", "task": "T-\(mine)", "_session": other])),
                     code(agent("task unlink", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "_session": other])),
                     code(agent("task add", ["title": "Not mine to add", "parent": "T-\(mine)", "_session": other])),
                 ]
-                check("task link, link, unlink and add --parent refuse a task the session isn't on", refusals.allSatisfy { $0 == "not_mine" }
+                check("task link, unlink and add --parent refuse a task the session isn't on", refusals.allSatisfy { $0 == "not_mine" }
                       && model.task(mine)?.links.isEmpty == true && model.taskTree.children(of: mine).count == subtasks, "\(refusals)")
                 let linked = agent("task link", ["task": "T-\(mine)", "item": "https://github.com/acme/registry/pull/418", "not-mine": "true", "_session": other])
                 let added = agent("task add", ["title": "Named by the user", "parent": "T-\(mine)", "not-mine": "true", "_session": other])
@@ -1160,8 +1239,7 @@ enum SelfTest {
             check("Delete on a file moves its note to the Trash", model.file(made.id) == nil && !FileManager.default.fileExists(atPath: path))
             try? await Task.sleep(for: .milliseconds(100))
             model.undoManager?.undo()
-            try? await Task.sleep(for: .milliseconds(100))
-            check("Undo brings it back", model.file(made.id) != nil && FileManager.default.fileExists(atPath: path))
+            await expect("Undo brings it back", model.file(made.id) != nil && FileManager.default.fileExists(atPath: path))
             let asked = agent("file delete", ["file": made.id])
             check("file delete without --yes only says what it would delete", asked["wouldDelete"] as? String == made.id && model.file(made.id) != nil)
             agent("file delete", ["file": made.id, "yes": "true"])
@@ -1193,15 +1271,25 @@ enum SelfTest {
         model.ghosttyFails = true
         model.beginStart(task: id)
         model.startFromDraft()
-        await settle()
-        check("a start Ghostty refuses keeps the form and says why", model.modal == .start && model.startDraft != nil && model.problem == .ghosttyUnreachable)
+        await expect("a start Ghostty refuses keeps the form and says why", model.modal == .start && model.startDraft != nil && model.problem == .ghosttyUnreachable)
         model.ghosttyFails = false
         model.closeModal()
         model.problem = nil
         check("session new needs a name", (agent("session new", ["name": " ", "_cwd": "/tmp"])["error"] as? JSONObject)?["code"] as? String == "usage")
     }
 
-    private static func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+    /// A check of what happens a moment later: passes as soon as `ok` holds, at most `seconds`.
+    static func expect(_ name: String, _ ok: @autoclosure () -> Bool, _ detail: @autoclosure () -> String = "", within seconds: Double = 3) async {
+        var passed = ok()
+        let deadline = Date.now.addingTimeInterval(seconds)
+        while !passed && Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            passed = ok()
+        }
+        check(name, passed, passed ? "" : detail())
+    }
+
+    static func check(_ name: String, _ ok: Bool, _ detail: String = "") {
         count += 1
         if !ok { failures += 1 }
         print(ok ? "PASS \(name)" : "FAIL \(name)\(detail.isEmpty ? "" : ": \(detail)")")

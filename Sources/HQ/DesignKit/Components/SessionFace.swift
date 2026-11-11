@@ -22,10 +22,12 @@ struct SessionFace: View {
     /// "registry: retry budget, asks".
     var label: String?
 
-    init(_ session: SessionItem, size: CGFloat = Metric.faceCard) {
+    /// `badged`: false where something else already says it needs the user (its own glowing card), or where it doesn't
+    /// matter (the maker of a file): orange stays for what waits on the user (2026-11-11).
+    init(_ session: SessionItem, size: CGFloat = Metric.faceCard, badged: Bool = true) {
         spec = session.face
         self.size = size
-        badge = session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil
+        badge = badged && session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil
         ended = !session.isRunning
         working = session.isWorking
         label = "\(session.name), \(session.status.title.lowercased())" + (session.status.isNew ? ", new" : "")
@@ -91,7 +93,7 @@ struct ClickTarget: NSViewRepresentable {
     final class Target: NSView {
         var action: ((NSView) -> Void)?
 
-        override var isFlipped: Bool { true }
+        nonisolated override var isFlipped: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) { action?(self) }
         override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
@@ -191,7 +193,7 @@ final class FaceStackView: NSView {
         faceActions.isEmpty ? nil : faceActions.map { action in NSAccessibilityCustomAction(name: action.name) { action.run(); return true } }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -303,7 +305,7 @@ final class FaceStackView: NSView {
 
 /// A task no session works on, in its face slot: a plain tile with a silhouette, quieter than any face (2026-11-10).
 final class NoSessionFace: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

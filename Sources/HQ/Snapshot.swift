@@ -1,6 +1,7 @@
 import AppKit
 import IOKit.pwr_mgt
 import SwiftUI
+import WebKit
 
 /// Screenshot mode for agents and review.
 ///   APP_STORE=/tmp/HQ-test.store APP_SEED=1 APP_SNAPSHOT=/tmp/HQ-shots HQ
@@ -21,10 +22,11 @@ enum Snapshot {
         enum Capture { case window, sheet, quickOpen }
         let name: String
         var capture = Capture.window
-        /// Extra seconds before the capture: a Mermaid diagram draws once, in the background.
-        var settle: Double = 0
-        let configure: (AppModel) -> Void
+        let configure: (AppModel) async -> Void
     }
+
+    /// The seed's clock, the same for every page of a run.
+    private static let seeded = Date.now
 
     static func pages(_ model: AppModel) -> [Page] {
         func copySlackLink() {
@@ -33,6 +35,9 @@ enum Snapshot {
         }
         func reset(_ model: AppModel) {
             model.closeModal()
+            // Each page on the same seed: a page that empties Needs You leaves it full for the next ones.
+            SeedData.fill(model, now: seeded)
+            if SeedData.large { SeedData.fillLarge(model, now: seeded) }
             model.pendingTaskLink = nil
             model.zoom = 1
             model.search = ""
@@ -54,28 +59,32 @@ enum Snapshot {
         }
         let pr = "https://github.com/acme/registry/pull/418"
         return [
-            Page(name: "cockpit", settle: 1) { reset($0) },
-            Page(name: "cockpit-zoom", settle: 1.5) { model in
+            Page(name: "cockpit") { reset($0) },
+            Page(name: "cockpit-zoom") { model in
                 reset(model)
                 model.zoom = 1.3
             },
-            Page(name: "cockpit-backlog", settle: 1) { model in
+            Page(name: "cockpit-backlog") { model in
                 reset(model)
                 model.backlogOpen = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { scrollToBottom(); select(task: 36) }
+                await ready()
+                scrollToBottom()
+                select(task: 36)
             },
-            Page(name: "cockpit-descriptions", settle: 1.5) { model in
+            Page(name: "cockpit-descriptions") { model in
                 reset(model)
                 model.allDescriptions = [.overview, .backlog]
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroll(to: 0.45) }
+                await ready()
+                scroll(to: 0.45)
             },
-            Page(name: "cockpit-description-edit", settle: 1.5) { model in
+            Page(name: "cockpit-description-edit") { model in
                 reset(model)
                 model.allDescriptions = [.overview, .backlog]
                 model.editDescription(13)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroll(to: 0.45) }
+                await ready()
+                scroll(to: 0.45)
             },
-            Page(name: "cockpit-folded", settle: 1) { model in
+            Page(name: "cockpit-folded") { model in
                 reset(model)
                 model.folded = [.pullRequests, .files]
             },
@@ -91,75 +100,76 @@ enum Snapshot {
                 reset(model)
                 model.search = "zzzz"
             },
-            Page(name: "modal-task", capture: .sheet, settle: 1.5) { reset($0); $0.open(.task(13)) },
+            Page(name: "modal-task", capture: .sheet) { reset($0); $0.open(.task(13)) },
             // Its relations, then its subtasks as the list's cards (2026-11-10).
-            Page(name: "modal-task-subtasks", capture: .sheet, settle: 1.5) { model in
+            Page(name: "modal-task-subtasks", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(16))
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    guard let sheet = mainWindow?.attachedSheet?.contentView,
-                          let scroll = views(NSScrollView.self, in: sheet).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
-                          let document = scroll.documentView else { return }
-                    scroll.contentView.scroll(to: NSPoint(x: 0, y: max(document.frame.height - scroll.contentView.bounds.height, 0)))
-                    scroll.reflectScrolledClipView(scroll.contentView)
-                }
+                await ready()
+                guard let sheet = mainWindow?.attachedSheet?.contentView,
+                      let scroll = views(NSScrollView.self, in: sheet).max(by: { $0.documentView?.frame.height ?? 0 < $1.documentView?.frame.height ?? 0 }),
+                      let document = scroll.documentView else { return }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(document.frame.height - scroll.contentView.bounds.height, 0)))
+                scroll.reflectScrolledClipView(scroll.contentView)
             },
-            Page(name: "modal-task-edit", capture: .sheet, settle: 1.5) { model in
+            Page(name: "modal-task-edit", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(13))
                 model.editDescription(13)
             },
-            Page(name: "modal-notifications", capture: .sheet, settle: 1) { reset($0); $0.openCenter() },
-            Page(name: "modal-reminder", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-notifications", capture: .sheet) { reset($0); $0.openCenter() },
+            Page(name: "modal-reminder", capture: .sheet) { model in
                 reset(model)
                 SlackClipboard.testText = nil
                 SlackClipboard.testChange += 1
                 model.beginReminder()
             },
-            Page(name: "modal-new-task", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-new-task", capture: .sheet) { model in
                 reset(model)
                 SlackClipboard.testText = nil
                 SlackClipboard.testChange += 1
                 model.beginTask(.overview)
             },
+            Page(name: "modal-new-file", capture: .sheet) { reset($0); $0.beginNewFile() },
+            Page(name: "modal-import-artifact", capture: .sheet) { reset($0); $0.beginImport() },
             // A Slack link copied before New Reminder… and New Task… (T-313).
-            Page(name: "modal-reminder-slack", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-reminder-slack", capture: .sheet) { model in
                 reset(model)
                 copySlackLink()
                 model.beginReminder()
             },
             // Remind Me… on a task (T-343): linked, named after it; the copied Slack link stays out.
-            Page(name: "modal-remind-task", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-remind-task", capture: .sheet) { model in
                 reset(model)
                 copySlackLink()
                 model.beginReminder(about: .task(13))
             },
-            Page(name: "modal-new-task-slack", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-new-task-slack", capture: .sheet) { model in
                 reset(model)
                 copySlackLink()
                 model.beginTask(.overview)
             },
-            Page(name: "modal-caught-up", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-caught-up", capture: .sheet) { model in
                 reset(model)
                 model.sessions = model.sessions.filter { !$0.status.needsYou }
                 model.notices = model.notices.filter { $0.dueAt != nil }
                 model.beginReminder()
             },
-            Page(name: "modal-notifications-selected", capture: .sheet, settle: 1) { model in
+            Page(name: "modal-notifications-selected", capture: .sheet) { model in
                 reset(model)
                 model.openCenter()
                 model.noticeSelection = model.notices(in: .updates).max { $0.text.count < $1.text.count }?.id.uuidString
             },
             Page(name: "modal-session-question", capture: .sheet) { reset($0); $0.open(.session("250a8563-5c74-4592-a463-b41398dc5b55")) },
-            Page(name: "modal-session-plan", capture: .sheet, settle: 0.5) { reset($0); $0.open(.session("83b6ab7a-8155-40ac-b149-16e2b8313b81")) },
-            Page(name: "modal-file", capture: .sheet, settle: 1.5) { model in reset(model); if let file = model.files.first { model.open(.file(file.id)) } },
-            Page(name: "modal-file-edit", capture: .sheet, settle: 1.5) { model in
+            Page(name: "modal-session-plan", capture: .sheet) { reset($0); $0.open(.session("83b6ab7a-8155-40ac-b149-16e2b8313b81")) },
+            Page(name: "modal-file", capture: .sheet) { model in reset(model); if let file = model.files.first { model.open(.file(file.id)) } },
+            Page(name: "modal-file-edit", capture: .sheet) { model in
                 reset(model)
                 if let file = model.files.first { model.open(.file(file.id)); model.beginFileEdit(file.id) }
             },
-            Page(name: "modal-artifact", capture: .sheet, settle: 1) { model in reset(model); if let artifact = model.artifacts.first { model.open(.artifact(artifact.id)) } },
-            Page(name: "modal-pr", capture: .sheet, settle: 0.5) { reset($0); $0.open(.github(pr)) },
-            Page(name: "modal-review", capture: .sheet, settle: 0.5) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
+            Page(name: "modal-artifact", capture: .sheet) { model in reset(model); if let artifact = model.artifacts.first { model.open(.artifact(artifact.id)) } },
+            Page(name: "modal-pr", capture: .sheet) { reset($0); $0.open(.github(pr)) },
+            Page(name: "modal-review", capture: .sheet) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
             Page(name: "modal-start", capture: .sheet) { reset($0); $0.beginStart(task: 13) },
             Page(name: "modal-closed", capture: .sheet) { reset($0); $0.open(.closedSessions) },
             Page(name: "modal-back", capture: .sheet) { model in
@@ -218,7 +228,8 @@ enum Snapshot {
             IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
                                         IOPMAssertionLevel(kIOPMAssertionLevelOn), "Snapshots" as CFString, &awake)
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            try? await Task.sleep(for: .seconds(1.5))
+            await until(5) { mainWindow != nil }
+            await ready()
             guard let main = mainWindow else {
                 print("SNAPSHOT no window")
                 NSApp.terminate(nil)
@@ -230,7 +241,7 @@ enum Snapshot {
                 let name = KitGallery.mode == "faces" ? "faces" : "gallery"
                 for mode in ["light", "dark"] {
                     appearance(mode)
-                    try? await Task.sleep(for: .seconds(1))
+                    await ready()
                     capture(main, to: "\(dir)/\(name)-\(mode).png")
                 }
                 finish(dir)
@@ -245,9 +256,13 @@ enum Snapshot {
                     for page in pages(model) where only?.contains(page.name) ?? true {
                         // A page that showed the sidebar in a narrow window grew it: back to this size.
                         if main.frame.width != size.width { resize(main, to: size) }
-                        page.configure(model)
-                        try? await Task.sleep(for: .seconds((page.capture == .window ? 0.8 : 1.2) + page.settle))
+                        let gone = goneShown
+                        await page.configure(model)
+                        if page.capture == .sheet { await until { main.attachedSheet != nil } }
+                        await ready()
                         let path = "\(dir)/\(page.name)-\(Int(size.width))-\(mode).png"
+                        if page.capture == .sheet, main.attachedSheet == nil { fail("\(path): its sheet never opened") }
+                        if goneShown != gone { fail("\(path): its sheet shows This Item Is Gone") }
                         switch page.capture {
                         case .window:
                             if env["APP_DEBUG_TOOLBAR"] == "1" { debugToolbar(main, "\(page.name) \(Int(size.width))") }
@@ -258,22 +273,23 @@ enum Snapshot {
                         if page.capture == .sheet {
                             model.showSetup = false
                             model.closeModal()
-                            try? await Task.sleep(for: .seconds(0.6))
+                            await until { main.attachedSheet == nil }
                         }
                     }
                 }
             }
 
-            if only == nil || only?.contains("settings") == true {
+            // APP_SNAPSHOT_SETTINGS=0: a pass that leaves Settings to another.
+            if only == nil && env["APP_SNAPSHOT_SETTINGS"] != "0" || only?.contains("settings") == true {
                 openSettings()
-                try? await Task.sleep(for: .seconds(1))
+                await until { settingsWindow(besides: main) != nil }
                 for mode in ["light", "dark"] {
                     appearance(mode)
                     for tab in SettingsTab.allCases {
                         model.settingsTab = tab
-                        try? await Task.sleep(for: .seconds(0.8))
-                        let settings = NSApp.windows.first { $0.isVisible && $0 !== main && !$0.isSheet && $0.canBecomeKey && !($0 is NSPanel) }
-                        if let settings { capture(settings, to: "\(dir)/settings-\(tab.rawValue)-\(mode).png") }
+                        await ready()
+                        let path = "\(dir)/settings-\(tab.rawValue)-\(mode).png"
+                        if let settings = settingsWindow(besides: main) { capture(settings, to: path) } else { fail("\(path): no Settings window") }
                     }
                 }
             }
@@ -306,9 +322,41 @@ enum Snapshot {
         NSApp.windows.first { $0.canBecomeMain && !$0.isSheet && !($0 is NSPanel) }
     }
 
+    /// Pages that showed This Item Is Gone: a page that names an item the seed doesn't have.
+    static var goneShown = 0
+    private static var failures = 0
+
+    /// A page that isn't what it says: the run ends with exit code 1.
+    private static func fail(_ why: String) {
+        failures += 1
+        print("SNAPSHOT FAIL \(why)")
+    }
+
+    /// Waits until a page is ready to capture: no diagram drawing, no web view loading, and every window held still.
+    private static func ready() async {
+        await until(4) { MermaidRenderer.shared.drawing == 0 && !NSApp.windows.contains { $0.isVisible && webLoading($0.contentView) } }
+        await Driver.holdStill(2)
+    }
+
+    private static func until(_ seconds: Double = 2, _ done: () -> Bool) async {
+        let deadline = Date.now.addingTimeInterval(seconds)
+        while !done(), Date.now < deadline { try? await Task.sleep(for: .milliseconds(16)) }
+    }
+
+    private static func webLoading(_ view: NSView?) -> Bool {
+        guard let view else { return false }
+        if let web = view as? WKWebView { return web.isLoading }
+        return view.subviews.contains { webLoading($0) }
+    }
+
+    private static func settingsWindow(besides main: NSWindow) -> NSWindow? {
+        NSApp.windows.first { $0.isVisible && $0 !== main && !$0.isSheet && $0.canBecomeKey && !($0 is NSPanel) }
+    }
+
     private static func finish(_ dir: String) {
-        print("SNAPSHOT done \(dir)")
+        print(failures == 0 ? "SNAPSHOT done \(dir)" : "SNAPSHOT FAIL \(failures) pages in \(dir)")
         for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
+        if failures > 0 { Prefs.forget(); exit(1) }
         NSApp.terminate(nil)
     }
 
@@ -381,7 +429,7 @@ enum Snapshot {
         }
         guard let window = fallback, let view = window.contentView?.superview ?? window.contentView,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
-            print("SNAPSHOT failed \(path)")
+            fail("\(path): the capture failed")
             return
         }
         view.cacheDisplay(in: view.bounds, to: rep)

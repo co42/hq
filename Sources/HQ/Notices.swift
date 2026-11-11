@@ -50,6 +50,53 @@ nonisolated struct NoticeStore: Codable, Sendable {
     var githubEvents: [String: Date] = [:]
     /// Review requests put Later, by PR URL, until when (T-319). Optional: older files have none.
     var reviewsLater: [String: Date]?
+    /// Rows the last read couldn't decode: the file then goes aside before HQ saves over it.
+    var dropped = 0
+
+    enum CodingKeys: String, CodingKey { case notices, bellSeenAt, githubEvents, reviewsLater }
+}
+
+extension NoticeStore {
+    /// Every key may be missing, and a row that doesn't decode costs that row only: a field added later, or a new
+    /// case an older build doesn't know, never empties the reminders.
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if var rows = try? c.nestedUnkeyedContainer(forKey: .notices) {
+            while !rows.isAtEnd {
+                if let row = try? rows.decode(Notice.self) {
+                    notices.append(row)
+                } else {
+                    _ = try? rows.decode(Skipped.self)
+                    dropped += 1
+                }
+            }
+        }
+        bellSeenAt = (try? c.decodeIfPresent(Date.self, forKey: .bellSeenAt)) ?? .distantPast
+        githubEvents = (try? c.decodeIfPresent([String: Date].self, forKey: .githubEvents)) ?? [:]
+        reviewsLater = try? c.decodeIfPresent([String: Date].self, forKey: .reviewsLater)
+    }
+
+    /// Reads past one row.
+    private struct Skipped: Decodable { nonisolated init(from decoder: Decoder) {} }
+}
+
+extension Notice {
+    /// Only what a row can't do without is required: its kind, level, text and time.
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
+        kind = try c.decode(Kind.self, forKey: .kind)
+        level = try c.decode(Level.self, forKey: .level)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
+        text = try c.decode(String.self, forKey: .text)
+        count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? 1
+        links = (try? c.decodeIfPresent([String].self, forKey: .links)) ?? []
+        at = try c.decode(Date.self, forKey: .at)
+        readAt = try? c.decodeIfPresent(Date.self, forKey: .readAt)
+        dueAt = try? c.decodeIfPresent(Date.self, forKey: .dueAt)
+        anchor = try? c.decodeIfPresent(String.self, forKey: .anchor)
+        title = try? c.decodeIfPresent(String.self, forKey: .title)
+    }
 }
 
 extension ModalRoute {
@@ -362,8 +409,14 @@ extension AppModel {
 
     func loadNotices() {
         let url = Store.directory.appending(path: "notifications.json")
-        if let data = try? Data(contentsOf: url), let store = try? Self.noticeDecoder.decode(NoticeStore.self, from: data) {
-            noticeStore = store
+        // No file: nothing yet. A file that doesn't decode, whole or a row of it, goes aside before HQ saves over it.
+        if let data = try? Data(contentsOf: url) {
+            let store = try? Self.noticeDecoder.decode(NoticeStore.self, from: data)
+            if store == nil || store?.dropped ?? 0 > 0 {
+                if let aside = Store.moveAside(url) { movedAside.append(aside.path) }
+                problem = .movedAside
+            }
+            if let store { noticeStore = store }
         }
         // Read rows go after two weeks.
         let cutoff = Date.now.addingTimeInterval(-14 * 86_400)
@@ -380,8 +433,19 @@ extension AppModel {
             try? await Task.sleep(for: .seconds(1))
             guard let self else { return }
             self.noticeSave = nil
-            let url = Store.directory.appending(path: "notifications.json")
-            if let data = try? Self.noticeEncoder.encode(self.noticeStore) { try? data.write(to: url, options: .atomic) }
+            self.saveNoticesNow()
+        }
+    }
+
+    /// Writes `notifications.json` now: a second after a change, and at quit.
+    func saveNoticesNow() {
+        noticeSave?.cancel()
+        noticeSave = nil
+        let url = Store.directory.appending(path: "notifications.json")
+        do {
+            try Self.noticeEncoder.encode(noticeStore).write(to: url, options: .atomic)
+        } catch {
+            AppLog.write("couldn't save the notifications: \(error.localizedDescription)", to: "store.log")
         }
     }
 

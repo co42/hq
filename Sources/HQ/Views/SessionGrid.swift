@@ -3,7 +3,7 @@ import HQKit
 import SwiftUI
 
 /// The session cards (DESIGN.md §5): an `NSCollectionView` with no scroll view of its own, inside the
-/// page's. Cards reorder by drag with the rows parting; a task dropped on a card links it.
+/// page's. Cards reorder by drag, an accent bar where one lands; a task dropped on a card links it.
 struct SessionGrid: NSViewRepresentable {
     let sessions: [SessionItem]
     let width: CGFloat
@@ -54,17 +54,32 @@ struct SessionGrid: NSViewRepresentable {
         private var width: CGFloat = 0
         /// The card a task hovers.
         private(set) var dropTarget: IndexPath?
+        /// A drag from or over the grid, since then: the cards hold still until it ends, so AppKit's indexes stay true.
+        private(set) var heldSince: Date?
+        /// The last sessions asked for, shown once a drag ends.
+        private var latest: (sessions: [SessionItem], width: CGFloat, selected: String?)?
 
         init(model: AppModel) {
             self.model = model
         }
 
-        /// New or removed cards reload; a change inside cards only redraws them.
+        /// New or removed cards reload; a change inside cards only redraws them. Under a drag, no card comes or goes.
         func apply(_ sessions: [SessionItem], width: CGFloat, now: Date, selected: String?) {
             guard let grid else { return }
             self.now = now
-            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            latest = (sessions, width, selected)
             let newIDs = sessions.map(\.id)
+            // A drag whose end never came lets the cards go 3 s after the button is up.
+            if let since = heldSince, Date.now.timeIntervalSince(since) > 3, !OutlineCoordinator.buttonDown() {
+                AppLog.write("grid: a drag never ended; cards move again", to: "clicks.log")
+                heldSince = nil
+            }
+            if heldSince != nil, newIDs != ids {
+                for session in sessions where byID[session.id] != nil { byID[session.id] = session }
+                for case let item as CardItem in grid.collection.visibleItems() { refresh(item) }
+                return
+            }
+            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             if width != self.width {
                 self.width = width
                 grid.layout(width: width)
@@ -151,11 +166,10 @@ struct SessionGrid: NSViewRepresentable {
             }
         }
 
-        /// A double-click shows the session.
-        /// A double-click on the face opens the session in Ghostty (or asks to resume it); elsewhere, its modal.
-        func doubleClicked(at path: IndexPath, onFace: Bool = false) {
+        /// A double-click outside the face shows the session.
+        func doubleClicked(at path: IndexPath) {
             guard ids.indices.contains(path.item) else { return }
-            if onFace { model.openFace(ids[path.item]) } else { model.open(.session(ids[path.item])) }
+            model.open(.session(ids[path.item]))
         }
 
         /// Return opens the selected session in Ghostty; Space shows its details.
@@ -185,7 +199,6 @@ struct SessionGrid: NSViewRepresentable {
             return NSHostingMenu(rootView: SessionMenu(session: session).environment(model))
         }
 
-        /// A click on a card's face: the card's menu, under the face.
         /// A card's face focuses its session's terminal, or offers to resume it; the card's menu is a right-click.
         func faceClicked(at path: IndexPath) {
             guard ids.indices.contains(path.item) else { return }
@@ -197,8 +210,13 @@ struct SessionGrid: NSViewRepresentable {
 
         func collectionView(_ collectionView: NSCollectionView, canDragItemsAt indexPaths: Set<IndexPath>, with event: NSEvent) -> Bool { true }
 
+        func collectionView(_ collectionView: NSCollectionView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
+                            forItemsAt indexPaths: Set<IndexPath>) {
+            hold()
+        }
+
         func collectionView(_ collectionView: NSCollectionView, pasteboardWriterForItemAt indexPath: IndexPath) -> NSPasteboardWriting? {
-            guard let session = byID[ids[indexPath.item]] else { return nil }
+            guard ids.indices.contains(indexPath.item), let session = byID[ids[indexPath.item]] else { return nil }
             let item = NSPasteboardItem()
             item.setString(session.id, forType: DragItem.sessionType)
             item.setString(model.line(of: .session(session.id)), forType: .string)
@@ -209,8 +227,9 @@ struct SessionGrid: NSViewRepresentable {
                             proposedIndexPath path: AutoreleasingUnsafeMutablePointer<NSIndexPath>,
                             dropOperation operation: UnsafeMutablePointer<NSCollectionView.DropOperation>) -> NSDragOperation {
             let pasteboard = info.draggingPasteboard
+            hold()
             if !DragItem.tasks(on: pasteboard).isEmpty {
-                // A task, by its grip or carried from its row, links to the card it's dropped on.
+                // A task links to the card it's dropped on.
                 let index = path.pointee.item
                 guard ids.indices.contains(index) else { return setDropTarget(nil) }
                 operation.pointee = .on
@@ -236,20 +255,22 @@ struct SessionGrid: NSViewRepresentable {
             let pasteboard = info.draggingPasteboard
             defer { setDropTarget(nil) }
             if case let tasks = DragItem.tasks(on: pasteboard), !tasks.isEmpty {
-                guard ids.indices.contains(indexPath.item) else { return false }
+                guard ids.indices.contains(indexPath.item), model.session(ids[indexPath.item]) != nil else { return false }
                 let session = ids[indexPath.item]
                 for task in tasks { model.link(task: task, session: session) }
                 return true
             }
             guard let id = pasteboard.pasteboardItems?.first?.string(forType: DragItem.sessionType),
                   let from = ids.firstIndex(of: id) else { return false }
-            let to = indexPath.item > from ? indexPath.item - 1 : indexPath.item
+            let target = min(max(indexPath.item, 0), ids.count)
+            let to = min(target > from ? target - 1 : target, ids.count - 1)
             guard to != from else { return false }
             // The card moves in place first, so the model's update finds the grid already in order.
             ids.remove(at: from)
             ids.insert(id, at: to)
             Motion.appKit { collectionView.animator().moveItem(at: IndexPath(item: from, section: 0), to: IndexPath(item: to, section: 0)) }
-            model.moveSession(id, to: indexPath.item)
+            // Placed by its neighbours on the grid shown: a search may hide cards between them.
+            model.moveSession(id, before: ids.indices.contains(to + 1) ? ids[to + 1] : nil, after: to > 0 ? ids[to - 1] : nil)
             return true
         }
 
@@ -258,9 +279,25 @@ struct SessionGrid: NSViewRepresentable {
             dragEnded()
         }
 
-        /// A drag ended, dropped or not: no card stays marked.
+        /// A drag starts over the grid: what came or went since the last one shows first, then the cards hold still.
+        private func hold() {
+            guard heldSince == nil else { return }
+            if let latest, latest.sessions.map(\.id) != ids {
+                apply(latest.sessions, width: latest.width, now: now, selected: model.selectedSession)
+            }
+            heldSince = .now
+        }
+
+        /// A drag ended, dropped or not: no card stays marked, and the cards that came or went while it lasted show.
         func dragEnded() {
             setDropTarget(nil)
+            guard heldSince != nil else { return }
+            heldSince = nil
+            // After AppKit is done with the drag session.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.heldSince == nil, let latest = self.latest else { return }
+                self.apply(latest.sessions, width: latest.width, now: self.now, selected: self.model.selectedSession)
+            }
         }
 
         func copySelection() {
@@ -299,7 +336,7 @@ struct SessionGrid: NSViewRepresentable {
             collection.setAccessibilityLabel("Sessions")
             collection.onKey = { [weak self] event in self?.coordinator?.key(event) ?? false }
             collection.onMenu = { [weak self] point in self?.coordinator?.menu(at: point) }
-            collection.onDoubleClick = { [weak self] path, onFace in self?.coordinator?.doubleClicked(at: path, onFace: onFace) }
+            collection.onDoubleClick = { [weak self] path in self?.coordinator?.doubleClicked(at: path) }
             collection.onFaceClick = { [weak self] path in self?.coordinator?.faceClicked(at: path) }
             collection.onEmptyClick = { [weak self] in self?.coordinator?.model.selectSection(nil) }
             collection.onDragLeft = { [weak self] in self?.coordinator?.dragEnded() }
@@ -332,7 +369,7 @@ struct SessionGrid: NSViewRepresentable {
     final class CardCollection: NSCollectionView {
         var onKey: ((NSEvent) -> Bool)?
         var onMenu: ((NSPoint) -> NSMenu?)?
-        var onDoubleClick: ((IndexPath, Bool) -> Void)?
+        var onDoubleClick: ((IndexPath) -> Void)?
         var onFaceClick: ((IndexPath) -> Void)?
         var onEmptyClick: (() -> Void)?
         /// A press on a face: its card and where it started.
@@ -380,10 +417,11 @@ struct SessionGrid: NSViewRepresentable {
             }
             let face = onFace(path, event)
             if event.clickCount == 2, !face {
-                onDoubleClick?(path, false)
+                onDoubleClick?(path)
                 return
             }
-            facePress = face ? (path, event.locationInWindow) : nil
+            // A face acts on its first click only: a double-click focuses once.
+            facePress = face && event.clickCount == 1 ? (path, event.locationInWindow) : nil
             if face { AppLog.write("face press on card \(path.item)", to: "clicks.log") }
             super.mouseDown(with: event)
             // The collection view may track the press itself, up to its release.
@@ -481,7 +519,7 @@ struct SessionGrid: NSViewRepresentable {
             actions.map { action in NSAccessibilityCustomAction(name: action.name) { action.run(); return true } }
         }
 
-        override var isFlipped: Bool { true }
+        nonisolated override var isFlipped: Bool { true }
 
         /// The face, at the card's top left inside its padding.
         static var face: NSRect { NSRect(x: Space.md, y: Space.md, width: Metric.faceCard, height: Metric.faceCard) }
@@ -536,6 +574,17 @@ enum FaceMenu {
 }
 
 extension AppModel {
+    /// A card dropped between two cards of the grid shown: right before the next one among every session, else right after
+    /// the previous one.
+    func moveSession(_ id: String, before next: String?, after previous: String?) {
+        let all = gridSessions.map(\.id)
+        if let next, let index = all.firstIndex(of: next) {
+            moveSession(id, to: index)
+        } else if let previous, let index = all.firstIndex(of: previous) {
+            moveSession(id, to: index + 1)
+        }
+    }
+
     /// A session's menu; from a task's or a PR's faces, with a new session on it too.
     func faceMenu(_ id: String, task: Int? = nil, pullRequest: GitHubItem? = nil) -> NSMenu? {
         guard let session = session(id) else { return nil }

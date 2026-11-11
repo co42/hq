@@ -23,91 +23,84 @@ struct TaskModal: View {
     let id: Int
     @Environment(AppModel.self) private var model
     @State private var title = ""
+    /// The title when the field took the keyboard: untouched, it writes nothing (a rename made meanwhile stays).
+    @State private var titleBase = ""
     /// The subtasks' outline's width: the window's column.
     @State private var outlineWidth: CGFloat = 0
     @FocusState private var titleFocused: Bool
 
     var body: some View {
         if let task = model.task(id) {
+            // The top as Things and Linear draw it (2026-11-11): the status glyph at the title's left, its project and tags on
+            // one line, Blocked only when it is; then the groups by use, each one's action at the end of its label line.
             ModalPage {
                 VStack(alignment: .leading, spacing: Space.xs) {
-                    Text(place(task)).kitType(.key).foregroundStyle(.secondary)
-                    TextField("New task", text: $title, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .kitType(.pageTitle)
-                        .accessibilityLabel("Title")
-                        .lineLimit(1...4)
-                        .focused($titleFocused)
-                        .onSubmit { commitTitle() }
-                        .onChange(of: titleFocused) { if !titleFocused { commitTitle() } }
-                        .onAppear { title = task.title }
-                        .onChange(of: task.title) { if !titleFocused { title = task.title } }
-                        .uiTestAnchor("modal-title")
+                    placeLine(task)
+                    HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                        StatusButton(id: id, status: task.status)
+                        TextField("New task", text: $title, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .kitType(.pageTitle)
+                            .accessibilityLabel("Title")
+                            .lineLimit(1...4)
+                            .focused($titleFocused)
+                            .onSubmit { commitTitle() }
+                            .onChange(of: titleFocused) { if titleFocused { titleBase = title } else { commitTitle() } }
+                            .onAppear { title = task.title }
+                            .onChange(of: task.title) { if !titleFocused { title = task.title } }
+                            .uiTestAnchor("modal-title")
+                    }
                 }
                 // A story's progress, as on its big card.
                 if !model.taskTree.children(of: id).isEmpty { StorySummary(id: id).frame(height: Metric.storyLine) }
-                properties(task)
+                HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                    ProjectPicker(project: task.project) { model.setProject(id, $0) }
+                    TagList(tags: task.tags) { model.setTags(id, $0) }
+                }
+                BlockedProperty(id: id)
                 ModalGroup(title: "On it") { onIt(task) }
-                ModalGroup(title: "Description") { DescriptionCard(id: id) }
-                // What it waits on and what waits on it, and the tasks linked to it: the list shows them as chips and on
-                // selection only (2026-11-10).
-                ModalGroup(title: "Blocked by, after and linked tasks") { TaskRelations(id: id) }
+                ModalGroup(title: "Description") { DescriptionCard(id: id) } actions: { DescriptionAction(id: id) }
                 // Its subtasks as the list shows them: the same cards, chips, fold, drag and keys (2026-11-10).
                 ModalGroup(title: "Subtasks") { subtasks(task) }
+                // What it waits on and what waits on it, and the tasks linked to it: the list shows them as chips and on
+                // selection only (2026-11-10).
+                ModalGroup(title: "Related tasks") { TaskRelations(id: id) } actions: { RelationActions(id: id) }
                 ModalGroup(title: "Files, artifacts, PRs and issues") {
                     let outputs = model.outputs(ofTask: id).filter { $0.taskID == nil }
                     if !outputs.isEmpty { OutputRows(routes: outputs, task: id) }
-                    LinkButton(task: id)
-                }
+                } actions: { LinkButton(task: id) }
             }
         }
     }
 
-    private func place(_ task: TaskItem) -> String {
-        if let parent = model.task(task.parent) { return "\(task.key) · Subtask of \(parent.key) \(parent.title)" }
-        return "\(task.key) · " + (task.list == .overview ? "On the overview" : "In the Backlog")
+    /// Its key and where it is: a subtask's parent is a link to it, over this window (Back returns).
+    @ViewBuilder
+    private func placeLine(_ task: TaskItem) -> some View {
+        HStack(spacing: Space.xs) {
+            Text("\(task.key) ·")
+            if let parent = model.task(task.parent) {
+                Text("Subtask of")
+                Button("\(parent.key) \(parent.title)") { model.open(.task(parent.id), push: true) }
+                    .buttonStyle(.link)
+                    .lineLimit(1)
+                    .help("Open \(parent.key)")
+                    .uiTestAnchor("modal-parent")
+            } else {
+                Text(task.list == .overview ? "On the overview" : "In the Backlog")
+            }
+        }
+        .kitType(.key)
+        .foregroundStyle(.secondary)
     }
 
     private func commitTitle() {
-        guard let task = model.task(id), title != task.title else { return }
+        guard let task = model.task(id) else { return }
+        // Return submits while the field keeps the keyboard: what's saved is the new base.
+        guard title != titleBase else { return title = task.title }
+        titleBase = title
+        guard title != task.title else { return }
         model.setTitle(id, title)
         title = model.task(id)?.title ?? title
-    }
-
-    @ViewBuilder
-    private func properties(_ task: TaskItem) -> some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
-            GridRow {
-                label("Status")
-                Picker("Status", selection: Binding(get: { task.status }, set: { model.setStatus(id, $0) })) {
-                    ForEach(TaskStatus.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .clickable()
-            }
-            GridRow {
-                label("Project")
-                ProjectPicker(project: task.project) { model.setProject(id, $0) }
-            }
-            GridRow {
-                label("Tags")
-                TagList(tags: task.tags) { model.setTags(id, $0) }
-                    .frame(maxWidth: 480, alignment: .leading)
-            }
-            GridRow {
-                label("Blocked")
-                BlockedProperty(id: id)
-            }
-        }
-        .padding(Space.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .surface()
-    }
-
-    private func label(_ text: String) -> some View {
-        Text(text).kitType(.callout).foregroundStyle(.secondary).frame(width: Metric.propertyLabel, alignment: .leading)
     }
 
     @ViewBuilder
@@ -118,11 +111,8 @@ struct TaskModal: View {
                 SessionChip(session: session) { model.unlink(task: id, session: session.id) }
             }
             if sessions.isEmpty {
-                Text("No session on this task.").kitType(.callout).foregroundStyle(.secondary).frame(height: Metric.boxRow)
+                Text("No session on this task: Start Session… is at the top.").kitType(.callout).foregroundStyle(.secondary).frame(height: Metric.boxRow)
             }
-            Button("Start Session…") { model.beginStart(task: id, push: true) }
-                .frame(height: Metric.boxRow)
-                .help("Start a Claude session on this task (⌥⌘Return)")
         }
     }
 
@@ -238,26 +228,95 @@ private struct NewSubtaskField: NSViewRepresentable {
 private struct BlockedProperty: View {
     let id: Int
     @Environment(AppModel.self) private var model
-    @State private var picking = false
 
+    /// Only a Blocked task has the line: its reason in red, and Unblock. Block… is with the related tasks' actions.
     var body: some View {
-        if let task = model.task(id) {
+        if let task = model.task(id), task.blocked, task.status != .done {
             HStack(spacing: Space.sm) {
-                if task.blocked, task.status != .done {
-                    KitIcon.blocked.image.foregroundStyle(Ink.blockedText)
-                    Text(TaskCell.reason(model, id) ?? "Blocked, no reason").foregroundStyle(Ink.blockedText).lineLimit(2)
-                    Button("Unblock") { model.unblock(id) }.help("It can be done again (B on its card)")
-                } else {
-                    Text(task.status == .done ? "Done" : "No").foregroundStyle(.secondary)
-                    Button("Block…") { picking = true }
-                        .disabled(task.status == .done)
-                        .help("It can't be done now, with a reason or not (B on its card)")
-                        .popover(isPresented: $picking, arrowEdge: .bottom) { HoldPicker(task: id, kind: .block) { picking = false }.environment(model) }
-                }
+                KitIcon.blocked.image.foregroundStyle(Ink.blockedText)
+                Text(TaskCell.reason(model, id) ?? "Blocked").foregroundStyle(Ink.blockedText).lineLimit(2)
+                Button("Unblock") { model.unblock(id) }.help("It can be done again (B on its card)")
             }
             .kitType(.callout)
             .uiTestAnchor("blocked-property")
         }
+    }
+}
+
+/// The task window's status: the glyph the list draws, larger; a click moves it on, as on a card; its menu picks one.
+private struct StatusButton: View {
+    let id: Int
+    let status: TaskStatus
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Menu {
+            ForEach(TaskStatus.allCases) { choice in
+                Button(choice.title) { model.setStatus(id, choice) }
+            }
+        } label: {
+            TaskGlyph(status: status).scaleEffect(1.25)
+        } primaryAction: {
+            model.nextStatus([id])
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .clickable()
+        .help("\(status.title): click for the next status, hold for the list")
+        .accessibilityLabel("Status: \(status.title)")
+        .uiTestAnchor("modal-status")
+    }
+}
+
+/// Edit, or Done while the description is in its editor, at the end of the Description label (2026-11-11).
+private struct DescriptionAction: View {
+    let id: Int
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let editing = model.modalEditingDescription
+        Button {
+            if editing { model.saveModalEdits() } else { model.editorCaret = nil; model.beginModalDescription(id) }
+        } label: {
+            // One width for Edit and Done: the label line never moves.
+            ZStack {
+                Text("Edit").opacity(editing ? 0 : 1)
+                Text("Done").opacity(editing ? 1 : 0)
+            }
+        }
+        .accessibilityLabel(editing ? "Done" : "Edit")
+        .help(editing ? "Save the description (Escape or ⌘Return); ⌘Z undoes" : "Edit the description in markdown, or double-click it")
+        .uiTestAnchor("modal-edit-description")
+    }
+}
+
+/// Block…, Blocked By… and After… at the end of the related tasks' label: each opens its picker.
+private struct RelationActions: View {
+    let id: Int
+    @Environment(AppModel.self) private var model
+    @State private var picking: HoldPicker.Kind?
+
+    var body: some View {
+        let task = model.task(id)
+        let done = task?.status == .done
+        HStack(spacing: Space.md) {
+            if task?.blocked != true {
+                button("Block…", .block, help: "It can't be done now, with a reason or not (B on its card)")
+            }
+            button("Blocked By…", .blockedBy, help: "A task it can't go on without")
+            button("After…", .after, help: "A task it comes after: the order you mean, nothing moves")
+        }
+        .disabled(done)
+        .popover(item: $picking, arrowEdge: .bottom) { kind in HoldPicker(task: id, kind: kind) { picking = nil }.environment(model) }
+    }
+
+    private func button(_ title: String, _ kind: HoldPicker.Kind, help: String) -> some View {
+        Button(title) { picking = kind }
+            .clickable()
+            .help(help)
+            .uiTestAnchor("relation-add:\(title)")
     }
 }
 
@@ -267,22 +326,24 @@ private struct BlockedProperty: View {
 private struct TaskRelations: View {
     let id: Int
     @Environment(AppModel.self) private var model
-    @State private var picking: HoldPicker.Kind?
 
     var body: some View {
         let task = model.task(id)
         let flow = model.taskFlow
         let linked = model.outputs(ofTask: id).compactMap(\.taskID)
-        ModalBox {
-            section("Blocked by", task?.blockedBy ?? [], help: "It can't go on until these are done") { model.removeLink(id, .blockedBy, $0) }
-            add("Blocked By…", .blockedBy)
-            section("Comes after", task?.after ?? [], help: "The order you mean: nothing moves") { model.removeLink(id, .after, $0) }
-            add("After…", .after)
-            section("Blocks", flow.dependents(of: id, .blockedBy), help: "These can't go on until this one is done", remove: nil)
-            section("Comes before", flow.dependents(of: id, .after), help: "These come after this one", remove: nil)
-            section("Linked", linked, help: "Linked to this task") { model.unlink(.task($0), from: id) }
+        let none = (task?.blockedBy ?? []).isEmpty && (task?.after ?? []).isEmpty && flow.dependents(of: id, .blockedBy).isEmpty
+            && flow.dependents(of: id, .after).isEmpty && linked.isEmpty
+        if none {
+            Text("Nothing blocks it or comes before it.").kitType(.callout).foregroundStyle(.secondary)
+        } else {
+            ModalBox {
+                section("Blocked by", task?.blockedBy ?? [], help: "It can't go on until these are done") { model.removeLink(id, .blockedBy, $0) }
+                section("Comes after", task?.after ?? [], help: "The order you mean: nothing moves") { model.removeLink(id, .after, $0) }
+                section("Blocks", flow.dependents(of: id, .blockedBy), help: "These can't go on until this one is done", remove: nil)
+                section("Comes before", flow.dependents(of: id, .after), help: "These come after this one", remove: nil)
+                section("Linked", linked, help: "Linked to this task") { model.unlink(.task($0), from: id) }
+            }
         }
-        .popover(item: $picking, arrowEdge: .bottom) { kind in HoldPicker(task: id, kind: kind) { picking = nil }.environment(model) }
     }
 
     @ViewBuilder
@@ -313,7 +374,7 @@ private struct TaskRelations: View {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .clickable()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .frame(width: Metric.rowAction, height: Metric.rowAction)
                     .help("Take this link off")
             }
@@ -324,24 +385,10 @@ private struct TaskRelations: View {
         .selectOpen(ModalRoute.task(other).selectionKey) { model.open(.task(other), push: true) }
         .uiTestAnchor("relation:\(other)")
     }
-
-    private func add(_ title: String, _ kind: HoldPicker.Kind) -> some View {
-        HStack(spacing: Space.sm) {
-            KitIcon.new.image.foregroundStyle(.tertiary).frame(width: Metric.glyphSlot).accessibilityHidden(true)
-            Button(title) { picking = kind }
-                .buttonStyle(.borderless)
-                .clickable()
-                .disabled(model.task(id)?.status == .done)
-                .uiTestAnchor("relation-add:\(title)")
-        }
-        .kitType(.title)
-        .padding(.horizontal, Space.md)
-        .frame(height: Metric.boxRow)
-    }
 }
 
-/// The description in the modal: rendered with Edit, checkboxes tick in place, a double-click edits at the spot. Editing
-/// swaps only the text for the editor, in the same place and the same width: nothing around it moves (T-368).
+/// The description in the modal: rendered, checkboxes tick in place, a double-click (or Edit on its label line) edits at the
+/// spot. Editing swaps only the text for the editor, in the same place and width: nothing around it moves (T-368).
 private struct DescriptionCard: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -372,19 +419,6 @@ private struct DescriptionCard: View {
                 Text("No description yet. Double-click to write one.").kitType(.callout).foregroundStyle(.secondary)
                     .background(EditOnDoubleClick { _ in edit(at: nil) })
             }
-            Spacer(minLength: Space.sm)
-            // One width for Edit and Done, so the text's width never changes.
-            Button {
-                if editing { model.saveModalEdits() } else { edit(at: nil) }
-            } label: {
-                ZStack {
-                    Text("Edit").opacity(editing ? 0 : 1)
-                    Text("Done").opacity(editing ? 1 : 0)
-                }
-            }
-            .accessibilityLabel(editing ? "Done" : "Edit")
-            .help(editing ? "Save the description (Escape or ⌘Return); ⌘Z undoes" : "Edit the description in markdown, or double-click it")
-            .uiTestAnchor("modal-edit-description")
         }
         .padding(Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -399,8 +433,7 @@ private struct DescriptionCard: View {
     /// Edits the description: the caret under a point of the rendered text, else at the end.
     private func edit(at point: CGPoint?) {
         model.editorCaret = point
-        model.descriptionDraft = model.task(id)?.body ?? ""
-        model.modalEditingDescription = true
+        model.beginModalDescription(id)
     }
 }
 
@@ -425,12 +458,12 @@ struct SessionChip: View {
                 }
             .selectOpen(ModalRoute.session(session.id).selectionKey) { model.open(.session(session.id), push: true) }
             if let unlink {
-                Button("Unlink", icon: .unlink, action: unlink)
+                Button("Unlink", icon: .close, action: unlink)
                     .clickable()
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .clickable()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .help("Unlink this session from the task")
             }
         }
@@ -462,7 +495,7 @@ struct OutputRows: View {
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
                                 .clickable()
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(.secondary)
                                 .frame(width: Metric.rowAction, height: Metric.rowAction)
                                 .help("Unlink it from the task")
                         }
@@ -706,12 +739,12 @@ struct SessionModal: View {
                                 Text(task.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                                     .selectOpen(ModalRoute.task(task.id).selectionKey) { model.open(.task(task.id), push: true) }
                                 KeyLabel(key: task.key)
-                                Button("Unlink", icon: .unlink) { model.unlink(task: task.id, session: id) }
+                                Button("Unlink", icon: .close) { model.unlink(task: task.id, session: id) }
                                     .clickable()
                                     .labelStyle(.iconOnly)
                                     .buttonStyle(.borderless)
                                     .clickable()
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
                                     .help("Unlink this task from the session")
                             }
                             .kitType(.title)

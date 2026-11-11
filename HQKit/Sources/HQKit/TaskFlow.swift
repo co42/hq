@@ -1,8 +1,8 @@
 import Foundation
 
 /// Where each task stands in its story, worked out from the tree, Blocked and the two links between tasks;
-/// never stored. A task needs its subtasks; "blocked by" holds it until that task is done; "after" is the order
-/// the user means and holds nothing.
+/// never stored. A task needs its subtasks; "blocked by" holds it until that task is done; Blocked and "blocked by" hold
+/// what's under the task too; "after" is the order the user means and holds nothing.
 public struct TaskFlow: Sendable {
     public struct Node: Sendable, Hashable {
         public var id: Int
@@ -33,12 +33,15 @@ public struct TaskFlow: Sendable {
         /// Blocked by a task that isn't done.
         case blockedBy
         case doing
+        /// Not doing, under a task that's Blocked or blocked by an open one: it waits with it.
+        case held
         /// After a task that isn't done.
         case waiting
         /// Todo, and nothing holds it.
         case ready
 
-        public var isBlocked: Bool { self == .blocked || self == .blockedBy }
+        /// It can't go on: Blocked, blocked by an open task, or under one of those.
+        public var isBlocked: Bool { self == .blocked || self == .blockedBy || self == .held }
     }
 
     /// A story's leaves by state: what its progress bar and counts show.
@@ -88,8 +91,20 @@ public struct TaskFlow: Sendable {
         if node.blocked { return .blocked }
         if node.blockedBy.contains(where: open) { return .blockedBy }
         if node.doing { return .doing }
+        if holder(id) != nil { return .held }
         if node.after.contains(where: open) { return .waiting }
         return .ready
+    }
+
+    /// The nearest open task above it that's Blocked or blocked by an open task: it holds what's under it.
+    public func holder(_ id: Int) -> Int? {
+        var seen: Set<Int> = [id]
+        var next = nodes[id]?.parent
+        while let parent = next, seen.insert(parent).inserted, let node = nodes[parent] {
+            if !node.done, node.blocked || node.blockedBy.contains(where: open) { return parent }
+            next = node.parent
+        }
+        return nil
     }
 
     /// The tasks still holding it, in its order.
@@ -117,7 +132,7 @@ public struct TaskFlow: Sendable {
             switch state(leaf) {
             case .done: tally.done += 1
             case .doing: tally.doing += 1
-            case .blocked, .blockedBy: tally.blocked += 1
+            case .blocked, .blockedBy, .held: tally.blocked += 1
             case .ready: tally.ready += 1
             case .waiting: tally.waiting += 1
             }

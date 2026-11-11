@@ -92,6 +92,8 @@ final class OutlineRowView: NSTableRowView {
 /// A title that knows its task, and says when it takes the keyboard.
 final class TitleField: NSTextField {
     var task: Int?
+    /// The title when editing began: an untouched field writes nothing, so a rename made meanwhile stays.
+    var base: String?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -99,6 +101,7 @@ final class TitleField: NSTextField {
         // Scrolls while edited, truncates with an ellipsis otherwise.
         cell?.isScrollable = true
         let accepted = super.becomeFirstResponder()
+        if accepted { base = stringValue }
         if accepted, let task { (delegate as? OutlineCoordinator)?.titleFocused(task) }
         if !accepted { cell?.isScrollable = false }
         // Edited, the field takes the row's width; at rest, its text's (T-351).
@@ -174,7 +177,7 @@ final class BlockProgressView: NSView {
     private(set) var tally = TaskFlow.Tally()
     var started: Bool { tally.total > 0 }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func show(_ tally: TaskFlow.Tally) {
         guard tally != self.tally else { return }
@@ -244,7 +247,7 @@ final class BlockersView: NSView, NSViewToolTipOwner {
     private(set) var chips: [Chip] = []
     private var frames: [NSRect] = []
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The blocking tasks' keys, for the UI test: "T-268, T-269".
     var keys: String { chips.flatMap(\.ids).map { "T-\($0)" }.joined(separator: ", ") }
@@ -357,7 +360,7 @@ class LabelStripView: NSView {
     static let projectIcon = KitIcon.project.nsImage(.mark)
     static let tagIcon = KitIcon.tag.nsImage(.mark)
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     private let font = KitType.secondary.nsFont
 
@@ -386,17 +389,6 @@ class LabelStripView: NSView {
     /// Every chip, side by side.
     var naturalWidth: CGFloat { labels.isEmpty ? 0 : labels.map(width).reduce(0, +) + CGFloat(labels.count - 1) * Space.xs }
     var firstWidth: CGFloat { labels.first.map(width) ?? 0 }
-
-    /// The chips that fit the frame.
-    var drawnWidth: CGFloat {
-        var x: CGFloat = 0
-        for label in labels {
-            let next = x + width(label)
-            if next > bounds.width + 0.5 { break }
-            x = next + Space.xs
-        }
-        return max(x - Space.xs, 0)
-    }
 
     override func draw(_ dirtyRect: NSRect) {
         var x: CGFloat = 0
@@ -581,11 +573,11 @@ final class TaskCell: NSTableCellView {
         model.taskTree.parent(of: id) == nil && !model.taskTree.children(of: id).isEmpty
     }
 
-    /// A Blocked task's reason, shown under its title.
+    /// A Blocked task's reason, shown under its title; "Blocked" when no one said why.
     static func reason(_ model: AppModel, _ id: Int) -> String? {
-        guard let task = model.task(id), task.blocked, task.status != .done,
-              let reason = task.blockedReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty else { return nil }
-        return reason
+        guard let task = model.task(id), task.blocked, task.status != .done else { return nil }
+        let reason = task.blockedReason?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return reason.isEmpty ? "Blocked" : reason
     }
 
     let glyph = GlyphButton()
@@ -627,7 +619,7 @@ final class TaskCell: NSTableCellView {
     /// Space above the card: from the one before, the trays that close and its own tray's padding.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
@@ -739,7 +731,7 @@ final class TaskCell: NSTableCellView {
         fold.isHidden = !expandable
         let chevron: KitIcon = switch foldMode {
         case .hidden: .disclosure
-        case .important: .filter
+        case .important: .partlyDisclosed
         case .all: .disclosed
         }
         fold.image = chevron.nsImage(.mark, weight: .semibold)
@@ -802,9 +794,11 @@ final class TaskCell: NSTableCellView {
         return actions.map { name, run in NSAccessibilityCustomAction(name: name) { run(); return true } }
     }
 
-    /// The key's text and the label's insets, whole: T-106 as wide as T-99 plus a digit.
+    /// A column as wide as the list's longest key, so sibling titles share their left edge (2026-11-11).
     var keyWidth: CGFloat {
-        ceil((key.stringValue as NSString).size(withAttributes: [.font: key.font ?? KitType.key.nsFont]).width) + Space.xs
+        let longest = coordinator?.longestKey ?? key.stringValue
+        let text = longest.count > key.stringValue.count ? longest : key.stringValue
+        return ceil((text as NSString).size(withAttributes: [.font: key.font ?? KitType.key.nsFont]).width) + Space.xs
     }
 
     /// Nothing shows or hides under the pointer (2026-11-10): the card reads the same.
@@ -1005,7 +999,7 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
     var compact = false { didSet { if compact != oldValue { needsDisplay = true; refreshHints() } } }
     private var frames: [NSRect] = []
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func show(_ tokens: [Token]) {
         guard tokens != self.tokens else { return }
@@ -1136,7 +1130,7 @@ final class FacesCell: NSTableCellView {
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
     var lineTop: CGFloat = 0 { didSet { if lineTop != oldValue { needsLayout = true } } }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The sessions a task's face stands for, the one that matters most first; none when its parent shows the same face.
     static func sessions(_ model: AppModel, _ id: Int) -> [SessionItem] {
@@ -1262,7 +1256,7 @@ final class QuickAddCell: NSTableCellView {
     /// The title the linked message gave the field: replaced when the message arrives, kept once the user types.
     private var named: String?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     init() {
         super.init(frame: .zero)
@@ -1535,7 +1529,7 @@ struct DescriptionBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if editable, model.editingDescription == id {
-                InlineDescriptionEditor(id: id, body: model.task(id)?.body ?? "")
+                InlineDescriptionEditor(id: id)
             } else if let task = model.task(id) {
                 let lines = task.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false)
                 if task.body.isEmpty {
@@ -1573,15 +1567,14 @@ extension AppModel {
 private struct InlineDescriptionEditor: View {
     let id: Int
     @Environment(AppModel.self) private var model
-    @State private var draft: String
 
-    init(id: Int, body: String) {
-        self.id = id
-        _draft = State(initialValue: body)
+    /// The model keeps the draft and the text it started from: a quit or another editor saves it (TextDraft).
+    private var draft: Binding<String> {
+        Binding(get: { model.outlineDraft?.text ?? "" }, set: { if model.outlineDraft?.id == id { model.outlineDraft?.text = $0 } })
     }
 
     var body: some View {
-        MarkdownEditor(text: $draft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
+        MarkdownEditor(text: draft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
                        onHeight: { model.descriptionEditorHeight = $0 },
                        onCommit: { save(then: .row(id)) },
                        onCancel: { save(then: .row(id)) },
@@ -1598,9 +1591,9 @@ private struct InlineDescriptionEditor: View {
     /// An empty description hides again.
     private func save(then focus: OutlineFocus) {
         guard model.editingDescription == id else { return }
+        // Leaving the editor saves its draft (`editingDescription`).
         model.editingDescription = nil
-        model.setDescription(id, draft)
-        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { model.shownDescriptions.remove(id) }
+        if model.task(id)?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true { model.shownDescriptions.remove(id) }
         model.outlineFocus = focus
     }
 }
@@ -1795,6 +1788,8 @@ extension AppModel {
         case .notifications: "Notifications"
         case .newTask: "New Task"
         case .newReminder: "New Reminder"
+        case .newFile: "New File"
+        case .importArtifact: "Import an Artifact"
         }
     }
 

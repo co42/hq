@@ -36,6 +36,7 @@ final class SessionRecord {
     var closedAt: Date?
     var faceSalt: Int = 0
     var links: [String] = []
+    var faceID: String?
 
     init(_ item: SessionItem) {
         sessionID = item.id
@@ -74,6 +75,7 @@ final class SessionRecord {
         set(\.closedAt, item.closedAt)
         set(\.faceSalt, item.faceSalt)
         set(\.links, item.links)
+        set(\.faceID, item.faceID)
     }
 
     var item: SessionItem {
@@ -87,7 +89,7 @@ final class SessionRecord {
                            order: order,
                            // A session that ended before the cockpit has no closing time: its state's.
                            closedAt: closedAt ?? (state == .ended ? since : nil),
-                           faceSalt: faceSalt, links: links)
+                           faceSalt: faceSalt, links: links, faceID: faceID)
     }
 }
 

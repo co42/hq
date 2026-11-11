@@ -207,7 +207,7 @@ final class FaceView: NSView {
     private var ended = false
     private var working = false
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

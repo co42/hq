@@ -20,6 +20,8 @@ enum ModalRoute: Hashable {
     case newTask(TaskList)
     /// New Reminder…: a small sheet of its own.
     case newReminder
+    /// New File… and Import Artifact…: small sheets of their own.
+    case newFile, importArtifact
     case start
     case closedSessions
     case notifications
@@ -95,6 +97,19 @@ struct BacklogFilter: Hashable {
     }
 }
 
+/// An editor's text: the task it edits, the text it started from, and what's typed (TextMerge decides what's written).
+struct TextDraft: Equatable {
+    var id: Int
+    var base: String
+    var text: String
+
+    init(id: Int, base: String) {
+        self.id = id
+        self.base = base
+        text = base
+    }
+}
+
 /// What a task shows of its subtasks: none, only the blocking and doing ones, or all (2026-11-10).
 enum FoldMode: String, CaseIterable {
     case hidden, important, all
@@ -113,7 +128,7 @@ enum FoldMode: String, CaseIterable {
 
     /// What the user chose, by task; the tasks folded before the three modes stay hidden.
     static func remembered() -> [Int: FoldMode] {
-        let defaults = UserDefaults.standard
+        let defaults = Prefs.defaults
         if let saved = defaults.dictionary(forKey: "outline.fold") as? [String: String] {
             return Dictionary(uniqueKeysWithValues: saved.compactMap { key, value in Int(key).flatMap { id in FoldMode(rawValue: value).map { (id, $0) } } })
         }
@@ -121,13 +136,13 @@ enum FoldMode: String, CaseIterable {
     }
 
     static func remember(_ fold: [Int: FoldMode]) {
-        UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: fold.map { (String($0.key), $0.value.rawValue) }), forKey: "outline.fold")
+        Prefs.defaults.set(Dictionary(uniqueKeysWithValues: fold.map { (String($0.key), $0.value.rawValue) }), forKey: "outline.fold")
     }
 }
 
 /// A problem HQ shows in its banner (DESIGN.md §3).
 enum Problem: String, CaseIterable {
-    case pluginMissing, ghosttyAccess, ghosttyUnreachable, githubSignedOut, githubMissing, githubFailing
+    case pluginMissing, ghosttyAccess, ghosttyUnreachable, githubSignedOut, githubMissing, githubFailing, vaultUnreadable, movedAside
 
     var message: String {
         switch self {
@@ -137,6 +152,8 @@ enum Problem: String, CaseIterable {
         case .githubSignedOut: "GitHub CLI is signed out"
         case .githubMissing: "GitHub CLI isn’t installed"
         case .githubFailing: "GitHub isn’t answering"
+        case .vaultUnreadable: "HQ can’t read the vault"
+        case .movedAside: "HQ couldn’t read some of its own data"
         }
     }
 
@@ -148,6 +165,8 @@ enum Problem: String, CaseIterable {
         case .githubSignedOut: "Run `gh auth login` in a terminal, then HQ shows your pull requests."
         case .githubMissing: "Install it with `brew install gh`, then run `gh auth login`."
         case .githubFailing: "HQ shows what it had and tries again in a few minutes."
+        case .vaultUnreadable: "Your tasks and files stay as HQ last read them, and nothing is written over. HQ tries again every few seconds."
+        case .movedAside: "It was moved aside, never written over: Show in Finder. HQ started that part fresh."
         }
     }
 
@@ -155,7 +174,8 @@ enum Problem: String, CaseIterable {
         switch self {
         case .pluginMissing: "Install Plugin"
         case .ghosttyAccess: "Open Settings…"
-        case .ghosttyUnreachable, .githubFailing: "Try Again"
+        case .ghosttyUnreachable, .githubFailing, .vaultUnreadable: "Try Again"
+        case .movedAside: "Show in Finder"
         case .githubSignedOut, .githubMissing: "Copy Command"
         }
     }
@@ -231,7 +251,7 @@ final class AppModel {
 
     var search = ""
     /// The Backlog's disclosure, remembered.
-    var backlogOpen = UserDefaults.standard.bool(forKey: "backlog.open") {
+    var backlogOpen = Prefs.defaults.bool(forKey: "backlog.open") {
         didSet { remember(backlogOpen, as: "backlog.open"); syncMenu() }
     }
     var backlogFilter = BacklogFilter()
@@ -241,11 +261,11 @@ final class AppModel {
     var filesSearch = ""
     /// The lists whose Descriptions toggle shows every description, remembered.
     /// Sections folded to their header, remembered; the Backlog has its own.
-    var folded: Set<PageSection> = Set(((UserDefaults.standard.array(forKey: "page.folded") as? [String]) ?? []).compactMap(PageSection.init(rawValue:))) {
+    var folded: Set<PageSection> = Set(((Prefs.defaults.array(forKey: "page.folded") as? [String]) ?? []).compactMap(PageSection.init(rawValue:))) {
         didSet { remember(folded.map(\.rawValue).sorted(), as: "page.folded"); syncMenu() }
     }
     /// The notification center's Earlier, folded by default as the Backlog is; remembered.
-    var earlierOpen = UserDefaults.standard.bool(forKey: "notifications.earlierOpen") {
+    var earlierOpen = Prefs.defaults.bool(forKey: "notifications.earlierOpen") {
         didSet { remember(earlierOpen, as: "notifications.earlierOpen") }
     }
     var allDescriptions: Set<TaskList> = AppModel.storedLists("outline.descriptions") {
@@ -253,7 +273,7 @@ final class AppModel {
     }
     /// View › Zoom, remembered: every size scales with it.
     var zoom: CGFloat = {
-        let stored = CGFloat(UserDefaults.standard.double(forKey: "view.zoom"))
+        let stored = CGFloat(Prefs.defaults.double(forKey: "view.zoom"))
         return Zoom.steps.contains(stored) ? stored : 1
     }() {
         didSet {
@@ -263,7 +283,7 @@ final class AppModel {
         }
     }
     /// Which reviews the Reviews card lists, remembered.
-    var reviewFilter = UserDefaults.standard.string(forKey: "prs.reviewFilter").flatMap(ReviewFilter.init(rawValue:)) ?? .notApproved {
+    var reviewFilter = Prefs.defaults.string(forKey: "prs.reviewFilter").flatMap(ReviewFilter.init(rawValue:)) ?? .notApproved {
         didSet { remember(reviewFilter.rawValue, as: "prs.reviewFilter") }
     }
     /// GitHub is being asked: the PR section's Refresh turns into a spinner.
@@ -272,13 +292,13 @@ final class AppModel {
     var githubAnswered: Date?
     var githubUpdated: Date? { [githubAnswered, github?.fetchedAt].compactMap(\.self).max() }
     /// How far back GitHub events notify, in days: what HQ catches up on after being off. Settings › GitHub.
-    var githubLookback = UserDefaults.standard.object(forKey: "github.lookbackDays") as? Int ?? AppModel.defaultLookback {
+    var githubLookback = Prefs.defaults.object(forKey: "github.lookbackDays") as? Int ?? AppModel.defaultLookback {
         didSet { remember(githubLookback, as: "github.lookbackDays") }
     }
     static let defaultLookback = 10
     static let lookbackChoices = [3, 7, 10, 14, 30]
     /// Files and Artifacts shows pinned items only, remembered.
-    var pinnedOnly = UserDefaults.standard.bool(forKey: "files.pinnedOnly") {
+    var pinnedOnly = Prefs.defaults.bool(forKey: "files.pinnedOnly") {
         didSet { remember(pinnedOnly, as: "files.pinnedOnly") }
     }
     /// The lists whose Hide Done is on, remembered.
@@ -290,7 +310,18 @@ final class AppModel {
     /// Descriptions hidden one by one while their list shows them all.
     var hiddenDescriptions: Set<Int> = []
     /// The description whose markdown is in an editor in the outline.
-    var editingDescription: Int? { didSet { if editingDescription != oldValue { descriptionEditorHeight = 0 } } }
+    var editingDescription: Int? {
+        didSet {
+            guard editingDescription != oldValue else { return }
+            descriptionEditorHeight = 0
+            // A draft is never dropped: the one being left is saved by the editors' rule.
+            if let draft = outlineDraft, draft.id != editingDescription {
+                outlineDraft = nil
+                commitDescription(draft)
+            }
+            if let id = editingDescription, outlineDraft?.id != id { outlineDraft = TextDraft(id: id, base: task(id)?.body ?? "") }
+        }
+    }
     /// Its editor's text height, once it reports one: the row grows with it.
     var descriptionEditorHeight: CGFloat = 0
     /// Where a double-click landed on rendered markdown, from its top-left: the next editor puts the caret there.
@@ -298,14 +329,14 @@ final class AppModel {
     /// What each task shows of its subtasks, where the user chose, by key (2026-11-10). A task not in it shows them all,
     /// but under a task that shows only some: it follows that one.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
-        didSet { if !Store.isOverridden { FoldMode.remember(fold) } }
+        didSet { FoldMode.remember(fold) }
     }
     /// Colors the user picked, by "tag:name" or "project:name" (lowercased); the others follow their name.
-    var labelColors: [String: String] = (UserDefaults.standard.dictionary(forKey: "labels.colors") as? [String: String]) ?? [:] {
+    var labelColors: [String: String] = (Prefs.defaults.dictionary(forKey: "labels.colors") as? [String: String]) ?? [:] {
         didSet { remember(labelColors, as: "labels.colors") }
     }
     /// Each project's folder and repositories, by its key.
-    var projectLinks: [String: StoredProject] = UserDefaults.standard.data(forKey: "projects.links")
+    var projectLinks: [String: StoredProject] = Prefs.defaults.data(forKey: "projects.links")
         .flatMap { try? JSONDecoder().decode([String: StoredProject].self, from: $0) } ?? [:] {
         didSet { if let data = try? JSONEncoder().encode(projectLinks) { remember(data, as: "projects.links") } }
     }
@@ -349,14 +380,16 @@ final class AppModel {
     var artifactReloads = 0
     /// The modal page (an artifact's, a PR's) that is loading: its Reload turns.
     var loadingPage: String?
-    /// Bumped by File › Import Artifact…: the import popover opens.
-    var importRequests = 0
-    /// Bumped by New File: its popover opens.
-    var newFileRequests = 0
+    /// The cards of rows opened past their first five ("Show N More").
+    var expandedCards: Set<RowCard> = []
+    /// The row selected inside the modal: its own, so the page's selection stays as it was.
+    var modalSelection: String?
 
     // MARK: The modal
 
     var modal: ModalRoute? {
+        // Every way out of an item saves what its editor holds: Back, Close, a chip, ⌘J, a banner.
+        willSet { if newValue != modal { saveModalEdits() } }
         didSet {
             syncMenu()
             // Back from a PR's page, where the user may have reviewed it: Reviews catch up in seconds (T-366).
@@ -366,12 +399,19 @@ final class AppModel {
     /// What Back returns to, newest last.
     var modalStack: [ModalRoute] = [] { didSet { syncMenu() } }
     var startDraft: StartDraft?
-    /// A file's markdown in the modal's editor, and the text so far.
+    /// A file's markdown in the modal's editor, the text it started from, and the text so far.
     var editingFile: FileItem.ID?
+    var fileDraftBase = ""
     var fileDraft = ""
-    /// The modal's description editor, and the text so far.
-    var modalEditingDescription = false
-    var descriptionDraft = ""
+    /// The task window's description editor: the task, the text it started from, and the text so far.
+    var modalDescription: TextDraft?
+    var modalEditingDescription: Bool { modalDescription != nil }
+    var descriptionDraft: String {
+        get { modalDescription?.text ?? "" }
+        set { modalDescription?.text = newValue }
+    }
+    /// The outline's description editor (`editingDescription`): its task, base and text.
+    var outlineDraft: TextDraft?
 
     // MARK: Window and health
 
@@ -388,8 +428,8 @@ final class AppModel {
     /// The window's content size: the modal is sized from it.
     var windowSize = CGSize.zero
     /// Settings reopens on the last tab. Test and snapshot runs leave it alone.
-    var settingsTab: SettingsTab = SettingsTab(rawValue: UserDefaults.standard.string(forKey: "settings.tab") ?? "") ?? .general {
-        didSet { if !Store.isOverridden { UserDefaults.standard.set(settingsTab.rawValue, forKey: "settings.tab") } }
+    var settingsTab: SettingsTab = SettingsTab(rawValue: Prefs.defaults.string(forKey: "settings.tab") ?? "") ?? .general {
+        didSet { Prefs.defaults.set(settingsTab.rawValue, forKey: "settings.tab") }
     }
 
     @ObservationIgnored private var clock: AnyCancellable?
@@ -447,6 +487,8 @@ final class AppModel {
     @ObservationIgnored var slackLog: [String] = []
     /// Pages a test run would have opened in the browser.
     @ObservationIgnored var browserLog: [String] = []
+    /// Files HQ couldn't read and moved aside this run (Problem.movedAside shows them).
+    @ObservationIgnored var movedAside: [String] = []
     /// How many times a test run asked HQ to restart.
     @ObservationIgnored var restarts = 0
     /// While Ghostty is in front: reads the terminal the user looks at, every few seconds.
@@ -461,23 +503,19 @@ final class AppModel {
         do {
             storage = try Storage(url: Store.url)
         } catch {
-            fatalError("Could not open the store at \(Store.url.path): \(error)")
+            // A store that doesn't open goes aside and HQ starts on a fresh one: hooks rebuild the sessions.
+            AppLog.write("couldn't open the store: \(error)", to: "store.log")
+            if let aside = Store.moveAside(Store.url) { movedAside.append(aside.path) }
+            storage = try? Storage(url: Store.url)
+            problem = .movedAside
         }
         sessions = storage?.sessions() ?? []
         artifacts = storage?.artifacts() ?? []
         seen = storage?.seen() ?? [:]
         loadNotices()
-        Zoom.factor = Store.isOverridden ? 1 : zoom
+        // A test run starts on its own empty preferences (Prefs): zoom 1, nothing folded.
+        Zoom.factor = zoom
         KitType.resetFonts()
-        if Store.isOverridden {
-            zoom = 1
-            backlogOpen = false
-            folded = []
-            fold = [:]
-            hideDone = []
-            allDescriptions = []
-            reviewFilter = .notApproved
-        }
         clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect().sink { [weak self] date in
             MainActor.assumeIsolated {
                 self?.settleActivity()
@@ -496,7 +534,7 @@ final class AppModel {
         }
     }
 
-    /// Saves a preference, except in test and snapshot runs.
+    /// Saves a preference (a test run's own, Prefs).
     /// A section's header shows it or folds it.
     func sectionOpen(_ section: PageSection) -> Binding<Bool> {
         Binding(get: { !self.folded.contains(section) }, set: { open in
@@ -505,11 +543,11 @@ final class AppModel {
     }
 
     private func remember(_ value: Any, as key: String) {
-        if !Store.isOverridden { UserDefaults.standard.set(value, forKey: key) }
+        Prefs.defaults.set(value, forKey: key)
     }
 
     private static func storedLists(_ key: String) -> Set<TaskList> {
-        Set(((UserDefaults.standard.array(forKey: key) as? [String]) ?? []).compactMap(TaskList.init(rawValue:)))
+        Set(((Prefs.defaults.array(forKey: key) as? [String]) ?? []).compactMap(TaskList.init(rawValue:)))
     }
 
     /// Zoom In and Zoom Out: the next step of View › Zoom, if there is one.
@@ -581,38 +619,11 @@ final class AppModel {
     /// Edit Description: in the task's modal when it's open, else in the outline.
     func editDescription(_ id: Int) {
         if modal == .task(id) {
-            descriptionDraft = task(id)?.body ?? ""
-            modalEditingDescription = true
+            beginModalDescription(id)
         } else {
             shownDescriptions.insert(id)
             editingDescription = id
         }
-    }
-
-    /// File › Import Artifact…: the Files and Artifacts header's import popover.
-    func beginImport() {
-        closeModal()
-        showWindow()
-        folded.remove(.files)
-        importRequests += 1
-    }
-
-    /// New File…: the Files header's popover asks for its title.
-    func beginNewFile() {
-        closeModal()
-        showWindow()
-        folded.remove(.files)
-        newFileRequests += 1
-    }
-
-    /// A new note by its title, opened in its modal to write in.
-    func newFile(title: String) {
-        guard let file = addFile(title: title) else { return }
-        pinnedOnly = false
-        filesSearch = ""
-        selectedItem = ModalRoute.file(file.id).selectionKey
-        open(.file(file.id))
-        beginFileEdit(file.id)
     }
 
     func closeModal() {
@@ -621,16 +632,22 @@ final class AppModel {
         modalStack = []
     }
 
-    /// Leaving a modal keeps what was typed.
+    /// Leaving a modal keeps what was typed, by the editors' rule (TextMerge), in the task or file it was typed for.
     func saveModalEdits() {
         if let id = editingFile {
             editingFile = nil
-            editFileBody(id, fileDraft)
+            commitFile(id, base: fileDraftBase, text: fileDraft)
         }
-        if modalEditingDescription, case .task(let id) = modal {
-            modalEditingDescription = false
-            setDescription(id, descriptionDraft)
+        if let draft = modalDescription {
+            modalDescription = nil
+            commitDescription(draft)
         }
+    }
+
+    /// The task window's description in its editor.
+    func beginModalDescription(_ id: Int) {
+        saveModalEdits()
+        modalDescription = TextDraft(id: id, base: task(id)?.body ?? "")
     }
 
     /// Start Session… on a task, a PR, or New Session….

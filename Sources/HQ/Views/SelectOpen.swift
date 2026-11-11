@@ -7,13 +7,14 @@ struct SelectOpen: ViewModifier {
     let section: PageSection?
     let open: () -> Void
     @Environment(AppModel.self) private var model
+    @Environment(\.inModal) private var inModal
 
     func body(content: Content) -> some View {
-        let selected = model.selectedItem == key
+        let selected = (inModal ? model.modalSelection : model.selectedItem) == key
         content
             .background(selected ? Ink.rowSelection : Color.clear, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) {
+            .onTapGesture(count: 2) { // lint: ok SelectOpen itself
                 select()
                 open()
             }
@@ -24,11 +25,23 @@ struct SelectOpen: ViewModifier {
     }
 
     private func select() {
-        model.selectedItem = key
-        guard let section, model.modal == nil else { return }
-        model.selectSection(section)
+        model.select(key, in: section, inModal: inModal)
+    }
+}
+
+extension AppModel {
+    /// A click on an item: in the modal, the modal's own selection, so the page keeps its own; on the page, the page's,
+    /// its section taking the selection and the keyboard.
+    func select(_ key: String, in section: PageSection?, inModal: Bool) {
+        guard !inModal else {
+            modalSelection = key
+            return
+        }
+        selectedItem = key
+        guard let section, modal == nil else { return }
+        selectSection(section)
         // The outline keeps the keyboard for a chip under its row.
-        if section != .tasks { model.sectionFocus = section }
+        if section != .tasks { sectionFocus = section }
     }
 }
 
@@ -71,6 +84,8 @@ extension ModalRoute {
         case .slack(let url): "slack:\(url)"
         case .newTask(let list): "newTask:\(list.rawValue)"
         case .newReminder: "newReminder"
+        case .newFile: "newFile"
+        case .importArtifact: "importArtifact"
         case .start: "start"
         case .closedSessions: "closed"
         case .notifications: "notifications"

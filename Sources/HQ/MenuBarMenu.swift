@@ -55,6 +55,18 @@ extension AppModel {
 
     /// Restart HQ (T-336): it quits, and a small shell opens it again once this process is gone (giving up after a minute,
     /// should the quit be cancelled). Test runs only count it.
+    /// Before HQ quits: the editors' text by their rule, the open sheet closed (it would refuse to quit), and the
+    /// notifications, seen marks and sessions changed in the last second.
+    func saveForQuit() {
+        window?.makeFirstResponder(nil)
+        editingDescription = nil
+        closeModal()
+        for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
+        saveNoticesNow()
+        saveAttentionNow()
+        saveSessionsNow()
+    }
+
     func restart() {
         guard !Store.isOverridden else { return restarts += 1 }
         let process = Process()

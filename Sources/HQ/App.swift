@@ -76,8 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             MenuBarIcon.shared.show(menu: NSHostingMenu(rootView: MenuBarMenu().environment(model)))
             // HQ opens at login, once set; Settings › General turns it off for good.
-            if !UserDefaults.standard.bool(forKey: "login.registered") {
-                UserDefaults.standard.set(true, forKey: "login.registered")
+            if !Prefs.defaults.bool(forKey: "login.registered") {
+                Prefs.defaults.set(true, forKey: "login.registered")
                 if SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
             }
         }
@@ -122,6 +122,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// HQ stays alive when its window closes: the hook socket keeps listening.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    /// Quit and Restart HQ write what an editor holds and what the last second changed first.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        model.saveForQuit()
+        return .terminateNow
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         model.bringForward()
         return true
@@ -161,6 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         model.settleActivity()
         model.saveSessionsNow()
+        Prefs.forget()
         if SelfTest.requested || UITest.requested { exit(SelfTest.exitCode) }
     }
 
@@ -209,6 +216,27 @@ struct WindowAccessor: NSViewRepresentable {
 }
 
 /// Where HQ keeps its data: ~/Library/Application Support/HQ/. APP_STORE moves it (tests, snapshots).
+/// HQ's preferences. A test, snapshot or preview run keeps its own, emptied at launch: it never reads or writes the
+/// user's, nor another run's. HQ_PREFS=copy starts it from a copy of the user's (tools/preview.sh).
+enum Prefs {
+    static let defaults: UserDefaults = {
+        guard Store.isOverridden else { return .standard }
+        let suite = "io.github.co42.hq.test." + Store.url.deletingPathExtension().lastPathComponent
+        guard let defaults = UserDefaults(suiteName: suite) else { return .standard }
+        defaults.removePersistentDomain(forName: suite)
+        if ProcessInfo.processInfo.environment["HQ_PREFS"] == "copy", let user = UserDefaults.standard.persistentDomain(forName: "io.github.co42.hq") {
+            defaults.setPersistentDomain(user, forName: suite)
+        }
+        return defaults
+    }()
+
+    /// Removes a test run's preferences file as it quits.
+    static func forget() {
+        guard Store.isOverridden else { return }
+        defaults.removePersistentDomain(forName: "io.github.co42.hq.test." + Store.url.deletingPathExtension().lastPathComponent)
+    }
+}
+
 enum Store {
     static var isOverridden: Bool {
         !(ProcessInfo.processInfo.environment["APP_STORE"] ?? "").isEmpty
@@ -277,6 +305,21 @@ enum Store {
 
     /// The tasks' backup before the vault migration.
     static var backups: URL { directory.appending(path: "Backups", directoryHint: .isDirectory) }
+
+    /// A file HQ can't read, renamed beside itself (`notifications.unreadable-20261111-0930.json`) so nothing writes
+    /// over it; with its SQLite companions for the store. Nil when it couldn't be moved.
+    static func moveAside(_ url: URL) -> URL? {
+        let stamp = Date.now.formatted(.verbatim("\(year: .defaultDigits)\(month: .twoDigits)\(day: .twoDigits)-\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased))\(minute: .twoDigits)",
+                                                 timeZone: .current, calendar: .current))
+        let ext = url.pathExtension
+        let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(stamp)").appendingPathExtension(ext)
+        guard (try? FileManager.default.moveItem(at: url, to: aside)) != nil else { return nil }
+        for suffix in ["-shm", "-wal"] {
+            try? FileManager.default.moveItem(atPath: url.path + suffix, toPath: aside.path + suffix)
+        }
+        AppLog.write("moved \(url.lastPathComponent) aside to \(aside.lastPathComponent): HQ couldn't read it", to: "store.log")
+        return aside
+    }
 }
 
 /// The main window's root: the app, or the parts gallery. Starts the socket, seed data, self-test and snapshots.

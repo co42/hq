@@ -33,5 +33,5 @@ if [[ ${1:-} != --keep || ! -f $store ]]; then
   cp -R "$notes/hq" $vault/
 fi
 # GitHub live, read-only: the PRs' states as they are (a test copy otherwise uses fixtures).
-open -n "$app" --env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_FOREGROUND=1 --env HQ_GITHUB=live --stdout $log --stderr $log --args -ApplePersistenceIgnoreState YES
+open -n "$app" --env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_PREFS=copy --env HQ_FOREGROUND=1 --env HQ_GITHUB=live --stdout $log --stderr $log --args -ApplePersistenceIgnoreState YES
 print "preview: the test copy is open on a copy of your data (store $store, vault $vault)"

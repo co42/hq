@@ -84,10 +84,6 @@ enum Ink {
     static let doneCardNS = dynamic("doneCard", light: gray(1, 0.55), dark: NSColor(srgbRed: 0.137, green: 0.137, blue: 0.149, alpha: 0.5))
     /// A block's tray: a task with subtasks, a shade under its cards.
     static let trayNS = dynamic("tray", light: gray(0, 0.035), dark: gray(1, 0.035), lightHigh: gray(0, 0.08), darkHigh: gray(1, 0.09))
-    /// The line from a task to the one it blocks.
-    static let blockLineNS = dynamic("blockLine", light: gray(0.39), dark: gray(0.64))
-    /// A doing card's edge, and a Blocked one's.
-    static let doingRingNS = NSColor.systemYellow.withAlphaComponent(0.6)
     static let blockedRingNS = NSColor.systemRed.withAlphaComponent(0.6)
     /// A card's edge: a hairline that is a highlight in dark mode.
     static let cardHairlineNS = dynamic("hairline", light: gray(0, 0.07), dark: gray(1, 0.08), lightHigh: gray(0, 0.32), darkHigh: gray(1, 0.36))
@@ -114,7 +110,8 @@ enum Ink {
         case .pullRequests: Color(nsColor: .systemPurple)
         case .sessions: Color.accentColor
         case .files: Color(nsColor: .systemTeal)
-        case .tasks: Color(nsColor: .systemOrange)
+        // Orange is for what needs the user: the Tasks tile isn't (2026-11-11).
+        case .tasks: Color(nsColor: .systemIndigo)
         }
     }
 
@@ -125,8 +122,6 @@ enum Ink {
     static let draftTile = Color(nsColor: .systemGray)
     /// A symbol on a section's tinted tile.
     static let onTile = Color.white
-    /// A count on a tinted capsule: the bell's updates beside "3 need you".
-    static let onTileFill = Color.white.opacity(0.22)
 
     /// The sky over the top of the page: three soft colors that follow the day.
     static func sky(_ mood: SkyMood) -> [Color] {
@@ -146,8 +141,6 @@ enum Ink {
     static let textNS = NSColor.labelColor
     static let secondaryTextNS = NSColor.secondaryLabelColor
     static let quietMarkNS = NSColor.tertiaryLabelColor
-    /// A hidden description's first line after a title: present, well behind the title.
-    static let previewTextNS = NSColor.tertiaryLabelColor
     static let accentNS = NSColor.controlAccentColor
     static let rowSelectionNS = NSColor.controlAccentColor.withAlphaComponent(0.2)
     static let rowSelection = Color(nsColor: rowSelectionNS)
@@ -177,8 +170,6 @@ enum Ink {
     static let rowDropNS = NSColor.controlAccentColor.withAlphaComponent(0.25)
     /// Hover on custom rows and cards.
     static let hoverFill = Color(nsColor: .quaternarySystemFill)
-    /// A notification read while the center shows: dimmed in place until it closes.
-    static let readRowOpacity = 0.55
     static let hoverFillNS = NSColor.quaternarySystemFill
     /// Selection while the list isn't focused or the window is inactive.
     static let selectionInactive = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
@@ -195,9 +186,6 @@ enum Ink {
     /// The bar beside a markdown quote.
     static let quoteBar = Color(nsColor: .separatorColor)
 
-    /// The markdown editor's syntax colors.
-    static let syntaxHeadingNS = NSColor.labelColor
-    static let syntaxMarkerNS = NSColor.systemOrange.blended(withFraction: 0.2, of: .labelColor) ?? .secondaryLabelColor
     static let syntaxCodeNS = NSColor.secondaryLabelColor
     static let syntaxLinkNS = NSColor.linkColor
     static let syntaxQuietNS = NSColor.tertiaryLabelColor
@@ -299,10 +287,6 @@ nonisolated enum Metric {
     /// The dashes of the new task's card edge.
     static var newCardDash: [CGFloat] { [4 * Zoom.factor, 3 * Zoom.factor] }
     static var outlineEmpty: CGFloat { 36 * Zoom.factor }
-    /// Space above a top-level task after the first: groups read apart from their subtasks.
-    static var outlineGroupGap: CGFloat { 12 * Zoom.factor }
-    /// Space inside a list's card above its first task.
-    static var listCardPadding: CGFloat { 8 * Zoom.factor }
     /// A block's tray: its padding around its header and its subtasks.
     static var trayPadding: CGFloat { 8 * Zoom.factor }
     /// Between two task cards in the outline.
@@ -320,8 +304,6 @@ nonisolated enum Metric {
     static var reasonLine: CGFloat { 18 * Zoom.factor }
     /// The line of links under a task's title.
     static var linksLine: CGFloat { 20 * Zoom.factor }
-    /// A hidden description's first line shows when this much room is left.
-    static var previewMinimum: CGFloat { 80 * Zoom.factor }
     /// Hover actions in a row: a 22 pt hit area each.
     static var rowAction: CGFloat { 22 * Zoom.factor }
     static var quickOpenWidth: CGFloat { 560 * Zoom.factor }
@@ -351,6 +333,10 @@ nonisolated enum Metric {
     static let reminderSheet = CGSize(width: 560, height: 262)
     /// New Task…: the title, a description, the list, the project and the links, then its buttons.
     static let taskSheet = CGSize(width: 560, height: 328)
+    /// New File…: its title, then its buttons.
+    static let fileSheet = CGSize(width: 560, height: 160)
+    /// Import Artifact…: its link with a word on it, its title, then its buttons.
+    static let importSheet = CGSize(width: 560, height: 212)
     static var modalHeader: CGFloat { 52 * Zoom.factor }
     /// A push button's height in the modal's header.
     static var modalButton: CGFloat { 24 * Zoom.factor }
@@ -373,7 +359,6 @@ nonisolated enum Metric {
     static var pillIcon: CGFloat { 12 * Zoom.factor }
     /// Outline row parts that hide before the title shrinks under `titleMinimum`.
     static var titleMinimum: CGFloat { 120 * Zoom.factor }
-    static var projectPillMax: CGFloat { 140 * Zoom.factor }
     /// A chip's gap in flowing lists.
     static var chipGap: CGFloat { 6 * Zoom.factor }
 }
@@ -393,23 +378,25 @@ nonisolated enum Radius {
 
 /// Every animation goes through Motion, so Reduce Motion applies everywhere.
 enum Motion {
+    /// No motion: test and snapshot runs wait on what shows, not on how it moves (HQ_MOTION=1, or a UI group, turns it back on).
+    static var still = false
     /// Hover fills and buttons that show on hover: a fade.
-    static let hover = Animation.easeOut(duration: 0.08)
+    static var hover: Animation? { still ? nil : .easeOut(duration: 0.08) }
     /// One sway of a working session's face, left and back, in seconds.
     static let faceSway: TimeInterval = 2
     /// Frames a second of the sway.
     static let faceFrameRate = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
     /// Quick Open fading in.
-    static let appearSeconds: TimeInterval = 0.18
+    static var appearSeconds: TimeInterval { still ? 0 : 0.18 }
     /// A card or the bell that needs the user glows and breathes: half a breath, from faint to bright, in seconds.
     static let blinkHalf: TimeInterval = 0.9
     /// A card rising under the pointer.
-    static let lift = Animation.smooth(duration: liftSeconds)
+    static var lift: Animation? { still ? nil : .smooth(duration: liftSeconds) }
     static let liftSeconds: TimeInterval = 0.18
     /// The sky changing with the day's state.
     static let skySeconds: TimeInterval = 1.4
     /// The section bar's highlight gliding to the section in view, and the page scrolling there.
-    static let glide = Animation.easeInOut(duration: 0.26)
+    static var glide: Animation? { still ? nil : .easeInOut(duration: 0.26) }
     /// A clicked section holds the bar this long while the page scrolls, in seconds.
     static let holdSeconds: TimeInterval = 0.7
     /// A status glyph that changed: a short spring, in seconds.
@@ -417,16 +404,16 @@ enum Motion {
     /// How long the pointer rests before a tooltip shows, in milliseconds (AppKit's own is about a second).
     static let tooltipMilliseconds = 100
     /// Cards and trays sliding with the outline's rows as a task folds or unfolds, about AppKit's own.
-    static let rowsSeconds: TimeInterval = 0.25
-    /// What isn't related to the selected tasks fades to this (2026-11-10).
-    static let dimmedOpacity: CGFloat = 0.35
+    static var rowsSeconds: TimeInterval { still ? 0 : 0.25 }
+    /// A selected task with blocked-by or after links: the content of unrelated cards fades to this, still readable (2026-11-11).
+    static let dimmedOpacity: CGFloat = 0.62
     /// "Copied" on what a click copied (Copy Link, a task's key), in seconds.
     static let copiedSeconds: TimeInterval = 1.5
 
     /// Runs AppKit row and item changes with no animation when `still` asks for it (HQ ignores Reduce Motion, DESIGN.md §12).
     @MainActor static func appKit(still: Bool = false, _ changes: () -> Void) {
         NSAnimationContext.beginGrouping()
-        if still { NSAnimationContext.current.duration = 0 }
+        if still || Motion.still { NSAnimationContext.current.duration = 0 }
         changes()
         NSAnimationContext.endGrouping()
     }

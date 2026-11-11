@@ -213,14 +213,38 @@ struct GitHubStateIcon: View {
 
 
 /// A labeled group in the modal: a quiet label, then its content.
-struct ModalGroup<Content: View>: View {
+struct ModalGroup<Content: View, Actions: View>: View {
     let title: String
     /// A group that folds as a page section does: a click on its title hides or shows it.
     var open: Binding<Bool>?
     @ViewBuilder let content: Content
+    /// What adds to the group, at the end of its label line, as a page section's header controls (2026-11-11).
+    @ViewBuilder var actions: Actions
+
+    init(title: String, open: Binding<Bool>? = nil, @ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
+        self.title = title
+        self.open = open
+        self.content = content()
+        self.actions = actions()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
+            HStack(spacing: Space.md) {
+                heading
+                Spacer(minLength: 0)
+                actions
+                    .buttonStyle(.borderless)
+                    .kitType(.callout)
+            }
+            if open?.wrappedValue != false { content }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if let open {
                 Button { withAnimation(Motion.lift) { open.wrappedValue.toggle() } } label: {
                     HStack(spacing: Space.xs) {
@@ -240,9 +264,7 @@ struct ModalGroup<Content: View>: View {
             } else {
                 label
             }
-            if open?.wrappedValue != false { content }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var label: some View {
@@ -250,6 +272,12 @@ struct ModalGroup<Content: View>: View {
             .kitType(.groupLabel)
             .foregroundStyle(.secondary)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension ModalGroup where Actions == EmptyView {
+    init(title: String, open: Binding<Bool>? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, open: open, content: content) { EmptyView() }
     }
 }
 

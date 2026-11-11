@@ -97,7 +97,7 @@ final class HandRegionView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// The cursor for a point in window coordinates: the hand over a chip, else the arrow.

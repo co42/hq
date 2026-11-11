@@ -41,7 +41,7 @@ enum UITest {
                 try? await Task.sleep(for: .seconds(0.5))
             }
             guard let window = model.window else {
-                check("the main window opened", false)
+                await check("the main window opened", false)
                 SelfTest.finish(code: 1)
                 return
             }
@@ -55,22 +55,32 @@ enum UITest {
             model.tasks = []
             model.files = []
             await ui.settle(0.5)
-            check("HQ opens on the cockpit", ui.window.contentView != nil)
             // UITEST_ONLY=a,b runs those groups alone.
             // A drop on a task picks what it did before its menu: the grip's move a subtask, a carried task a link.
             OutlineCoordinator.pickDropChoice = { menu, moved in menu.items.first { $0.title.hasPrefix(moved ? "Add as Subtask" : "Link to") } }
             let only = ProcessInfo.processInfo.environment["UITEST_ONLY"].flatMap { $0.isEmpty ? nil : Set($0.split(separator: ",").map(String.init)) }
+            // UITEST_EXCEPT=a,b runs every other group: the shard that takes what no other names.
+            let except = Set((ProcessInfo.processInfo.environment["UITEST_EXCEPT"] ?? "").split(separator: ",").map(String.init))
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
                 ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("storyFlow", storyFlow),
                 ("slackLinks", slackLinks),
+                ("pageFixes", pageFixes),
             ]
-            for (name, run) in groups where only?.contains(name) ?? true {
+            // One group runs with motion, as the user sees it: cards slide and rows fade only then.
+            let still = Motion.still
+            for (name, run) in groups where only?.contains(name) ?? !except.contains(name) {
+                let start = Date.now
+                Motion.still = still && name != "storyFlow"
+                await scenario(model, ui)
                 await run(model, ui)
                 hitSweep(ui, after: name)
+                print(String(format: "GROUP %@ %.1fs, %d settles at their limit (%.1fs)", name, Date.now.timeIntervalSince(start), Driver.settledAtMost, Driver.settledAtMostSeconds))
+                Driver.settledAtMost = 0
+                Driver.settledAtMostSeconds = 0
             }
-            if Store.background { check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
+            if Store.background { await check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
 
             let skips = skipped == 0 ? "" : ", \(skipped) skipped"
             print(failures == 0 ? "UITEST PASS \(count) checks\(skips)" : "UITEST FAIL \(failures) of \(count) checks\(skips)")
@@ -78,17 +88,84 @@ enum UITest {
         }
     }
 
-    // MARK: Checks
-
-    static func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        count += 1
-        if !ok { failures += 1 }
-        print(ok ? "PASS \(name)" : "FAIL \(name)\(detail.isEmpty ? "" : ": \(detail)")")
+    /// Each group starts on the same small seed whatever ran before it, so groups pass in any order, alone or in shards:
+    /// no sheet, editor, search or selection; the seed's sessions, notifications and pull requests; no task or file notes.
+    static func scenario(_ model: AppModel, _ ui: Driver) async {
+        for window in [ui.window.attachedSheet, ui.window].compactMap(\.self) {
+            (window.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        }
+        ui.window.makeFirstResponder(nil)
+        AppDelegate.shared?.quickOpenPanel.dismiss()
+        NSApp.windows.filter { $0 !== ui.window && $0.isVisible && $0.className.contains("Popover") }.forEach { $0.close() }
+        model.closeModal()
+        model.editingDescription = nil
+        model.showSetup = false
+        model.pendingTaskLink = nil
+        model.search = ""
+        model.listSearch = [:]
+        model.filesSearch = ""
+        model.problem = nil
+        model.zoom = 1
+        model.backlogOpen = false
+        model.backlogFilter = BacklogFilter()
+        model.folded = []
+        model.fold = [:]
+        model.hideDone = []
+        model.pinnedOnly = false
+        model.allDescriptions = []
+        model.shownDescriptions = []
+        model.hiddenDescriptions = []
+        model.selectSection(nil)
+        if let tasks = model.vault?.tasksDirectory, let notes = try? FileManager.default.contentsOfDirectory(at: tasks, includingPropertiesForKeys: nil) {
+            notes.forEach { try? FileManager.default.removeItem(at: $0) }
+        }
+        SeedData.fill(model, now: .now)
+        model.tasks = []
+        model.files = []
+        model.selectedTasks = []
+        model.selectedSession = nil
+        model.selectedItem = nil
+        model.focusedTask = nil
+        model.noticeSelection = nil
+        SlackClipboard.testText = nil
+        SlackClipboard.testChange += 1
+        model.undoManager?.removeAllActions()
+        if let outline = ui.find(TaskOutlineView.self) { outline.deselectAll(nil) }
+        if let scroll = ui.find(TaskOutlineView.self)?.enclosingScrollView ?? ui.window.contentView.flatMap({ ui.find(NSScrollView.self, in: $0) }) {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: -scroll.contentView.contentInsets.top))
+        }
+        await ui.settle(1)
     }
 
+    // MARK: Checks
+
+    /// Passes as soon as `ok` holds: it's asked again until it does, at most `within` seconds, so a check needs no
+    /// sleep before it. A check that something did *not* happen holds at once: `settle()` before it.
+    static func check(_ name: String, _ ok: @autoclosure () -> Bool, _ detail: @autoclosure () -> String = "", within seconds: Double = 2) async {
+        var passed = ok()
+        let deadline = Date.now.addingTimeInterval(seconds * Driver.slowdown)
+        while !passed && Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+            passed = ok()
+        }
+        record(name, passed, passed ? "" : detail())
+    }
+
+    static func record(_ name: String, _ ok: Bool, _ detail: String = "") {
+        count += 1
+        if !ok { failures += 1 }
+        // UITEST_TIMES=1: how long since the last check, where it was over half a second.
+        let gap = Date.now.timeIntervalSince(lastCheck)
+        lastCheck = .now
+        if showTimes, gap > 0.5 { print(String(format: "  %.1fs", gap)) }
+        print(ok ? "PASS \(name)" : "FAIL \(name)\(detail.isEmpty ? "" : ": \(detail)")")
+    }
+    private static var lastCheck = Date.now
+    private static let showTimes = ProcessInfo.processInfo.environment["UITEST_TIMES"] == "1"
+
     /// A click on an AppKit table: macOS hands it over only while HQ is the active app.
-    static func tableCheck(_ ui: Driver, _ name: String, _ ok: Bool, _ detail: String = "") {
-        if ui.canClickTables { check(name, ok, detail) } else { skip(name) }
+    static func tableCheck(_ ui: Driver, _ name: String, _ ok: @autoclosure () -> Bool, _ detail: @autoclosure () -> String = "") async {
+        if ui.canClickTables { await check(name, ok(), detail()) } else { skip(name) }
     }
 
     /// Every clickable on screen sits inside each of its containers: one laid out past its container takes no clicks (T-207, T-255).
@@ -119,7 +196,7 @@ enum UITest {
                 parent = container.superview
             }
         }
-        check("after \(group), every clickable on screen sits inside its containers (\(checked))", outside.isEmpty,
+        record("after \(group), every clickable on screen sits inside its containers (\(checked))", outside.isEmpty,
               Set(outside).sorted().prefix(6).joined(separator: "; "))
     }
 
@@ -178,25 +255,86 @@ struct Driver {
         }
     }
 
+    /// How much longer a wait may take than alone: shards run side by side (UITEST_SLOWDOWN, 1 by default).
+    static let slowdown = ProcessInfo.processInfo.environment["UITEST_SLOWDOWN"].flatMap(Double.init) ?? 1
+    /// Settles that reached their limit, and their seconds: something kept moving.
+    static var settledAtMost = 0
+    static var settledAtMostSeconds = 0.0
+
+    /// Waits until HQ's windows hold still, at most `seconds`: no window, view or layer moved, appeared or faded for
+    /// three frames in a row. Animations that repeat for ever (a face's sway, a card's breath) don't count.
     func settle(_ seconds: Double = 0.2) async {
+        await Driver.holdStill(seconds)
+    }
+
+    /// `settle` for code with no driver: snapshots.
+    static func holdStill(_ seconds: Double) async {
+        let deadline = Date.now.addingTimeInterval(seconds * Driver.slowdown)
+        var last = Driver.stillness()
+        var still = 0
+        while Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(8))
+            let next = Driver.stillness()
+            if next == last, next != nil {
+                still += 1
+                if still >= 3 { return }
+            } else {
+                still = 0
+                last = next
+            }
+        }
+        Driver.settledAtMost += 1
+        Driver.settledAtMostSeconds += seconds
+    }
+
+    /// A fixed wait, for what is measured in time: a tooltip's delay, the main thread's rest.
+    func wait(_ seconds: Double) async {
         try? await Task.sleep(for: .seconds(seconds))
     }
 
-    /// Waits until `done` holds, at most `seconds`, then a moment more for what follows it.
-    func until(_ seconds: Double = 2, _ done: () -> Bool) async {
-        var waited = 0.0
-        while !done() && waited < seconds {
-            await settle(0.1)
-            waited += 0.1
+    /// A print of every visible window's layers: nil while one runs a finite animation.
+    static func stillness() -> Int? {
+        var hasher = Hasher()
+        func walk(_ layer: CALayer) -> Bool {
+            // A text view's caret blinks for as long as it's edited.
+            if layer.delegate is NSTextInsertionIndicator { return true }
+            if let keys = layer.animationKeys(), keys.contains(where: { layer.animation(forKey: $0).map { $0.repeatCount != .infinity && $0.repeatDuration == 0 } ?? false }) {
+                return false
+            }
+            hasher.combine(layer.position.x)
+            hasher.combine(layer.position.y)
+            hasher.combine(layer.bounds.width)
+            hasher.combine(layer.bounds.height)
+            hasher.combine(layer.opacity)
+            hasher.combine(layer.isHidden)
+            for sublayer in layer.sublayers ?? [] where !walk(sublayer) { return false }
+            return true
         }
-        await settle(0.2)
+        for window in NSApp.windows where window.isVisible {
+            hasher.combine(window.windowNumber)
+            hasher.combine(window.frame.minX)
+            hasher.combine(window.frame.minY)
+            hasher.combine(window.frame.width)
+            hasher.combine(window.frame.height)
+            hasher.combine(window.alphaValue)
+            if let layer = (window.contentView?.superview ?? window.contentView)?.layer, !walk(layer) { return nil }
+        }
+        return hasher.finalize()
+    }
+
+    /// Waits until `done` holds, at most `seconds`.
+    func until(_ seconds: Double = 2, _ done: () -> Bool) async {
+        let deadline = Date.now.addingTimeInterval(seconds * Driver.slowdown)
+        while !done() && Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// The middle of an anchored view, in its window's coordinates (the main window's or its sheet's).
     func anchor(_ name: String) -> NSPoint? {
         let probes = UITest.anchors[name, default: []].compactMap(\.view)
         guard let view = probes.last(where: { $0.window === window.attachedSheet && $0.window != nil }) ?? probes.last(where: { $0.window === window }) else {
-            print("  (no anchor \(name))")
+            if !Driver.polling { print("  (no anchor \(name))") }
             return nil
         }
         // Clear of the toolbar and the section bar that float over the page, as the page lays out after a scroll.
@@ -207,17 +345,33 @@ struct Driver {
     }
 
     /// An anchor once it stops moving: a sheet that just opened still slides in.
-    func steadyAnchor(_ name: String, within seconds: Double = 1.5) async -> NSPoint? {
-        var last = anchor(name)
-        var waited = 0.0
-        while waited < seconds {
-            await settle(0.1)
-            waited += 0.1
+    func steadyAnchor(_ name: String, within seconds: Double = 2) async -> NSPoint? {
+        let deadline = Date.now.addingTimeInterval(seconds * Driver.slowdown)
+        var last: NSPoint?
+        while Date.now < deadline {
+            Driver.polling = true
             let next = anchor(name)
-            if next == last { return next }
+            Driver.polling = false
+            if let next, next == last { return next }
             last = next
+            try? await Task.sleep(for: .milliseconds(16))
         }
-        return last
+        return anchor(name)
+    }
+
+    /// True while a wait asks for an anchor that may not be there yet.
+    static var polling = false
+
+    /// What `point` gives once it gives something, at most 2 s: a view that just appeared, a sheet still opening.
+    func appearing(_ point: () async -> NSPoint?) async -> NSPoint? {
+        let deadline = Date.now.addingTimeInterval(2 * Driver.slowdown)
+        while true {
+            Driver.polling = true
+            let found = await point()
+            Driver.polling = false
+            if found != nil || Date.now >= deadline { return found }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
     }
 
     /// An anchored view's frame in its window.
@@ -275,8 +429,8 @@ struct Driver {
 
     /// The mouse-up waits in the queue while the window handles the mouse-down, as AppKit's
     /// tracking loops (tables, outlines) expect.
-    func click(_ point: NSPoint?, count: Int = 1, flags: NSEvent.ModifierFlags = [], inSheet: Bool = false) async {
-        guard let point else { return }
+    func click(_ point: @autoclosure () async -> NSPoint?, count: Int = 1, flags: NSEvent.ModifierFlags = [], inSheet: Bool = false, line: Int = #line, file: String = #fileID) async {
+        guard let point = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
         let target = inSheet ? window.attachedSheet ?? window : window
         if UITest.verbose {
             let hit = hitView(point, in: target)
@@ -304,14 +458,14 @@ struct Driver {
                 NSApp.postEvent(up, atStart: false)
                 NSApp.sendEvent(down)
             }
-            await settle(0.05)
+            await drain()
         }
         await settle(0.3)
     }
 
     /// A right-click, as the window gets it.
-    func rightClick(_ point: NSPoint?) async {
-        guard let point else { return }
+    func rightClick(_ point: @autoclosure () async -> NSPoint?, line: Int = #line, file: String = #fileID) async {
+        guard let point = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
@@ -336,7 +490,7 @@ struct Driver {
         await self.key(characters, flags.union(arrows), code: key.code, held: held)
     }
 
-    func key(_ characters: String, _ flags: NSEvent.ModifierFlags = [], code: UInt16? = nil, held: Bool = false) async {
+    func key(_ characters: String, _ flags: NSEvent.ModifierFlags = [], code: UInt16? = nil, held: Bool = false, settles: Bool = true) async {
         let codes: [String: UInt16] = ["\r": 36, " ": 49, "n": 45, "[": 33]
         let code = code ?? codes[characters] ?? 0
         for type in [NSEvent.EventType.keyDown, .keyUp] {
@@ -344,11 +498,37 @@ struct Driver {
                                   windowNumber: window.windowNumber, context: nil, characters: characters,
                                   charactersIgnoringModifiers: characters, isARepeat: held, keyCode: code))
         }
-        await settle(0.05)
+        await drain()
+        if settles { await settle(0.05) }
     }
 
     func type(_ text: String) async {
-        for character in text { await key(String(character)) }
+        for character in text { await key(String(character), settles: false) }
+        await settle(0.1)
+    }
+
+    /// Waits until HQ has handled every event posted so far: a marker posted after them comes out of the queue.
+    func drain() async {
+        Driver.posted += 1
+        let mark = Driver.posted
+        Driver.watchMarks()
+        guard let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                             context: nil, subtype: Driver.markSubtype, data1: mark, data2: 0) else { return }
+        NSApp.postEvent(event, atStart: false)
+        let deadline = Date.now.addingTimeInterval(2)
+        while Driver.handled < mark, Date.now < deadline { try? await Task.sleep(for: .milliseconds(2)) }
+    }
+
+    private static let markSubtype: Int16 = 7
+    private static var posted = 0
+    private static var handled = 0
+    private static var markMonitor: Any?
+    private static func watchMarks() {
+        guard markMonitor == nil else { return }
+        markMonitor = NSEvent.addLocalMonitorForEvents(matching: .applicationDefined) { event in
+            if event.subtype.rawValue == markSubtype { handled = max(handled, event.data1); return nil }
+            return event
+        }
     }
 
     /// Go › Back: ⌘[ in the key window; a background run's window is never key, so its menus are
@@ -363,8 +543,8 @@ struct Driver {
 
     /// A click into a text view; a text view in a window that isn't key ignores it, so a background
     /// run gives it the keyboard directly.
-    func focusText(_ point: NSPoint?) async {
-        guard let point else { return }
+    func focusText(_ point: @autoclosure () async -> NSPoint?, line: Int = #line, file: String = #fileID) async {
+        guard let point = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
         if window.isKeyWindow && NSApp.isActive {
             await click(point)
         } else if let text = hitView(point) as? NSTextView {

@@ -248,6 +248,8 @@ struct KeysSettings: View {
     static let keys: [(String, String)] = [
         ("Next or previous section", "Tab  ⇧Tab"),
         ("Select in a section, open", "↑  ↓, Return or Space"),
+        ("On a session card: its terminal, its details", "Return  Space"),
+        ("Copy the selected item’s line", "⌘C"),
         ("Notifications", "⌘J"),
         ("New Reminder…", "⌃⌘R"),
         ("New Task…", "⌘N"),
@@ -281,6 +283,7 @@ struct KeysSettings: View {
         ("Status menu", "⌥-click the status"),
         ("Unselect: nothing dimmed", "Escape"),
         ("Open the task", "Space  ⌘I, or double-click the row"),
+        ("Block or unblock, blocked by, after", "B  ⇧B  A"),
         ("To the Backlog or to Tasks", "⇧⌘B"),
         ("Start Session…", "⌥⌘Return"),
         ("Delete", "⌫  ⌘⌫"),
@@ -290,7 +293,9 @@ struct KeysSettings: View {
         ("Edit the description", "Tab  ⇧Return"),
         ("Edit the previous title", "⇧Tab"),
         ("Back to the rows", "Escape  ↑  ↓"),
+        ("Outdent at its start, indent at its end", "⇧←  ⇧→"),
         ("Next status", "⌘Return"),
+        ("Open, to the Backlog or Tasks, Start Session…", "⌘I  ⇧⌘B  ⌥⌘Return"),
         ("Delete", "⌘⌫"),
     ]
     static let descriptionKeys: [(String, String)] = [

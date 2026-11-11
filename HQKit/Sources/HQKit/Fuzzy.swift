@@ -13,6 +13,11 @@ public enum Fuzzy {
         let needle = Array(fold(query).filter { !$0.isWhitespace })
         guard !needle.isEmpty else { return Match(score: 0, offsets: []) }
         let hay = Array(fold(text))
+        // The query whole, as typed, first: "retry" is the word retry, not r-e from "registry" and t-r-y after (2026-11-11).
+        if let whole = contiguous(Array(fold(query).trimmingCharacters(in: .whitespaces)), in: hay) {
+            let wordStart = whole.first == 0 || isBoundary(hay[whole.first! - 1])
+            return Match(score: 50 + whole.count * 5 + (wordStart ? 20 : 0) - whole.first! / 4 - hay.count / 32, offsets: whole)
+        }
         // Word starts make better highlights; plain left-to-right always finds a match if one exists.
         guard let offsets = scan(needle, in: hay, preferWordStarts: true) ?? scan(needle, in: hay, preferWordStarts: false) else {
             return nil
@@ -26,6 +31,17 @@ public enum Fuzzy {
         // Shorter texts and earlier matches rank higher.
         score -= offsets[0] / 4 + hay.count / 32
         return Match(score: score, offsets: offsets)
+    }
+
+    /// Where the query sits whole in the text, at a word start if it does anywhere.
+    private static func contiguous(_ needle: [Character], in hay: [Character]) -> [Int]? {
+        guard !needle.isEmpty, needle.count <= hay.count else { return nil }
+        var first: Int?
+        for start in 0...(hay.count - needle.count) where Array(hay[start..<(start + needle.count)]) == needle {
+            if start == 0 || isBoundary(hay[start - 1]) { return Array(start..<(start + needle.count)) }
+            if first == nil { first = start }
+        }
+        return first.map { Array($0..<($0 + needle.count)) }
     }
 
     /// Each query character in order: the next character first, then (optionally) a word start, then any.

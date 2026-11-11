@@ -22,7 +22,7 @@ struct SessionCard: View {
     var body: some View {
         // One row: the name with how long it has lasted, then its place with its state.
         HStack(alignment: .center, spacing: Space.md) {
-            SessionFace(session, size: Metric.faceCard)
+            SessionFace(session, size: Metric.faceCard, badged: false)
             VStack(alignment: .leading, spacing: Space.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                     Text(session.name)

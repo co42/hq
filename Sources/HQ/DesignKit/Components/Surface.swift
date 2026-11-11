@@ -87,7 +87,7 @@ final class BreathingView: NSView {
     static var spread: CGFloat { Metric.glowRadius * 4 }
     private let host = NSHostingView(rootView: AnyView(EmptyView()))
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -230,7 +230,7 @@ final class SkyLayerView: NSView {
         guard let layer, let sky, sky != shown else { return }
         layer.contentsGravity = .resize
         // A new mood fades in slowly, as the day changes; the first one shows at once.
-        if shown != nil {
+        if shown != nil, !Motion.still {
             let fade = CATransition()
             fade.type = .fade
             fade.duration = Motion.skySeconds
@@ -324,7 +324,7 @@ final class CardsView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -339,7 +339,7 @@ final class CardsView: NSView {
         guard shapes != self.shapes || Set(keyed) != Set(cards.keys) else { return }
         self.shapes = shapes
         CATransaction.begin()
-        if animated {
+        if animated, !Motion.still {
             CATransaction.setAnimationDuration(Motion.rowsSeconds)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
         } else {
@@ -377,7 +377,7 @@ final class CardsView: NSView {
                 // Dimming fades on its own, also when the rows don't move.
                 CATransaction.begin()
                 // A card that just came in without the rows moving shows at once.
-                CATransaction.setDisableActions(fresh && !animated)
+                CATransaction.setDisableActions((fresh && !animated) || Motion.still)
                 if !animated { CATransaction.setAnimationDuration(Motion.appearSeconds) }
                 card.body.opacity = opacity
                 card.far.opacity = opacity

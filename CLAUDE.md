@@ -11,7 +11,7 @@ Native macOS app (SwiftUI, AppKit where needed) that runs the user's day with Cl
 - `hq hook` always exits 0, fast, and never opens the app.
 - Claude Code's transcript format is internal: read it best effort, never depend on it.
 - Views use DesignKit tokens and parts only: no raw colors, radii, durations, fonts or SF Symbol names outside `Sources/HQ/DesignKit/`.
-- Work on a branch in this checkout, never in a git worktree. One HQ session works here at a time (2026-11-04): it shares one branch, one build folder, one dev copy and the test files in `/tmp`. Before changing anything, check `hq ls sessions --tag hq` and `git status`: if another session is working on HQ or the tree has changes that aren't yours, stop and tell the user.
+- Work on a branch in this checkout, never in a git worktree. One HQ session works here at a time (2026-11-04): it shares one branch, one build folder, one dev copy and the test files in `/tmp`. Before changing anything, check `hq ls sessions --here` (the sessions in this repository) and `git status`: if another session is working on HQ or the tree has changes that aren't yours, stop and tell the user.
 - macOS 27 only (2026-11-05): use any macOS 27 API, no back compatibility. Keep it simple: no feature, setting or abstraction the plan doesn't ask for.
 - The repo is public: no employer, colleague or other personal detail in code, docs or commits.
 
@@ -50,15 +50,16 @@ In the same commit as the change: DESIGN.md (how it looks and acts; a decision w
 
 ## Build and check
 
-bama's template conventions (install the bama plugin: `/plugin marketplace add daveebbelaar/bama`, then `/plugin install bama@bama`):
+bama's template conventions. Its plugin is installed for this checkout (`claude plugin install bama@bama --scope local`; `check.sh` warns when it isn't); a session started without its skills reads them in `~/.claude/plugins/cache/bama/bama/<version>/skills/`:
 
-- **`tools/check.sh` is the gate**: the test copy's build, `swift test`, the grid, perf and docs lints, the self-test, the UI test, snapshots and their layout, in one run, with a summary of what passed. `--release` adds the perf budgets. Run it before saying anything works, and read its summary: never judge a check through `| tail` or `| grep`, which hide its exit code. While it runs, `build.sh --dev` refuses: a new test copy mid-run mixes two builds in one result.
+- **`tools/check.sh` is the gate**: the test copy's release build, HQKit's tests, the grid, perf and docs lints, the self-test, the UI test, snapshots and their layout, side by side, with a summary of what passed and every failed check by name. Under 2 minutes; `--fast` builds debug (seconds after an edit) while you work; `--release` adds the perf budgets and writes the stamp `./build.sh` needs to install. Run it before saying anything works, and read its summary: never judge a check through `| tail` or `| grep`, which hide its exit code. Its WARN lines count: the outline's run-time repairs, checks gone since the last green run, a crash report. While it runs, `build.sh --dev` refuses: a new test copy mid-run mixes two builds in one result.
 - `./build.sh --dev [--debug]` installs the test copy (`~/Library/Developer/HQ/HQ.app`) that the tools run. `./build.sh` installs the user's `/Applications/HQ.app` and links `~/.local/bin/hq`: only for a release (ITERATION.md), then tell the user to restart HQ. Never quit or restart their HQ yourself. Trust `build.sh` over SourceKit's diagnostics, which go stale for this package.
 - `tools/snap.sh` writes light and dark PNGs of every screen to `/tmp/HQ-shots/` as `<page>-<width>-<mode>.png`, at 1504 and 756 pt wide. Look at every one you touched. `APP_SNAPSHOT_PAGES=a,b`, `APP_SNAPSHOT_MODES=dark`, `APP_KIT_GALLERY=1` (the parts gallery), `APP_DEBUG_TOOLBAR=1`. Glass and toolbar color are judged only on foreground captures.
-- `tools/selftest.sh` (the model), `tools/uitest.sh` (real clicks and keys into a test copy; `UITEST_ONLY=group`), `swift test --scratch-path ~/Library/Developer/HQ/test-build`, `tools/grid-lint.sh`, `tools/perf-lint.sh`, `tools/docs-lint.sh`, `swift tools/check-layout.swift /tmp/HQ-shots/*-layout.json`.
+- `tools/selftest.sh` (the model), `tools/uitest.sh` (real clicks and keys into test copies: the groups that time the main thread alone, the rest in four shards; `UITEST_ONLY=group` runs one copy), `swift test --package-path HQKit` (HQKit is its own package: a second, no app build), `tools/grid-lint.sh`, `tools/perf-lint.sh`, `tools/docs-lint.sh`, `swift tools/check-layout.swift /tmp/HQ-shots/*-layout.json`, `tools/crash.sh` (the newest crash report's stack).
   - All run beside the user's HQ and in the background: a test copy has no Dock icon, keeps its window behind the user's and never takes the focus. Snapshots then show an inactive window, and real table clicks SKIP. `HQ_FOREGROUND=1` runs them in front, only when the user is away or says yes, and refuses a locked screen.
+  - A test copy has its own preferences, emptied at launch (`Prefs`), its own store, vault and log, and no motion (`Motion.still`; the `storyFlow` group keeps it). A watchdog stops one that stays silent 45 s and writes its main thread's stack into its log.
   - A test copy's window opens on the user's second screen when one is connected, narrowed and shortened to fit it (snapshots there show a page's top 950 pt), and lets real clicks through to their windows. Test runs never reach Ghostty: they record the calls in `ghosttyLog`.
-  - UI checks: each group seeds its own data and passes alone (`UITEST_ONLY`); look a row's cell up again after every action; wait for a steady anchor (`steadyAnchor`), never a fixed sleep; a flaky check is fixed at its cause, never retried around; a perf check measures a median with margin.
+  - UI checks: each group starts on the same seed (`scenario`), adds what it needs and passes alone or in any shard; `check` waits until its condition holds, `settle()` until the windows hold still (before a check that something did *not* happen), a click until its anchor shows (a missing one fails); `wait` only for what is measured in time; look a row's cell up again after every action; a flaky check is fixed at its cause, never retried around; a perf check measures a median with margin.
 - `tools/perf.sh` measures a test copy at rest on copies of the user's store and vault (`PERF_BUSY=10`, `PERF_STATES=1`, `PERF_SAMPLE=<file>`); `tools/launch.sh` traces a launch's memory and timing. `tools/perf.sh --check` holds the seed to budgets: part of `check.sh --release`.
 - A change under `plugin/` reaches Claude sessions only after a version bump in `plugin/.claude-plugin/plugin.json` and `tools/install-plugin.sh` (`build.sh` reminds you); sessions already running keep the old skills.
 - Snapshots, seed data and the self-test only run with `APP_STORE` in `/tmp`. Never touch the real store or the real vault in tests: `HQ_VAULT` points them at a copy.
@@ -68,11 +69,12 @@ bama's template conventions (install the bama plugin: `/plugin marketplace add d
 - No heredocs: write the file with Write or `printf`; `git commit -F <file>`.
 - zsh: noclobber (`>|` to overwrite), no word splitting of `$var` (use arrays), quote globs.
 - Text with non-ASCII characters (›, ·, curly quotes) is edited with the Edit tool; perl and sed only with ASCII patterns, then `git diff --stat`: a wide character makes perl re-encode the whole file.
+- perl `s|…|…|` with `\|` in the pattern: the escaped delimiter becomes alternation and the text lands at the top of the file. Use `s{…}{…}` or `s/…/…/`.
 - No command that waits on stdin with nothing to read (`cat > file`, `python3 -`).
 - `sips --cropOffset` crops from the center.
 
 ## Track this work in HQ
 
-Working on HQ, use HQ for the work itself, so it gets used daily. Keep this session in the HQ folder, the work as tasks (`hq-tasks` skill), and plans and reports as files (`hq-files` skill). A session started before the hq plugin has neither its hooks nor its skills: read `plugin/skills/*/SKILL.md` and report the session by hand (`hq hook` with a SessionStart event), or resume it. Note what was awkward with the CLI or the skills, and fix it.
+Working on HQ, use HQ for the work itself, so it gets used daily. Keep this session in the HQ folder, the work as tasks (`hq` skill), and plans and reports as files (`hq-files` skill). Note what was awkward with the CLI or the skills, and fix it.
 
 bama skills to use: `mac-design`, `design-system`, `layout-grid`, `ux-design`, `swift-swiftui`, `os-integrations`, `agent-cli`, `performance`, `build-and-verify`, `test-mac-app`, `app-icon`. Not its `clone`, `research`, `user-stories` or `improve-loop` flows: the work lives in HQ's tasks, iteration by iteration.

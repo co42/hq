@@ -8,8 +8,8 @@ struct PullRequestsSection: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let waiting = filtered(model.reviewRequests)
-        let mine = filtered(model.ownPullRequests)
+        let waiting = model.searched(model.reviewRequests)
+        let mine = model.searched(model.ownPullRequests)
         let total = model.reviewRequests.count + model.ownPullRequests.count
         let shown = waiting.count + mine.count
         VStack(alignment: .leading, spacing: Space.md) {
@@ -34,7 +34,7 @@ struct PullRequestsSection: View {
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: Metric.cardGap))
                 let searching = !model.search.isEmpty
                 layout {
-                    PRGroup(title: "Reviews", items: waiting, total: model.reviewRequests.count,
+                    PRGroup(title: "Reviews", card: .reviews, items: waiting, total: model.reviewRequests.count,
                             empty: searching ? "No match for “\(model.search)”." : "Nothing waits for your review.", filtered: searching,
                             allReviewed: !searching) {
                         @Bindable var model = model
@@ -46,7 +46,7 @@ struct PullRequestsSection: View {
                             }
                         }
                     }
-                    PRGroup(title: "Yours", items: mine, total: model.ownPullRequests.count,
+                    PRGroup(title: "Yours", card: .yours, items: mine, total: model.ownPullRequests.count,
                             empty: searching ? "No match for “\(model.search)”." : "No open pull requests.", filtered: searching)
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -79,11 +79,6 @@ struct PullRequestsSection: View {
         return "Updated " + formatter.localizedString(for: fetched, relativeTo: now)
     }
 
-    private func filtered(_ items: [GitHubItem]) -> [GitHubItem] {
-        guard !model.search.isEmpty else { return items }
-        return items.filter { "\($0.title) \($0.reference) \($0.author)".localizedStandardContains(model.search) }
-    }
-
     private var setupTitle: String {
         switch model.problem {
         case .githubMissing: "GitHub CLI isn’t installed"
@@ -101,9 +96,10 @@ struct PullRequestsSection: View {
     }
 }
 
-/// One of the two cards: a title with its count, then its rows.
+/// One of the two cards: a title with its count, then its rows, five before "Show N More" (every one while the search narrows them).
 struct PRGroup<Accessory: View>: View {
     let title: String
+    let card: RowCard
     let items: [GitHubItem]
     let total: Int
     let empty: String
@@ -112,12 +108,7 @@ struct PRGroup<Accessory: View>: View {
     var allReviewed = false
     /// On the title's line, trailing.
     @ViewBuilder var accessory: Accessory
-    @State private var expanded = false
     @Environment(AppModel.self) private var model
-
-    /// Rows shown before "Show N More": the page stays short with many open PRs.
-    static var shown: Int { PRCards.shown }
-    static var minHeight: CGFloat { PRCards.minHeight }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -143,22 +134,14 @@ struct PRGroup<Accessory: View>: View {
                     .padding(.horizontal, Space.md)
                     .frame(height: Metric.boxRow, alignment: .top)
             } else {
-                let rows = expanded || filtered ? items : Array(items.prefix(Self.shown))
+                let rows = model.shown(items, in: card)
                 VStack(spacing: 0) {
                     ForEach(rows) { item in
                         PRRow(item: item)
                             .id(ModalRoute.github(item.url).selectionKey)
                             .overlay(alignment: .bottom) { if item.id != rows.last?.id { RowRule() } }
                     }
-                    if items.count > Self.shown, !filtered {
-                        Button(expanded ? "Show Fewer" : "Show \(items.count - Self.shown) More") { expanded.toggle() }
-                            .buttonStyle(.borderless)
-                            .clickable()
-                            .kitType(.callout)
-                            .padding(.leading, Space.sm)
-                            .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
-                            .help(expanded ? "Show the first \(Self.shown) only" : "Show every pull request in this group")
-                    }
+                    ShowMoreButton(card: card, count: items.count)
                 }
                 .padding(.horizontal, Space.xs + 2)
                 .padding(.bottom, Space.sm)
@@ -170,19 +153,94 @@ struct PRGroup<Accessory: View>: View {
 }
 
 extension PRGroup where Accessory == EmptyView {
-    init(title: String, items: [GitHubItem], total: Int, empty: String, filtered: Bool = false, allReviewed: Bool = false) {
-        self.init(title: title, items: items, total: total, empty: empty, filtered: filtered, allReviewed: allReviewed) { EmptyView() }
+    init(title: String, card: RowCard, items: [GitHubItem], total: Int, empty: String, filtered: Bool = false, allReviewed: Bool = false) {
+        self.init(title: title, card: card, items: items, total: total, empty: empty, filtered: filtered, allReviewed: allReviewed) { EmptyView() }
     }
 }
 
-/// The size every card of rows shares: PRs, files and artifacts.
+/// What every card of rows shares: PRs, files and artifacts.
 enum PRCards {
     /// Rows shown before "Show N More": the page stays short with many open PRs.
     static let shown = 5
-    /// As tall as a full card, its title, five rows and "Show N More": side by side or alone, the cards match.
-    static var minHeight: CGFloat { Metric.boxRow + Space.xs + CGFloat(shown) * Metric.prRow + Metric.boxRow + Space.xs }
-    /// The same for one-line rows: files and artifacts.
-    static var itemMinHeight: CGFloat { Metric.boxRow + Space.xs + CGFloat(shown) * Metric.itemRow + Metric.boxRow + Space.xs }
+}
+
+/// The page's cards of rows, each opened past its first five on its own.
+enum RowCard: String {
+    case reviews, yours, files, artifacts
+
+    /// What its rows are, for the tooltip of "Show N More".
+    var rows: String {
+        switch self {
+        case .reviews, .yours: "pull request"
+        case .files: "file"
+        case .artifacts: "artifact"
+        }
+    }
+}
+
+/// "Show N More" under a card's first five rows, "Show Fewer" once open; nothing while a filter shows them all.
+struct ShowMoreButton: View {
+    let card: RowCard
+    /// The card's rows, shown or not.
+    let count: Int
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if count > PRCards.shown, !model.cardFiltered(card) {
+            let open = model.expandedCards.contains(card)
+            Button(open ? "Show Fewer" : "Show \(count - PRCards.shown) More") { model.toggleExpanded(card) }
+                .buttonStyle(.borderless)
+                .clickable()
+                .kitType(.callout)
+                .help(open ? "Show the first \(PRCards.shown) only" : "Show every \(card.rows) in this card")
+                .uiTestAnchor("show-more:\(card.rawValue)")
+                .padding(.leading, Space.sm)
+                .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
+        }
+    }
+}
+
+extension AppModel {
+    /// The PRs the page's search leaves: title, reference or author.
+    func searched(_ items: [GitHubItem]) -> [GitHubItem] {
+        guard !search.isEmpty else { return items }
+        return items.filter { "\($0.title) \($0.reference) \($0.author)".localizedStandardContains(search) }
+    }
+
+    /// A filter narrows the card: it shows every row it leaves.
+    func cardFiltered(_ card: RowCard) -> Bool {
+        switch card {
+        case .reviews, .yours: !search.isEmpty
+        case .files, .artifacts: filesFiltered
+        }
+    }
+
+    /// Every row of a card, shown or not, top to bottom.
+    func cardRoutes(_ card: RowCard) -> [ModalRoute] {
+        switch card {
+        case .reviews: searched(reviewRequests).map { .github($0.url) }
+        case .yours: searched(ownPullRequests).map { .github($0.url) }
+        case .files: listedFiles.map { .file($0.id) }
+        case .artifacts: listedArtifacts.map { .artifact($0.id) }
+        }
+    }
+
+    /// The rows a card shows, which the keys walk too: all of them while a filter narrows it or Show More opened it, else the first five.
+    func shown<Row>(_ rows: [Row], in card: RowCard) -> [Row] {
+        cardFiltered(card) || expandedCards.contains(card) ? rows : Array(rows.prefix(PRCards.shown))
+    }
+
+    /// Show N More or Show Fewer; a selected row Show Fewer hides gives the selection to the last row still shown.
+    func toggleExpanded(_ card: RowCard) {
+        guard expandedCards.remove(card) != nil else {
+            expandedCards.insert(card)
+            return
+        }
+        let rows = cardRoutes(card)
+        if let index = rows.firstIndex(where: { $0.selectionKey == selectedItem }), index >= PRCards.shown {
+            selectedItem = rows[PRCards.shown - 1].selectionKey
+        }
+    }
 }
 
 /// Opens a PR or an issue in the browser.

@@ -10,6 +10,12 @@ final class GitHubService {
     private var token: String?
     private var timer: Task<Void, Never>?
     private var failures = 0
+    /// When a poll last started: HQ back in front asks again only a minute later.
+    private var lastAttempt: Date?
+    /// GitHub's rate limit is nearly spent, or it said to wait: no poll before this.
+    private var limitedUntil: Date?
+    /// When each linked URL was last asked about: the ones past the limit take turns.
+    private var asked: [String: Date] = [:]
     /// `gh auth token` failed this many times in a row: once can be a slow start, twice is signed out.
     private var tokenFailures = 0
     /// `gh` was looked for: polls before that would find it missing.
@@ -33,15 +39,14 @@ final class GitHubService {
         model.github = Self.loadCache()
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+            MainActor.assumeIsolated { self?.pollOnReturn() }
         })
         // The window back on screen after a while away: ask now (T-366).
         observers.append(center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] note in
             let sender = (note.object as AnyObject?).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
-                guard let self, let window = self.model?.window, sender == ObjectIdentifier(window), self.onScreen,
-                      (self.model?.githubUpdated ?? .distantPast) < Date.now.addingTimeInterval(-60) else { return }
-                self.poll()
+                guard let self, let window = self.model?.window, sender == ObjectIdentifier(window), self.onScreen else { return }
+                self.pollOnReturn()
             }
         })
         Task { [weak self] in
@@ -72,6 +77,7 @@ final class GitHubService {
     func poll() {
         guard !Self.usesFixtures, searched, !polling else { return }
         polling = true
+        lastAttempt = .now
         timer?.cancel()
         Task {
             let again = await fetch()
@@ -80,14 +86,21 @@ final class GitHubService {
         }
     }
 
+    /// HQ in front again, or back on screen: asks only when the last try is a minute old and nothing fails or limits it.
+    private func pollOnReturn() {
+        guard GitHubPoll.asksOnReturn(lastAttempt: lastAttempt, failures: failures, limitedUntil: limitedUntil, now: .now) else { return }
+        poll()
+    }
+
     /// The window shows, at least partly: the user may be looking at the PRs.
     private var onScreen: Bool {
         guard let window = model?.window else { return NSApp.isActive }
         return window.isVisible && window.occlusionState.contains(.visible)
     }
 
+    /// In 5 s, unless GitHub fails or limits: then the back-off's retry stands.
     func pollSoon() {
-        guard !Self.usesFixtures else { return }
+        guard !Self.usesFixtures, failures == 0 || tokenFailures > 0, (limitedUntil ?? .distantPast) <= .now else { return }
         timer?.cancel()
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
@@ -96,8 +109,7 @@ final class GitHubService {
     }
 
     private func schedule() {
-        let base: Double = onScreen ? 120 : 300
-        let delay = failures == 0 ? base : min(base * pow(2, Double(failures)), 1_800)
+        let delay = GitHubPoll.delay(onScreen: onScreen, failures: failures, limitedUntil: limitedUntil, now: .now)
         timer = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             if !Task.isCancelled { self?.poll() }
@@ -122,24 +134,37 @@ final class GitHubService {
             return false
         }
         tokenFailures = 0
-        let linked = linkedURLs()
+        let links = model.githubLinks()
+        let previous = model.github
+        let known = Dictionary((previous?.items ?? []).map { ($0.url, $0.state) }, uniquingKeysWith: { first, _ in first })
+        let start = Date.now
+        let linked = GitHubQuery.pick(fresh: links.fresh, rest: links.rest, known: known, asked: asked, now: start)
+        let left = Set(links.fresh + links.rest).subtracting(linked)
         do {
             // All or nothing: a missing answer would drop its PRs, or their review requests.
-            let answers = try await withThrowingTaskGroup(of: Data.self) { group in
+            let answers = try await withThrowingTaskGroup(of: (Data, Date?).self) { group in
                 for query in GitHubQuery.queries(linked: linked) {
                     group.addTask { try await Self.post(query, token: token) }
                 }
-                var answers: [Data] = []
+                var answers: [(Data, Date?)] = []
                 for try await answer in group { answers.append(answer) }
                 return answers
             }
-            let snapshot = try GitHubQuery.parse(answers, linked: linked)
+            limitedUntil = answers.compactMap(\.1).max()
+            if let limitedUntil { NSLog("HQ: GitHub's rate limit is nearly spent: next poll after %@", limitedUntil.formatted(.iso8601)) }
+            // Read and compared off the main thread; the cache is written there too.
+            let cache = Self.cacheURL
+            let (snapshot, changed) = try await Task.detached {
+                var snapshot = try GitHubQuery.parse(answers.map(\.0), linked: linked)
+                snapshot.keep(left, from: previous)
+                let changed = snapshot.viewer != previous?.viewer || snapshot.items != previous?.items
+                if changed { Self.saveCache(snapshot, to: cache) }
+                return (snapshot, changed)
+            }.value
             failures = 0
-            let changed = snapshot.viewer != model.github?.viewer || snapshot.items != model.github?.items
-            if changed {
-                apply(snapshot)
-                Self.saveCache(snapshot)
-            }
+            for url in linked { asked[url] = start }
+            asked = asked.filter { left.contains($0.key) || linked.contains($0.key) }
+            if changed { apply(snapshot) }
             // A poll that changed nothing leaves the page alone: only the Refresh button's tooltip says when.
             model.githubAnswered = snapshot.fetchedAt
             set(nil)
@@ -150,6 +175,7 @@ final class GitHubService {
             set(.githubSignedOut)
             failures += 1
         } catch {
+            if case PollError.status(_, _, let until?) = error { limitedUntil = until }
             NSLog("HQ: GitHub poll failed: %@", String(describing: error))
             failures += 1
             if failures >= 3 { set(.githubFailing) }
@@ -159,19 +185,19 @@ final class GitHubService {
 
     private enum PollError: Error, CustomStringConvertible {
         case signedOut
-        /// Its status, and what GitHub said unless it's an HTML error page.
-        case status(Int, String)
+        /// Its status, what GitHub said unless it's an HTML error page, and until when it said to wait.
+        case status(Int, String, Date?)
 
         var description: String {
             switch self {
             case .signedOut: "HTTP 401"
-            case let .status(code, said): said.isEmpty ? "HTTP \(code)" : "HTTP \(code): \(said)"
+            case let .status(code, said, _): said.isEmpty ? "HTTP \(code)" : "HTTP \(code): \(said)"
             }
         }
     }
 
-    /// One of the poll's GraphQL requests: its answer when GitHub says 200.
-    nonisolated private static func post(_ query: String, token: String) async throws -> Data {
+    /// One of the poll's GraphQL requests: its answer when GitHub says 200, and until when its rate limit says to wait.
+    nonisolated private static func post(_ query: String, token: String) async throws -> (Data, Date?) {
         var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
         request.httpMethod = "POST"
         request.setValue("bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -179,13 +205,17 @@ final class GitHubService {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         request.timeoutInterval = 20
         let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        var headers: [String: String] = [:]
+        for name in ["retry-after", "x-ratelimit-remaining", "x-ratelimit-reset"] { headers[name] = http?.value(forHTTPHeaderField: name) }
+        let until = GitHubPoll.limitedUntil(status: status, headers: headers, now: .now)
         if status == 401 { throw PollError.signedOut }
         guard status == 200 else {
             let text = String(decoding: data.prefix(200), as: UTF8.self)
-            throw PollError.status(status, text.hasPrefix("<") ? "" : text)
+            throw PollError.status(status, text.hasPrefix("<") ? "" : text, until)
         }
-        return data
+        return (data, until)
     }
 
     /// Reviews, comments and failed checks on the user's PRs, and review requests, go to the notification center.
@@ -194,15 +224,6 @@ final class GitHubService {
         model.noteGitHubEvents(before: model.github, after: snapshot)
         model.github = snapshot
         model.setup.githubAccount = snapshot.viewer
-    }
-
-    /// Every PR or issue a task, a session or an unread notification links.
-    private func linkedURLs() -> [String] {
-        guard let model else { return [] }
-        var seen = Set<String>()
-        let threads = model.notices.filter { $0.kind == .github && $0.readAt == nil }.compactMap(\.source)
-        let urls = model.tasks.flatMap(\.links).map(\.absoluteString) + model.sessions.flatMap(\.links) + threads
-        return urls.filter { GitHubLinks.isItem($0) && seen.insert($0).inserted }
     }
 
     /// Mentions and comments on threads the user takes part in, outside their own PRs (the poll's query has those),
@@ -303,13 +324,28 @@ final class GitHubService {
         return try? JSONDecoder().decode(GitHubSnapshot.self, from: data)
     }
 
-    private static func saveCache(_ snapshot: GitHubSnapshot) {
+    nonisolated private static func saveCache(_ snapshot: GitHubSnapshot, to url: URL) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: cacheURL, options: .atomic)
+        try? data.write(to: url, options: .atomic)
     }
 }
 
 extension AppModel {
+    /// Every PR or issue linked, each once, newest first: `fresh` from the modal, open tasks, live sessions and unread
+    /// notifications, `rest` from done tasks and closed sessions.
+    func githubLinks() -> (fresh: [String], rest: [String]) {
+        let newest = tasks.sorted { $0.modified > $1.modified }
+        let open = newest.filter { $0.status != .done }.flatMap(\.links).map(\.absoluteString)
+        let done = newest.filter { $0.status == .done }.flatMap(\.links).map(\.absoluteString)
+        let live = sessions.filter(\.onGrid).flatMap(\.links)
+        let closed = sessions.filter { !$0.onGrid }.sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }.flatMap(\.links)
+        let threads = notices.filter { $0.kind == .github && $0.readAt == nil }.sorted { $0.at > $1.at }.compactMap(\.source)
+        var seen = Set<String>()
+        let fresh = (modalGitHubURLs + open + live + threads).filter { GitHubLinks.isItem($0) && seen.insert($0).inserted }
+        let rest = (done + closed).filter { GitHubLinks.isItem($0) && seen.insert($0).inserted }
+        return (fresh, rest)
+    }
+
     /// A session printed a PR URL: ask GitHub soon.
     func pollGitHubSoon() {
         githubAsks += 1

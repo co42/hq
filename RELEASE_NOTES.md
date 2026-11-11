@@ -1,5 +1,50 @@
 # Release notes
 
+## v13.1 · 2026-11-11
+
+What the full review of v13 found (T-427): nothing you or a session writes is lost, what was wrong is fixed, and the tests run in 90 seconds instead of 13 minutes.
+
+**Your text is safe**
+- An editor writes nothing when you didn't type in it, so it never puts back an old description over what a session wrote meanwhile. When you both changed it, the changes on different lines are joined; on the same lines yours is kept, a notification says so, and ⌘Z brings back the other.
+- A description you were writing in a task's window is saved in that task when you leave it any way (⌘J, a banner, Back), never in the next task you open.
+- ⌘Z puts back only what your edit changed: a status or description a session set since stays.
+- HQ never writes over a note it couldn't read (iCloud still downloading it), and a vault it can't list keeps your tasks on the page with a banner, instead of an empty page.
+- Its store or its notifications file, unreadable, is moved aside and kept, never replaced by an empty one; a notification a newer HQ wrote costs that row only.
+- Quit and Restart HQ save the open editor and the last second's notifications.
+
+**Tasks**
+- Selecting a task fades the rest only when it is blocked by or comes after another task, and only its content, to 62%; while HQ isn't in front nothing fades and the selection is gray.
+- A block's header lines up with its sibling cards, and every chevron and description button sits in one column down the list.
+- The fold control is a chevron in its three forms. Keys share one width, so titles line up. "N ready" is gone from the progress line. A Blocked task with no reason says "Blocked"; a Blocked block shows its red edge.
+- A Blocked task holds its subtasks: they count as blocked, not ready.
+- Moving several tasks at once no longer crashes: the cause is fixed (selecting several comes back in v14).
+- The outline holds its height: no more rows cut off after a search clears, at any size.
+
+**A task's window**
+- Its status glyph at the title's left (a click moves it on, held for the list), its project and tags on one line, Blocked only when it is: the description and the subtasks are on the first screen.
+- Then Description, Subtasks, Related tasks, Files and links, each one's action at the end of its label: Edit, Block… · Blocked By… · After…, Link….
+- A subtask's window links to its parent.
+
+**Sessions**
+- A session that asks you something stays orange when one of its subagents finishes a tool.
+- After `/clear` a session keeps its face, its name and its tasks.
+- Close Session never types into a question or a permission prompt: it brings the session forward. A card whose Claude never started can be closed.
+- Ghostty is asked off HQ's main thread, one call at a time, with a 3 s limit: a stuck Ghostty never freezes HQ.
+
+**Reminders and GitHub**
+- `hq remind --at "tomorrow at 15:00"` (or "friday at 3pm", "1h30") is that time; words it doesn't read are refused, and the reply says when.
+- GitHub isn't asked at every click into HQ; it follows its back-off and rate limit. Linked PRs past the 60th are read too.
+- A review asked again without a new commit waits for you again.
+- A diagram that fails or hangs no longer blocks the next ones.
+
+**Sessions' `hq`** (plugin 0.10.0)
+- Two skills instead of three, each rule said once. `hq task tick`, `task edit --section` and `--replace` change one part of a description; `task show --deep` reads a story in one call; a description changed since the session read it isn't written over.
+- `hq ls sessions --here`, cut lists that say so, a subtask takes its parent's project, `task add --link`, reminders in `task show`, `--name=value`, the JSON shape in `hq help`, which HQ build runs.
+
+**For sessions working on HQ**
+- `tools/check.sh` runs everything in about 90 s (13 min before): test copies side by side, waits on what shows instead of fixed sleeps, `--fast` while working. `./build.sh` installs only a tree the release gate passed.
+- The gate tells the truth: test copies have their own preferences, snapshots reseed per page, a missing click target or a vanished check shows, a hung test copy is stopped with its stack, a crash's stack is in the summary.
+
 ## v13 · 2026-11-10
 
 The task list, redrawn as cards: where a story stands, and what holds it, at a glance.
