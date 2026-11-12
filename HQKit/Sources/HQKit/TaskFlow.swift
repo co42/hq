@@ -140,13 +140,14 @@ public struct TaskFlow: Sendable {
         return tally
     }
 
-    /// What a task that shows only blocked and doing subtasks shows under it: every one Blocked, blocked by an open task
-    /// or doing, at any depth, with the tasks between them and it (2026-11-11).
+    /// What a story's filter keeps under it: every open task that is Blocked or doing, at any depth, with the tasks between
+    /// them and it; not one only blocked by another task (2026-11-12).
     public func blockedOrDoing(under id: Int, in tree: TaskTree) -> Set<Int> {
         var shown = Set<Int>()
+        func kept(_ id: Int) -> Bool { nodes[id].map { !$0.done && ($0.blocked || $0.doing) } ?? false }
         func visit(_ id: Int) -> Bool {
             var any = false
-            for kid in tree.children(of: id) where visit(kid) || [.blocked, .blockedBy, .doing].contains(state(kid)) {
+            for kid in tree.children(of: id) where visit(kid) || kept(kid) {
                 shown.insert(kid)
                 any = true
             }

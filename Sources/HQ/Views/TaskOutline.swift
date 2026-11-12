@@ -47,9 +47,13 @@ private struct OutlineHost: NSViewRepresentable {
         model.foldTasks = { [weak model] ids, mode in
             if let coordinator = ids.first.flatMap(OutlineCoordinator.owner(of:)) { coordinator.fold(ids, mode) } else { for id in ids { model?.setFold(id, mode) } }
         }
+        model.filterStory = { [weak model] id in
+            if let coordinator = OutlineCoordinator.owner(of: id) { coordinator.toggleFilter(id) }
+            else if let model { model.setStoryFilter(id, !model.storyFilter.contains(id)) }
+        }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
         _ = (model.tasks, model.sessions, model.search, model.listSearch, model.hideDone, model.allDescriptions, model.shownDescriptions, model.hiddenDescriptions,
-             model.backlogOpen, model.folded, model.backlogFilter, model.fold, model.editingDescription, model.descriptionEditorHeight, model.seen,
+             model.backlogOpen, model.folded, model.backlogFilter, model.fold, model.storyFilter, model.editingDescription, model.descriptionEditorHeight, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
              model.pendingTaskLink, model.slackMessages)
@@ -120,18 +124,8 @@ struct OutlineSnapshot: Equatable {
     var expandable: Set<Int> = []
     /// Tasks with subtasks, shown or folded: their chevron shows.
     var foldable: Set<Int> = []
-    /// What each task with subtasks shows of them: the user's choice, else what its parent leaves on screen.
-    var modes: [Int: FoldMode] = [:]
-
-    /// The modes that show a task something different, fewest subtasks first: only blocked and doing is left out
-    /// when it would show nothing or everything.
-    static func modes(_ model: AppModel, _ id: Int) -> [FoldMode] {
-        let tree = model.taskTree
-        let hiding = model.hideDone.contains(model.list(of: id))
-        let all = tree.subtree(of: id).dropFirst().filter { !(hiding && model.task($0)?.status == .done) }
-        let important = model.taskFlow.blockedOrDoing(under: id, in: tree)
-        return important.isEmpty || important.count >= all.count ? [.hidden, .all] : FoldMode.opening
-    }
+    /// Top-level tasks with subtasks: their card has the story's filter button (2026-11-12).
+    var filterable: Set<Int> = []
 
     /// What a list's searches look for: the toolbar's and the list's own.
     static func searchWords(_ model: AppModel, _ list: TaskList) -> [String] {
@@ -177,29 +171,23 @@ struct OutlineSnapshot: Equatable {
         var snapshot = OutlineSnapshot()
         let tree = model.taskTree
         let flow = model.taskFlow
-        /// A task's shown subtasks: Hide Done of its list hides the done ones, a search the ones it didn't find. Then what
-        /// the user chose for it: none, only the blocked and doing ones, or all (2026-11-10); with no choice, what its
-        /// parent's choice leaves. A search shows all it found.
+        /// A task's shown subtasks: Hide Done of its list hides the done ones, a search the ones it didn't find, its story's
+        /// filter the ones it doesn't keep; then its chevron shows them or not. A search shows all it found.
         func add(_ id: Int, hiding: Bool, found: Set<Int>?, only: Set<Int>?) {
-            var only = only
-            let all = tree.children(of: id).filter { child in
-                !(hiding && model.task(child)?.status == .done) && (found?.contains(child) ?? true)
+            let children = tree.children(of: id).filter { child in
+                !(hiding && model.task(child)?.status == .done) && (found?.contains(child) ?? true) && (only?.contains(child) ?? true)
             }
-            guard !all.isEmpty else { return }
-            snapshot.foldable.insert(id)
-            let mode = found == nil ? model.fold[id] : .all
-            switch mode {
-            case .hidden?: only = []
-            case .important?: only = flow.blockedOrDoing(under: id, in: tree)
-            case .all?: only = nil
-            case nil: break
-            }
-            let children = only.map { only in all.filter(only.contains) } ?? all
-            snapshot.modes[id] = mode ?? (children.isEmpty ? .hidden : children.count < all.count ? .important : .all)
             guard !children.isEmpty else { return }
+            snapshot.foldable.insert(id)
+            guard found != nil || model.fold[id] != .hidden else { return }
             snapshot.expandable.insert(id)
             snapshot.children[.task(id)] = children.map { .task($0) }
             children.forEach { add($0, hiding: hiding, found: found, only: only) }
+        }
+        /// A top-level task: its filter, on, keeps only its tree's Blocked and doing tasks.
+        func story(_ id: Int, hiding: Bool, found: Set<Int>?) {
+            if !tree.children(of: id).isEmpty { snapshot.filterable.insert(id) }
+            add(id, hiding: hiding, found: found, only: model.storyFilter.contains(id) ? flow.blockedOrDoing(under: id, in: tree) : nil)
         }
         if let root {
             let kids = tree.children(of: root)
@@ -210,7 +198,7 @@ struct OutlineSnapshot: Equatable {
         snapshot.children[nil] = [.header(.overview), .header(.backlog)]
         let foundTasks = found(model, in: .overview)
         let tasks = model.folded.contains(.tasks) ? [] : matches(model, in: .overview, found: foundTasks)
-        tasks.forEach { add($0, hiding: model.hideDone.contains(.overview), found: foundTasks, only: nil) }
+        tasks.forEach { story($0, hiding: model.hideDone.contains(.overview), found: foundTasks) }
         var overview = tasks.map { OutlineNode.Kind.task($0) }
         if !model.folded.contains(.tasks) {
             if tasks.isEmpty { overview.append(.empty(.overview)) }
@@ -220,7 +208,7 @@ struct OutlineSnapshot: Equatable {
         if model.backlogOpen {
             let foundLater = found(model, in: .backlog)
             let backlog = matches(model, in: .backlog, found: foundLater)
-            backlog.forEach { add($0, hiding: model.hideDone.contains(.backlog), found: foundLater, only: nil) }
+            backlog.forEach { story($0, hiding: model.hideDone.contains(.backlog), found: foundLater) }
             snapshot.children[.header(.backlog)] = backlog.map { .task($0) } + [.quickAdd(.backlog)]
         } else {
             snapshot.children[.header(.backlog)] = []
@@ -1142,9 +1130,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             return
         }
         if model.list(of: id) == .backlog { model.backlogOpen = true } else { model.folded.remove(.tasks) }
-        // Hidden under a task that shows none or only some of its subtasks: those show all.
+        // Hidden under a folded task or by its story's filter: those show it.
         if !OutlineSnapshot.make(model).children.values.contains(where: { $0.contains(.task(id)) }) {
-            for ancestor in model.taskTree.ancestors(of: id) where model.fold[ancestor] != nil || snapshot.modes[ancestor] != .all { model.setFold(ancestor, .all) }
+            let ancestors = model.taskTree.ancestors(of: id)
+            for ancestor in ancestors where model.fold[ancestor] == .hidden { model.setFold(ancestor, nil) }
+            if let story = ancestors.last { model.setStoryFilter(story, false) }
         }
         refresh()
         DispatchQueue.main.async { [weak self] in self?.select(id) }
@@ -1329,8 +1319,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private func dress(_ cell: TaskCell, _ id: Int) {
         cell.gap = gap(of: id)
         cell.expandable = snapshot.foldable.contains(id)
-        cell.foldMode = snapshot.modes[id] ?? .all
-        cell.foldNext = cell.expandable ? nextFold(id) : .all
+        cell.open = snapshot.expandable.contains(id)
+        cell.filterable = root == nil && snapshot.filterable.contains(id)
         cell.show(model: model, id: id, coordinator: self, hovered: false)
     }
 
@@ -1661,75 +1651,55 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     // MARK: Folding
 
-    /// Sets what tasks show of their subtasks (2026-11-10); `deep`, every task under them too. A selected subtask that
-    /// goes gives the selection to the task that hid it.
+    /// Hides or shows tasks' subtasks; `deep`, every task under them too. A selected subtask that goes gives the
+    /// selection to the task that hid it.
     func fold(_ ids: [Int], _ mode: FoldMode, deep: Bool = false) {
         let tree = model.taskTree
         let targets = deep ? ids.flatMap { tree.subtree(of: $0) }.filter { !tree.children(of: $0).isEmpty } : ids.filter(snapshot.foldable.contains)
-        let change = targets.filter { model.fold[$0] != mode || snapshot.modes[$0] != mode }
+        let change = targets.filter { (model.fold[$0] ?? .all) != mode }
         guard !change.isEmpty else { return }
+        changeRows(hiding: change) { for id in change { model.setFold(id, mode) } }
+    }
+
+    /// The chevron: its subtasks shown or hidden (2026-11-12).
+    func toggleFold(_ id: Int) {
+        fold([id], snapshot.expandable.contains(id) ? .hidden : .all)
+    }
+
+    /// A story's filter button: on, only its Blocked and doing tasks show (2026-11-12).
+    func toggleFilter(_ id: Int) {
+        let on = !model.storyFilter.contains(id)
+        changeRows(hiding: [id]) { model.setStoryFilter(id, on) }
+    }
+
+    /// Rows change as `change` says; a selected task that goes gives the selection to the one in `hiding` above it.
+    private func changeRows(hiding: [Int], _ change: () -> Void) {
         let selected = selectedIDs
         let keyboard = outlineHasResponder
         outline?.slideCards()
-        for id in change { model.setFold(id, mode) }
+        change()
         refresh()
         guard let hidden = selected.first(where: { row(of: $0) < 0 }),
-              let folder = tree.ancestors(of: hidden).first(where: change.contains) else { return }
-        select(folder, keyboard: keyboard)
+              let holder = model.taskTree.ancestors(of: hidden).first(where: hiding.contains) else { return }
+        select(holder, keyboard: keyboard)
     }
 
-    /// The chevron: from all subtasks to only the blocked and doing ones, to none, back to all; a mode that would show
-    /// the same is passed.
-    func stepFold(_ id: Int) {
-        let modes = OutlineSnapshot.modes(model, id)
-        let current = snapshot.modes[id] ?? .all
-        let order: [FoldMode] = [.all, .important, .hidden]
-        let start = order.firstIndex(of: current) ?? 0
-        guard let next = (1...order.count).lazy.map({ order[(start + $0) % order.count] }).first(where: modes.contains) else { return }
-        fold([id], next)
-    }
-
-    /// What a click on a task's chevron does next, for its tooltip.
-    func nextFold(_ id: Int) -> FoldMode {
-        let modes = OutlineSnapshot.modes(model, id)
-        let order: [FoldMode] = [.all, .important, .hidden]
-        let start = order.firstIndex(of: snapshot.modes[id] ?? .all) ?? 0
-        return (1...order.count).lazy.map { order[(start + $0) % order.count] }.first(where: modes.contains) ?? .all
-    }
-
-    /// ←: fewer subtasks on the selected tasks; on one that shows none, or has none, its parent takes the selection.
+    /// ←: hides the selected tasks' subtasks; on one that shows none, or has none, its parent takes the selection.
     private func foldLeft(_ ids: [Int], deep: Bool) {
         if deep { return fold(ids, .hidden, deep: true) }
-        var stepped = false
-        for id in ids where snapshot.foldable.contains(id) {
-            guard let fewer = step(id, by: -1) else { continue }
-            fold([id], fewer)
-            stepped = true
-        }
-        guard !stepped, ids.count == 1, let parent = model.taskTree.parent(of: ids[0]), row(of: parent) >= 0 else { return }
+        let open = ids.filter(snapshot.expandable.contains)
+        if !open.isEmpty { return fold(open, .hidden) }
+        guard ids.count == 1, let parent = model.taskTree.parent(of: ids[0]), row(of: parent) >= 0 else { return }
         select(parent)
     }
 
-    /// →: more subtasks on the selected tasks; on one that shows them all, its first subtask takes the selection.
+    /// →: shows the selected tasks' subtasks; on one that shows them, its first subtask takes the selection.
     private func foldRight(_ ids: [Int], deep: Bool) {
         if deep { return fold(ids, .all, deep: true) }
-        var stepped = false
-        for id in ids where snapshot.foldable.contains(id) {
-            guard let more = step(id, by: 1) else { continue }
-            fold([id], more)
-            stepped = true
-        }
-        guard !stepped, ids.count == 1, case .task(let first)? = snapshot.children(of: .task(ids[0])).first else { return }
+        let shut = ids.filter { snapshot.foldable.contains($0) && !snapshot.expandable.contains($0) }
+        if !shut.isEmpty { return fold(shut, .all) }
+        guard ids.count == 1, case .task(let first)? = snapshot.children(of: .task(ids[0])).first else { return }
         select(first)
-    }
-
-    /// The next mode with more subtasks (1) or fewer (-1) that shows something different; nil at the end.
-    private func step(_ id: Int, by offset: Int) -> FoldMode? {
-        let modes = OutlineSnapshot.modes(model, id)
-        let current = FoldMode.opening.firstIndex(of: snapshot.modes[id] ?? .all) ?? 2
-        let candidates = offset > 0 ? Array(modes.filter { FoldMode.opening.firstIndex(of: $0)! > current })
-            : Array(modes.filter { FoldMode.opening.firstIndex(of: $0)! < current }.reversed())
-        return candidates.first
     }
 
     /// Tab and ⇧Tab on rows: the next section takes the keyboard; the rows unselect, kept aside for when Tab comes back.
@@ -2427,10 +2397,10 @@ struct TaskMenu: View {
             Divider()
             Button(model.descriptionShownInOutline(id) ? "Hide Description" : "Show Description") { model.toggleDescription(id) }
             if !model.taskTree.children(of: id).isEmpty {
-                Menu("Show Subtasks") {
-                    ForEach(FoldMode.opening, id: \.self) { mode in
-                        Toggle(mode.title, isOn: Binding(get: { (model.fold[id] ?? .all) == mode }, set: { _ in model.foldTasks([id], mode) }))
-                    }
+                let shown = model.fold[id] != .hidden
+                Button(shown ? "Hide Subtasks" : "Show Subtasks") { model.foldTasks([id], shown ? .hidden : .all) }
+                if model.taskTree.parent(of: id) == nil {
+                    Toggle("Only Blocked and Doing", isOn: Binding(get: { model.storyFilter.contains(id) }, set: { _ in model.filterStory(id) }))
                 }
             }
             Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }

@@ -55,6 +55,8 @@ retired=(
   'Fork Session' 'Start Session from Its History… (T-408)'
   'accent bar between' 'a line with a ring where it lands (T-437)'
   'Only Blocking and Doing' 'Only Blocked and Doing (T-442)'
+  'chevron.compact.down' 'a chevron that shows or hides, a story filter button (T-442)'
+  'Show Subtasks ›' 'Hide Subtasks or Show Subtasks (T-442)'
 )
 
 lint='

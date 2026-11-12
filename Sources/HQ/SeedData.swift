@@ -233,7 +233,7 @@ enum SeedData {
                    at: ago(270), readAt: ago(200)),
             Notice(kind: .session, level: .update, source: s7, text: "Notes for the weekly infra sync are in the vault", at: ago(95), readAt: ago(80)),
         ], bellSeenAt: ago(30))
-        model.fold = [13: .important]
+        model.storyFilter = [13]
         model.shownDescriptions = [44]
         // Roles: the two that ship with HQ, and one of the user's.
         model.roles = RoleItem.defaults + [

@@ -117,7 +117,6 @@ enum UITest {
         model.backlogOpen = false
         model.backlogFilter = BacklogFilter()
         model.folded = []
-        model.fold = [:]
         model.hideDone = []
         model.pinnedOnly = false
         model.allDescriptions = []
@@ -129,6 +128,9 @@ enum UITest {
         }
         SeedData.fill(model, now: .now)
         model.tasks = []
+        // The seed's tasks go: so do their folds and filters.
+        model.fold = [:]
+        model.storyFilter = []
         model.files = []
         model.selectedTasks = []
         model.selectedSession = nil

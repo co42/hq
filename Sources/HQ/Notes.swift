@@ -663,10 +663,22 @@ extension AppModel {
         if fold[id] != mode { fold[id] = mode }
     }
 
-    /// All of a task's subtasks show: one was just added, indented or dropped under it.
+    /// All of a task's subtasks show: one was just added, indented or dropped under it; its story's filter goes off.
     func showSubtasks(_ id: Int) {
-        guard fold[id] != .all else { return }
-        if fold[id] != nil || taskTree.ancestors(of: id).contains(where: { fold[$0] == .important }) { setFold(id, .all) }
+        if fold[id] == .hidden { setFold(id, nil) }
+        if let story = ([id] + taskTree.ancestors(of: id)).last, storyFilter.contains(story) { setStoryFilter(story, false) }
+    }
+
+    /// A story's filter: on, its tree shows only its Blocked and doing tasks, each one's way opened.
+    func setStoryFilter(_ id: Int, _ on: Bool) {
+        guard storyFilter.contains(id) != on else { return }
+        if on {
+            let kept = taskFlow.blockedOrDoing(under: id, in: taskTree)
+            for task in [id] + kept.flatMap({ taskTree.ancestors(of: $0) }) where fold[task] == .hidden { setFold(task, nil) }
+            storyFilter.insert(id)
+        } else {
+            storyFilter.remove(id)
+        }
     }
 
     // MARK: Files

@@ -24,7 +24,7 @@ extension UITest {
         let tray = cell.links
         guard !tray.isHidden, tray.window != nil, cell.bounds.contains(tray.frame),
               tray.width(compact: tray.compact) <= tray.bounds.width + 0.5 else { return [] }
-        let others = [cell.title, cell.fold, cell.note, cell.project, cell.labels, cell.blockers, cell.progress] as [NSView]
+        let others = [cell.title, cell.fold, cell.note, cell.filter, cell.project, cell.labels, cell.blockers, cell.progress] as [NSView]
         guard !others.contains(where: { !$0.isHidden && $0.frame.intersects(tray.frame) }) else { return [] }
         return Set(tray.tokens.flatMap(\.routes).map(kind))
     }

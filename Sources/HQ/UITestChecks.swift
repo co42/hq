@@ -948,65 +948,73 @@ extension UITest {
         await disclose(parent.id)
         await fits("opened again")
         await check("opening folded tasks keeps every row in the outline and clickable", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
-        // Only blocked and doing: every Blocked, blocked-by or doing subtask, with the tasks on the way; not one that only
-        // blocks another (T-442).
-        if subtasks.count > 12, let deep = model.taskTree.children(of: subtasks[4]).first {
+        // The chevron toggles: subtasks shown, hidden, shown again; a story's filter keeps only its Blocked and doing tasks,
+        // with the tasks above them; not one only blocked by another task (T-442, 2026-11-12).
+        if subtasks.count > 15, let deep = model.taskTree.children(of: subtasks[4]).first,
+           let inner = model.addSubtask(to: subtasks[13], title: "Inner, doing") {
             problems = []
-            for id in subtasks.prefix(7) { model.setStatus(id, .doing) }
+            for id in subtasks.prefix(7) + [inner.id] { model.setStatus(id, .doing) }
             model.addLink(subtasks[10], .blockedBy, subtasks[9])
             model.addLink(subtasks[11], .blockedBy, deep)
             model.block(subtasks[12])
+            model.setFold(subtasks[13], .hidden)
             await endUndoGroup(model)
-            coordinator.fold([parent.id], .important)
             await ui.settle(0.8)
-            func shown() -> Set<Int> { Set((subtasks + [deep]).filter { outline.row(forItem: coordinator.node(.task($0))) >= 0 }) }
-            let expected = Set(subtasks.prefix(7) + [subtasks[10], subtasks[11], subtasks[12]])
-            await check("showing blocked and doing, a task shows every doing, Blocked and blocked-by subtask, none that only blocks another", shown() == expected,
-                  "shown \(shown().sorted()) expected \(expected.sorted())")
-            await fits("showing blocked and doing")
-            let parentRow = outline.row(forItem: coordinator.node(.task(parent.id)))
-            if parentRow >= 0 { outline.scrollRowToVisible(parentRow) }
+            func cell(_ id: Int) -> TaskCell? {
+                let row = outline.row(forItem: coordinator.node(.task(id)))
+                return row < 0 ? nil : outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell
+            }
+            func shown() -> Set<Int> { Set((subtasks + [deep, inner.id]).filter { outline.row(forItem: coordinator.node(.task($0))) >= 0 }) }
+            func press(_ button: NSButton?) async {
+                guard let button else { return problems.append("no button") }
+                outline.scrollRowToVisible(outline.row(for: button))
+                await ui.settle(0.2)
+                if ui.canClickTables { await ui.click(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)) } else { button.performClick(nil) }
+                await ui.settle(0.6)
+            }
+            // A click on the chevron hides them all, the next shows them all: no third state.
+            await press(cell(parent.id)?.fold)
+            let hidden = subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) < 0 }
+            await press(cell(parent.id)?.fold)
+            await check("a task's chevron hides its subtasks, and its next click shows them all again",
+                  hidden && subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 } && model.fold[parent.id] == .all,
+                  "hidden \(hidden), \(String(describing: model.fold[parent.id])), \(problems)")
+            await check("its tooltip says what a click does", cell(parent.id)?.fold.toolTip == "Hide its subtasks (←)", cell(parent.id)?.fold.toolTip ?? "-")
+            // The filter button: on a story with subtasks only.
+            await check("a story with subtasks has the filter button, a subtask with its own has none",
+                  cell(parent.id)?.filter.isHidden == false && cell(subtasks[13])?.filter.isHidden == true && cell(subtasks[13])?.fold.isHidden == false)
+            model.setDescription(parent.id, "Why the story exists.")
+            await endUndoGroup(model)
+            await ui.settle(0.4)
+            func order() -> (note: NSRect, filter: NSRect, fold: NSRect)? {
+                guard let story = cell(parent.id), !story.note.isHidden, !story.filter.isHidden else { return nil }
+                return (story.note.frame, story.filter.frame, story.fold.frame)
+            }
+            await check("on a story's card, right to left: the chevron, the filter button, the description button",
+                  order().map { $0.filter.maxX <= $0.fold.minX + 0.5 && $0.note.maxX <= $0.filter.minX + 0.5 && abs($0.note.midY - $0.filter.midY) < 0.5 } == true,
+                  String(describing: order()))
+            model.setDescription(parent.id, "")
+            await endUndoGroup(model)
+            coordinator.select(subtasks[15])
             await ui.settle(0.3)
-            func cell() -> TaskCell? {
-                let row = outline.row(forItem: coordinator.node(.task(parent.id)))
-                return row < 0 ? nil : outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell
-            }
-            await check("its chevron says so", cell()?.foldMode == .important && cell()?.fold.isHidden == false && cell()?.fold.toolTip?.hasPrefix("Only blocked") == true,
-                  "row \(parentRow), \(String(describing: cell()?.foldMode)), hidden \(String(describing: cell()?.fold.isHidden)), \(cell()?.fold.toolTip ?? "-")")
-            // The chevron steps: blocked and doing, none, all.
-            coordinator.stepFold(parent.id)
-            await ui.settle(0.6)
-            let none = subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) < 0 }
-            coordinator.stepFold(parent.id)
-            await ui.settle(0.6)
-            let all = subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 }
-            coordinator.stepFold(parent.id)
-            await ui.settle(0.6)
-            await check("its chevron steps from blocked and doing to none, to all, back to blocked and doing", none && all && model.fold[parent.id] == .important,
-                  "none \(none) all \(all) \(String(describing: model.fold[parent.id]))")
-            // A subtask under it with subtasks of its own, all hidden by its parent's choice: its chevron says hidden, and shows them.
-            if let inner = model.addSubtask(to: subtasks[0], title: "Inner, not doing") {
-                // Adding it chose All for its parent: back to no choice, as a subtask the user never touched.
-                model.setFold(subtasks[0], nil)
-                await endUndoGroup(model)
-                await ui.settle(0.6)
-                let innerShown = outline.row(forItem: coordinator.node(.task(inner.id))) >= 0
-                let mode = coordinator.snapshot.modes[subtasks[0]]
-                coordinator.stepFold(subtasks[0])
-                await ui.settle(0.6)
-                await check("under a task showing blocked and doing, a subtask's chevron says what shows and its click shows the rest",
-                      !innerShown && mode == .hidden && outline.row(forItem: coordinator.node(.task(inner.id))) >= 0,
-                      "shown before \(innerShown), mode \(String(describing: mode))")
-                model.deleteTasks([inner.id])
-                await endUndoGroup(model)
-                model.setFold(subtasks[0], nil)
-            }
-            coordinator.fold([parent.id], .all)
-            await ui.settle(0.8)
-            await check("unfolded, all its subtasks show", subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 })
+            await press(cell(parent.id)?.filter)
+            let expected = Set(subtasks.prefix(7) + [subtasks[12], subtasks[13], inner.id])
+            await check("the story's filter keeps its doing and Blocked tasks with the tasks above them, opened; none only blocked by another or todo",
+                  shown() == expected && model.storyFilter == [parent.id], "shown \(shown().sorted()) expected \(expected.sorted())")
+            await check("its button turns the accent, its tooltip says so", cell(parent.id)?.filter.contentTintColor == Ink.accentNS
+                  && cell(parent.id)?.filter.toolTip?.hasPrefix("Showing only") == true, cell(parent.id)?.filter.toolTip ?? "-")
+            await check("a selected task the filter hides gives the selection to its story", model.selectedTasks == [parent.id], "\(model.selectedTasks)")
+            await fits("filtered")
+            await press(cell(parent.id)?.filter)
+            await check("off, the story shows all its tasks again", model.storyFilter.isEmpty
+                  && subtasks.allSatisfy { outline.row(forItem: coordinator.node(.task($0))) >= 0 }, "shown \(shown().count) of \(subtasks.count + 2)")
             await check("and every row stays in the outline and clickable", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
+            model.deleteTasks([inner.id])
+            await endUndoGroup(model)
+            model.setFold(subtasks[13], nil)
+            await ui.settle(0.4)
         } else {
-            await check("a story with over 12 subtasks, one of them with its own", false)
+            await check("a story with over 15 subtasks, one of them with its own", false)
         }
         // The Backlog folded, the last tasks of Tasks opened one after the other: its header stays on the page.
         problems = []
@@ -3057,25 +3065,25 @@ extension UITest {
         } else {
             await check("a card with a description shows its button", false)
         }
-        // N beside a doing subtask its parent shows among only blocked and doing: the new task shows, its title edited (it was
+        // N beside a doing subtask of a filtered story: the filter goes off, the new task shows, its title edited (it was
         // added out of sight and left empty in the vault).
         model.setStatus(third.id, .doing)
-        model.setFold(goal.id, .important)
+        model.setStoryFilter(goal.id, true)
         await endUndoGroup(model)
         await ui.settle(0.6)
         coordinator.select(third.id)
         await ui.settle(0.3)
         await ui.key("n")
         await ui.settle(0.6)
-        await check("N beside a doing subtask under only blocked and doing: the new task shows, its title edited",
-              model.focusedTask.map { $0 != third.id && index($0) >= 0 } == true && ui.isTyping,
-              "\(String(describing: model.focusedTask)) \(String(describing: model.fold[goal.id]))")
+        await check("N beside a doing subtask of a filtered story: its filter goes off, the new task shows, its title edited",
+              model.focusedTask.map { $0 != third.id && index($0) >= 0 } == true && ui.isTyping && model.storyFilter.isEmpty,
+              "\(String(describing: model.focusedTask)) \(model.storyFilter)")
         let besides = model.focusedTask
         await ui.key(.escape)
         await ui.until(2) { besides.map { model.task($0) == nil } ?? true }
         await check("and Escape drops it, empty", besides.map { model.task($0) == nil } == true,
               besides.flatMap { model.task($0) }.map { "left: title \"\($0.title)\" empty \(model.isEmptyTask($0.id)) shown \(index($0.id)) typing \(ui.isTyping) responder \(String(describing: ui.window.firstResponder)) selected \(model.selectedTasks)" } ?? "-")
-        model.setFold(goal.id, .all)
+        model.setStoryFilter(goal.id, false)
         model.setStatus(third.id, .todo)
         await endUndoGroup(model)
         await ui.settle(0.4)

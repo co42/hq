@@ -12,7 +12,7 @@ enum AgentCommands {
              "needsYou": model.importantCount, "updates": model.updateCount, "sessions": model.gridSessions.count,
              "tasks": model.tasks.count, "files": model.files.count, "artifacts": model.artifacts.count]
         },
-        AgentCommand(name: "ctx", summary: "Show this session's role, the session that started it, its tasks, the sessions it started with their role, state and task, "
+        AgentCommand(name: "ctx", summary: "Show this session's role, the session that started it, its tasks, every session it started and theirs, closed ones too, with their role, state and task, "
                         + "what is doing in its project, recent files and artifacts, and the other open sessions.",
                      params: [.init(name: "session", help: "a session id (default: the Claude session running the command)"),
                               .init(name: "all", kind: .boolean, help: "the tasks doing in every project, not only this session's")],
@@ -22,7 +22,7 @@ enum AgentCommands {
         AgentCommand(name: "ls", summary: "List sessions, tasks, prs, files, artifacts, projects, notifications, reminders or roles. A list that is cut says so on its last line.",
                      params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts, projects, notifications (--all: with what was read today), reminders or roles"),
                               .init(name: "here", kind: .boolean, help: "sessions: only the ones in this repository (or this folder)"),
-                              .init(name: "tree", kind: .boolean, help: "sessions: the top-level ones, each with the sessions it started under it, indented"),
+                              .init(name: "tree", kind: .boolean, help: "sessions: the top-level ones, each with the sessions it started under it, indented; with --all, closed ones in their teams"),
                               .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
                               .init(name: "parent", help: "tasks: T-12's subtasks, the whole tree under it"),
@@ -337,9 +337,21 @@ enum AgentCommands {
             if session.id == args.string(sessionArg) { json["thisSession"] = true }
             return json
         },
+        AgentCommand(name: "session close", summary: "Close a session you started, or one of theirs, as Close Session does in HQ: its input emptied, /exit typed in its "
+                        + "terminal, the terminal closed once Claude quits. Its conversation stays for session resume. One that waits on the user is refused.",
+                     params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a session under this one")],
+                     example: "hq session close 41ccc6", output: sessionOutput + "; note") { args, model in
+            try closeSessionCommand(args, model)
+        },
+        AgentCommand(name: "session resume", summary: "Resume a closed session you started, or one of theirs, as Resume does in HQ: claude --resume in a new tab of "
+                        + "its parent's Ghostty window, its place in the team kept. It reports to its parent again.",
+                     params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a closed session under this one")],
+                     example: "hq session resume 41ccc6", output: sessionOutput + "; note") { args, model in
+            try resumeSessionCommand(args, model)
+        },
         AgentCommand(name: "role show", summary: "Show a role: its color, its line, the text a session with it starts with, and the open sessions that have it.",
                      params: [.init(name: "role", required: true, positional: true, help: "its name, as hq ls roles lists it")],
-                     example: "hq role show Leader", output: roleOutput + "; body, text", readOnly: true) { args, model in try roleShowCommand(args, model) },
+                     example: "hq role show Leader", output: roleOutput + "; body and text, the role's text as role edit --body takes it; printed, what hq prints", readOnly: true) { args, model in try roleShowCommand(args, model) },
         AgentCommand(name: "role new", summary: "Make a role: a note in HQ's roles, its text what a session started with it gets, at start, on resume and after a compact.",
                      params: [.init(name: "name", required: true, positional: true, help: "its name, short: Reviewer"),
                               .init(name: "line", help: "one line: what a session with it does"),
@@ -554,7 +566,7 @@ enum AgentCommands {
     static let taskOutput = "{id, title, status, list, project, parent, tags, links, related, sessions, state, flow, blocked, blockedReason, blockedBy, after, modified}"
     static let fileOutput = "{name, title, path, modified, tasks}"
     static let noticeOutput = "{id, section, level, kind, text, at, due, when, read, source, links: [{kind, title, id | name | url}]}"
-    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, role, parent, thisSession}"
+    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, closedAt, role, parent, thisSession}"
 
     /// What each session last read of each description, as a digest: `task edit --body` refuses to write over a newer one.
     private static var reads: [String: [Int: Int]] = [:]
@@ -689,7 +701,10 @@ extension SessionItem {
         var json: JSONObject = ["id": id, "name": name, "state": status.title, "since": JSON.date(status.since),
                                 "cwd": cwd, "branch": branch, "tasks": model.tasks(of: id).map(\.key)]
         if let reason { json["reason"] = reason }
-        if closedAt != nil { json["closed"] = true }
+        if let closedAt {
+            json["closed"] = true
+            json["closedAt"] = JSON.date(closedAt)
+        }
         if let role = model.role(named: role) { json["role"] = role.name }
         if let parent = model.parentSession(of: id) { json["parent"] = parent.id }
         return json

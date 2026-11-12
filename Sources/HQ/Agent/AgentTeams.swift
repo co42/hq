@@ -100,7 +100,9 @@ extension AgentCommands {
         if !users.isEmpty {
             text += ["", "Used by:"] + users.map { "  \($0.id.prefix(8)) [\($0.status.title.lowercased())] \($0.name)" }
         }
-        json["text"] = text.joined(separator: "\n")
+        // `text` is the role's, as `role edit --body` takes it: show then edit gives the same role back.
+        json["text"] = role.text
+        json["printed"] = text.joined(separator: "\n")
         return json
     }
 
@@ -175,11 +177,15 @@ extension AgentCommands {
 
     /// `ls sessions --tree`: the top-level sessions, each with its team under it, depth first; with --all, closed ones too.
     static func treeRows(_ model: AppModel, all: Bool) -> [(session: SessionItem, depth: Int)] {
-        let tree = all ? SessionTree(model.sessions.map { SessionTree.Node(id: $0.id, parent: $0.parent, order: $0.order, started: $0.started) })
-                       : model.sessionTree
+        let tree = all ? everyTeam(model) : model.sessionTree
         return tree.roots.flatMap { root in
             [(root, 0)] + tree.rows(under: root).map { ($0.id, $0.depth) }
         }.compactMap { id, depth in model.session(id).map { (session: $0, depth: depth) } }
+    }
+
+    /// Every session HQ remembers in its team, closed ones too.
+    private static func everyTeam(_ model: AppModel) -> SessionTree {
+        SessionTree(model.sessions.map { SessionTree.Node(id: $0.id, parent: $0.parent, order: $0.order, started: $0.started) })
     }
 
     /// `hq ctx`'s team: who started this session, and the sessions it started, with their role, state and task.
@@ -192,16 +198,19 @@ extension AgentCommands {
                            + (parent.closedAt == nil ? ". You report to it: SendMessage, to “\(parent.name)”" : ""))
             json["startedBy"] = parent.agentJSON(model)
         }
-        let rows = model.team(of: session.id)
+        // Every session it started and theirs, closed ones too: a Leader resumes them (T-450).
+        let rows = everyTeam(model).rows(under: session.id).compactMap { row in model.session(row.id).map { (session: $0, depth: row.depth) } }
         if !rows.isEmpty {
             let open = rows.filter { $0.session.closedAt == nil }.count
-            team.append("Your sessions (\(open) open, they report to you):")
+            let closed = rows.count - open
+            team.append("Your sessions (\(open) open\(closed > 0 ? ", \(closed) closed: hq session resume brings one back" : ""), the open ones report to you):")
             team += rows.map { row in
                 let item = row.session
                 let role = model.role(named: item.role).map { " · \($0.name)" } ?? ""
                 let tasks = model.tasks(of: item.id).filter { $0.status != .done }.map(\.key)
-                let reason = item.reason.map { " · \($0)" } ?? ""
-                return String(repeating: "  ", count: row.depth) + "\(item.id.prefix(8)) [\(item.status.title.lowercased())] \(item.name)\(role)"
+                let reason = item.closedAt == nil ? item.reason.map { " · \($0)" } ?? "" : ""
+                let state = item.closedAt.map { "closed \(Elapsed.short(from: $0, to: model.now)) ago" } ?? item.status.title.lowercased()
+                return String(repeating: "  ", count: row.depth) + "\(item.id.prefix(8)) [\(state)] \(item.name)\(role)"
                     + (tasks.isEmpty ? "" : " · " + tasks.joined(separator: ", ")) + reason
             }
             json["team"] = rows.map { row in

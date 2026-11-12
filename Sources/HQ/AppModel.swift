@@ -120,23 +120,11 @@ struct TextDraft: Equatable {
     }
 }
 
-/// What a task shows of its subtasks: none, only the blocked and doing ones, or all (2026-11-10).
+/// What a task shows of its subtasks: none or all; its chevron toggles them (2026-11-12).
 enum FoldMode: String, CaseIterable {
-    case hidden, important, all
+    case hidden, all
 
-    /// The modes as they open, fewest subtasks first.
-    static let opening: [FoldMode] = [.hidden, .important, .all]
-
-    /// Its name in the card's menu.
-    var title: String {
-        switch self {
-        case .hidden: "None"
-        case .important: "Only Blocked and Doing"
-        case .all: "All"
-        }
-    }
-
-    /// What the user chose, by task; the tasks folded before the three modes stay hidden.
+    /// What the user chose, by task; the tasks folded before the modes stay hidden, v14's "only some" shows them all.
     static func remembered() -> [Int: FoldMode] {
         let defaults = Prefs.defaults
         if let saved = defaults.dictionary(forKey: "outline.fold") as? [String: String] {
@@ -339,10 +327,13 @@ final class AppModel {
     var descriptionEditorHeight: CGFloat = 0
     /// Where a double-click landed on rendered markdown, from its top-left: the next editor puts the caret there.
     @ObservationIgnored var editorCaret: CGPoint?
-    /// What each task shows of its subtasks, where the user chose, by key (2026-11-10). A task not in it shows them all,
-    /// but under a task that shows only some: it follows that one.
+    /// Tasks whose subtasks are hidden or shown by the user's choice, by key; a task not in it shows them.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
         didSet { FoldMode.remember(fold) }
+    }
+    /// Stories whose filter is on: their tree shows only its Blocked and doing tasks, with the tasks above them (2026-11-12).
+    var storyFilter: Set<Int> = Set((Prefs.defaults.array(forKey: "outline.filter") as? [Int]) ?? []) {
+        didSet { Prefs.defaults.set(Array(storyFilter).sorted(), forKey: "outline.filter") }
     }
     /// Colors the user picked, by "tag:name" or "project:name" (lowercased); the others follow their name.
     var labelColors: [String: String] = (Prefs.defaults.dictionary(forKey: "labels.colors") as? [String: String]) ?? [:] {
@@ -387,6 +378,8 @@ final class AppModel {
     @ObservationIgnored var showHoldPicker: (Int, HoldPicker.Kind) -> Void = { _, _ in }
     /// Sets what tasks show of their subtasks, as the outline does it: the selection moves to a task that hid it.
     @ObservationIgnored var foldTasks: ([Int], FoldMode) -> Void = { _, _ in }
+    /// Turns a story's filter on or off, as its button does.
+    @ObservationIgnored var filterStory: (Int) -> Void = { _ in }
     /// The section that takes the keyboard next: Tab and ⇧Tab.
     var sectionFocus: PageSection?
     /// A row of Pull Requests or Files and Artifacts that the keyboard selected: the page scrolls to it.

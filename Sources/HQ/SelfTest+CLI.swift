@@ -267,7 +267,7 @@ extension SelfTest {
         check("--tree is for sessions only", failure(agent("ls", ["kind": "tasks", "tree": "true"]))?.code == "usage")
         let roles = agent("ls", ["kind": "roles"])
         check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(2).compactMap { $0["name"] as? String } == ["Leader", "Worker"]
-              && AgentCLI.human(roles).hasPrefix("Leader [indigo] Follows a story and keeps it moving. Never writes the code. · ships with HQ · "), AgentCLI.human(roles))
+              && AgentCLI.human(roles).hasPrefix("Leader [indigo] Leads a story and keeps its task tree small and current. Never writes the code. · ships with HQ · "), AgentCLI.human(roles))
 
         // role show, new, edit, delete.
         let shown = AgentCLI.human(agent("role show", ["role": "worker"]))
@@ -283,6 +283,12 @@ extension SelfTest {
         let edited = agent("role edit", ["role": "CLI Reviewer", "name": "CLI Critic", "line": "Reviews one pull request."])
         check("role edit renames its note and changes its line, saying what changed", model.role(named: "CLI Critic")?.line == "Reviews one pull request."
               && model.role(named: "CLI Reviewer") == nil && edited["text"] as? String == "Changed role CLI Critic: name, line", "\(edited)")
+        let written = "Read the diff.\n\n- Say what to fix, with the line."
+        _ = agent("role edit", ["role": "CLI Critic", "body": written])
+        let again = agent("role show", ["role": "CLI Critic"])
+        check("role show --json's text is what role edit --body wrote: show then edit gives the role back",
+              again["text"] as? String == written && again["body"] as? String == written
+              && AgentCLI.human(again).hasPrefix("CLI Critic [pink]") && AgentCLI.human(again).contains(written), "\(again)")
         check("role edit with nothing to change is refused", failure(agent("role edit", ["role": "CLI Critic"]))?.code == "usage")
         check("so is a name another role has", failure(agent("role edit", ["role": "CLI Critic", "name": "Leader"]))?.code == "invalid")
         check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Worker") == true)

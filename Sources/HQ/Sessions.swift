@@ -685,7 +685,7 @@ extension AppModel {
     /// One that waits on the user gets no keys: Return could answer its prompt, so HQ asks them to answer it first. A
     /// background session is stopped (`claude stop`), its conversation kept; one HQ can reach neither way opens its modal,
     /// which says so. A card whose Claude isn't running closes at once.
-    func closeSession(_ id: String) {
+    func closeSession(_ id: String, quietly: Bool = false) {
         guard let item = session(id) else { return }
         guard item.isRunning, !neverReported(item) else { return closeCard(id) }
         let known = backgroundHandles[id]
@@ -713,7 +713,8 @@ extension AppModel {
                 switch try result.get() {
                 case .exited: break
                 case .stopped(let handle): self.backgroundHandles[id] = handle
-                case .unreachable: if self.modal != .session(id) { self.open(.session(id)) }
+                // From hq (quietly), nothing opens in front of the user: the log says it.
+                case .unreachable: if !quietly, self.modal != .session(id) { self.open(.session(id)) }
                 }
             }
         }
@@ -957,15 +958,17 @@ extension AppModel {
         put(item)
     }
 
-    /// A new Ghostty tab running `claude --resume`, in the session's directory; its card joins the end of the grid.
+    /// A new Ghostty tab running `claude --resume`, in the session's directory and its parent's Ghostty window when that one
+    /// runs there; a top-level card joins the end of the grid, a team's session keeps its place in the team.
     func resume(_ id: SessionItem.ID) {
         guard var item = session(id), !item.isRunning else { return }
         let before = (closedAt: item.closedAt, order: item.order)
+        let parent = parentSession(of: id)?.id
         item.closedAt = nil
-        item.order = nextGridOrder
+        if parent == nil { item.order = nextGridOrder }
         put(item)
         // No tab: the card goes back where it was.
-        newTab(in: item.cwd, command: item.resumeCommand) { [weak self] started in
+        newTab(in: item.cwd, command: item.resumeCommand, beside: windowTTY(forChildOf: parent)) { [weak self] started in
             guard !started, var back = self?.session(id), !back.isRunning else { return }
             (back.closedAt, back.order) = before
             self?.put(back)

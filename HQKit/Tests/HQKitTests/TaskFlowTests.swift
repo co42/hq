@@ -64,13 +64,17 @@ private func story() -> TaskFlow {
 @Test func flowBlockedOrDoingKeepsThemAndTheirParents() {
     let flow = story()
     let tree = TaskTree((1...10).map { TaskTree.Node(id: $0, parent: [9, 10].contains($0) ? 8 : $0 == 1 ? nil : 1, order: Double($0)) })
-    // 3 doing, 4 blocked by 3, 6 Blocked, 9 blocked by 6 under 8; 2 done, 5 after 4, 7 blocked by a done task, 10 todo.
-    #expect(flow.blockedOrDoing(under: 1, in: tree) == [3, 4, 6, 8, 9])
-    #expect(flow.blockedOrDoing(under: 8, in: tree) == [9])
-    // 5 only blocks 4: it doesn't show; 2 shows on the way to 3.
+    // 3 doing, 6 Blocked; 4 and 9 only blocked by another task, 2 done, 5 after 4, 7 blocked by a done task, 10 todo.
+    #expect(flow.blockedOrDoing(under: 1, in: tree) == [3, 6])
+    #expect(flow.blockedOrDoing(under: 8, in: tree).isEmpty)
+    // 4 only blocked by 5: it doesn't show; 2 shows on the way to 3.
     let deep = TaskFlow([.init(id: 1), .init(id: 2, parent: 1), .init(id: 3, parent: 2, doing: true), .init(id: 4, parent: 1, blockedBy: [5]), .init(id: 5, parent: 1)])
     let deepTree = TaskTree((1...5).map { TaskTree.Node(id: $0, parent: $0 == 3 ? 2 : $0 == 1 ? nil : 1, order: Double($0)) })
-    #expect(deep.blockedOrDoing(under: 1, in: deepTree) == [2, 3, 4])
+    #expect(deep.blockedOrDoing(under: 1, in: deepTree) == [2, 3])
+    // Doing and blocked by another task: still doing; done and Blocked: done.
+    let both = TaskFlow([.init(id: 1), .init(id: 2, parent: 1, doing: true, blockedBy: [3]), .init(id: 3, parent: 1), .init(id: 4, parent: 1, done: true, blocked: true)])
+    let bothTree = TaskTree((1...4).map { TaskTree.Node(id: $0, parent: $0 == 1 ? nil : 1, order: Double($0)) })
+    #expect(both.blockedOrDoing(under: 1, in: bothTree) == [2])
     // Every doing one, however many.
     let many = TaskFlow([.init(id: 1)] + (2...9).map { .init(id: $0, parent: 1, doing: true) })
     let wide = TaskTree([.init(id: 1)] + (2...9).map { .init(id: $0, parent: 1, order: Double($0)) })

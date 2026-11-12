@@ -367,6 +367,8 @@ enum AgentCLI {
     private static func plain(_ result: Any) -> String {
         guard let object = result as? JSONObject else { return "\(result)" }
         if let line = notice(object) { return line }
+        // A command whose `text` is its item's own (`role show`) prints its view from `printed`.
+        if let printed = object["printed"] as? String { return printed }
         // A command with a text form (`ctx`) prints that.
         if let text = object["text"] as? String { return text }
         // A list (`ls`) carries its total, and says when it's cut.
@@ -462,7 +464,8 @@ enum AgentCLI {
             let reason = (object["reason"] as? String).map { " · \($0)" } ?? ""
             let folder = (object["cwd"] as? String).flatMap { $0.isEmpty ? nil : " · " + ($0 as NSString).abbreviatingWithTildeInPath } ?? ""
             let me = object["thisSession"] as? Bool == true ? " · this session" : ""
-            return "\(indent)\(id.prefix(8)) [\(state)] \(title)\(role)\(reason)\(folder)\(me)"
+            // A closed one says so: hq session resume brings it back.
+            return "\(indent)\(id.prefix(8)) [\(object["closed"] as? Bool == true ? "closed" : state)] \(title)\(role)\(reason)\(folder)\(me)"
         }
         if let name = object["name"] as? String, let color = object["color"] as? String, let line = object["line"] as? String {
             // A role: its name, color, line, and how many open sessions have it.

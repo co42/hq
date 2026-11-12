@@ -25,7 +25,7 @@ When the user hands you one ("do T-12 and its subtasks"):
 3. Move each subtask to doing as you start it; `hq task move` on the parent lists the ones still todo.
 4. The user edits the task and adds subtasks while you work: `hq task show T-12 --brief` between pieces and before you finish, and take the new ones in.
 
-No task yet? `hq ctx` shows this session's tasks and what is doing in its project; `hq ls tasks --project Registry` the rest. Reuse one that covers the work; else create it doing: `hq task add "Dedup layers on push" --project Registry --status doing`.
+No task yet? `hq ctx` shows this session's tasks and what is doing in its project; `hq ls tasks --project Registry` the rest. Reuse one that covers the work; else, when it's worth a row of its own (below), create it doing: `hq task add "Dedup layers on push" --project Registry --status doing`.
 
 ## The description
 
@@ -59,16 +59,19 @@ hq task edit T-12 --replace "until 14:30" --with "until 15:00"   # an exact text
 
 ## Fields and the tree
 
+The tree is the user's map of the work: few tasks, each one the user would want to see on its own. A step, a finding or a follow-up is a line in a description, not another task.
+
+- **Titles**: a few words saying what it delivers ("Dedup layers on push"). No status, dates, keys or explanations: the description holds them.
 - **Status**: `todo`, `doing`, `done`. `hq task move T-n backlog` is todo in the Backlog; `hq task move T-n todo --list tasks` brings it back. There is no review status.
 - **Project**: the product or area (HQ, Registry, Billing). A task you create always gets one: `--project` on a top-level task; a subtask takes its parent's. Reuse a project in use (`hq ls projects`); naming a new one creates it.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`).
-- **Subtasks**: parts the user wants to see on their own (`--parent T-12`). Steps they don't need stay in the checklist.
-- **Blocked**, unasked, the moment a task waits on something outside: a person (the user to log in or decide, a reviewer from another team), an answer on Slack, a freeze. `hq task block T-n "Waiting on …"`, then `hq notify`; `hq task unblock T-n` once it moves.
+- **Subtasks** (`--parent T-12`): by the same rule; steps stay in the checklist.
+- **Blocked**, unasked, the moment a task can't move without someone: a PR to merge, a decision from the user or another person, an answer, a freeze. The reason says who and what, so the user knows what to do: `hq task block T-n "Merge #418"` ("Decide: keep the old scope?", "Storage team reviews #92"), then `hq notify`; `hq task unblock T-n` once it moves.
 - **Blocked by**, unasked, the moment it can't go on until another task is done (a stacked PR, an API that must ship first): `hq task link T-n --blocked-by T-m`. **After**, an order without a hard wait: `--after T-m`. Neither moves a task. Before picking the next one, `hq task show` the story's top task: its Ready line says what can start.
 
 ## Links
 
-Link what you make to the task it's for, the moment you make it, so it shows on the task's card: `hq task link T-12 <PR or issue URL | Slack link | web page | T-34 | note name | artifact URL>`. A PR goes on the task it delivers and only that one: the user reads where a task stands from its PR. `hq task add "…" --link <url>` links at creation, and `-q` prints the new key alone. A wrong link: `hq task unlink T-12 <the same item>`.
+Links stay current: what the work makes or uses (a PR, a Slack thread, a file, an artifact, a page) is linked to its task the moment it appears, so it shows on the task's card: `hq task link T-12 <PR or issue URL | Slack link | web page | T-34 | note name | artifact URL>`. A PR goes on the task it delivers and only that one: the user reads where a task stands from its PR. `hq task add "…" --link <url>` links at creation, and `-q` prints the new key alone. A wrong link, or one that no longer applies: `hq task unlink T-12 <the same item>`.
 
 A task you create, or move to doing, shows this session's face on its card. Notes from `hq file new` and artifacts you publish link themselves (the `hq-files` skill).
 
@@ -104,10 +107,11 @@ A list cut at its page ends with a line like `50 of 112: --limit 200`. The text 
 
 - Change tasks only through `hq`; never edit HQ's store or its vault folder.
 - A task this session isn't on, nor under one it's on, is refused (exit code 5), naming the task the key hit: check the key. `--not-mine` only for the task the user named, never on a key you guessed (a new task's key is the first word of `task add`'s line).
-- Titles plain and short: the user reads them on one row.
 
 ## Sessions you start
 
 `hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists.
+
+When a session you started has finished its task, close it: `hq session close <session>` (its input emptied, then /exit; one waiting on the user is refused). `hq session resume <session>` reopens it, conversation and all, in your Ghostty window, in its place in your team. Both act only on the sessions you started and theirs; `hq ctx` lists them, closed ones too.
 
 **A handoff**, when the user asks to take a task to a new conversation: make its description the handoff (what's done, the decisions, what's left, the next step), then `hq session new "T-12 Short name" --task T-12 --beside`, at your level rather than under you. Tell the user, and leave the task to it.

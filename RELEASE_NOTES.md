@@ -1,5 +1,19 @@
 # Release notes
 
+## v14.1 · 2026-11-12
+
+**Stories**
+- A task's chevron shows or hides its subtasks again: the three modes are gone.
+- A top-level task with subtasks has a filter button, by its chevron: Only Blocked and Doing keeps the tasks that are Blocked or doing, and their parents. A task only blocked by another doesn't show. Remembered per story.
+
+**Pull Requests**
+- A review you set a reminder on for later leaves the Reviews list and stays in Needs You.
+
+**Leaders and Workers** (plugin 0.11.1)
+- `hq session close` and `hq session resume` for the sessions a session started: a Leader closes a Worker once its task is done and brings it back when needed. `hq ctx` lists closed ones too. Resume from Closed Sessions opens a session in its parent's Ghostty window.
+- The Leader and Worker texts ship as HQ's defaults: few tasks with short titles, details in descriptions, links and Blocked kept current, the user asked before tasks are added or removed. The hq skill gives every session the same rules.
+- `hq role show --json` gives the role's text alone.
+
 ## v14 · 2026-11-11 · Leaders
 
 Sessions start sessions and lead them (T-370). A session another one starts sits under it, and any session can have a role: the text it starts with. A Leader follows a story and keeps it moving; Workers do the work and report to it.

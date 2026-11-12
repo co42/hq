@@ -26,8 +26,9 @@ enum KitIcon: String, CaseIterable {
     case role = "theatermasks.fill"
     case disclosure = "chevron.right"
     case disclosed = "chevron.down"
-    /// A task showing only its blocked and doing subtasks: still a chevron, shorter.
-    case partlyDisclosed = "chevron.compact.down"
+    /// A story's filter, off and on: only its Blocked and doing tasks (2026-11-12).
+    case storyFilter = "line.3.horizontal.decrease.circle"
+    case storyFilterOn = "line.3.horizontal.decrease.circle.fill"
     /// A task no session works on: the plain avatar in its face slot.
     case noSession = "person.fill"
     // Section tiles

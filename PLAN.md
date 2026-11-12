@@ -115,9 +115,9 @@ Task ↔ session links live in the task notes (`sessions:`), many to many. They 
 ```yaml
 ---
 color: indigo           # a label color; HQ writes it, as `line`
-line: Follows a story and keeps it moving. Never writes the code.
+line: Leads a story and keeps its task tree small and current. Never writes the code.
 ---
-You lead a story: the task you were given and all its subtasks. …
+You lead a story: the task you were given and everything under it. …
 ```
 
 (v14, 2026-11-11.) The note's name is the role's, unique with case ignored, and its body is the text a session started with it gets (§7). Read at each vault scan like files, so an edit in Obsidian reaches HQ; every change in HQ or `hq` writes the note (a rename renames it and the `role` of the sessions that have it; Delete sends it to the Trash, with Undo; other keys keep their text). Leader and Worker ship with HQ: each is written once, when its note is missing (`roles.shipped` in the preferences remembers it, per vault), so one the user deletes stays deleted; Restore Default brings back a shipped role's color, line and text. A session whose role is gone keeps the text it started with and loses the chip.
@@ -177,9 +177,9 @@ Plugin `plugin/`, bundled into `HQ.app/Contents/Resources/Plugin` by `build.sh` 
 
 ```
 hq status                                      # whether HQ runs, its build and since when; needsYou, updates, how many sessions, tasks, files, artifacts
-hq ctx [--all]                                 # this session's role, who started it, its tasks, the sessions it started (role, state, task), what is doing in its project (--all: everywhere), recent files, other sessions
+hq ctx [--all]                                 # this session's role, who started it, its tasks, every session it started and theirs, closed ones too (role, state, task), what is doing in its project (--all: everywhere), recent files, other sessions
 hq ls tasks [--overview|--backlog] [--parent T-n] [--project p] [--tag t] [--all]
-hq ls sessions [--here] [--tree] [--all]       # --here: the sessions whose folder is in this repository; --tree: each team under its top session
+hq ls sessions [--here] [--tree] [--all]       # --here: the sessions whose folder is in this repository; --tree: each team under its top session; --all: closed ones too, in their teams
 hq ls prs | files | artifacts | projects | reminders | roles
 hq ls notifications [--all]                    # Needs You (waiting sessions, review requests, rows), Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
@@ -202,6 +202,8 @@ hq session new "Name" [--task T-n] [--role R] [--parent <session> | --parent non
                                                # from a session: under it, in its Ghostty window; --beside: at its level (a handoff)
 hq session edit <session> --parent <session>|none   # Move Under, Make Root; never under its own team
 hq session show <id>                           # its id or 6 characters of it; --parent and --history take a name too
+hq session close <session>                     # one under this session (any depth), as Close Session: input emptied, /exit; refused while it waits on the user
+hq session resume <session>                    # a closed one under this session, as Resume: a new tab in its parent's Ghostty window, its place in the team kept
 hq role show | new | edit | delete <name>      # new and edit: [--name n] [--line l] [--color c] [--body -]; delete: to the Trash, without --yes what it would do
 hq notify "…" [--important] [--link T-n,<url>,…] [--task T-n]   # Updates; --important: Needs You, with a banner
 hq remind "…" --at <when> [--important] [--link …] [--task T-n] # Later until <when> (16:00, in 2h, tomorrow at 15:00, friday 3pm); a word it doesn't read is refused, the reply says the time it read

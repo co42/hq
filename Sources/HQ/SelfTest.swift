@@ -59,6 +59,7 @@ enum SelfTest {
             await cliFixChecks(model)
             await roleChecks(model)
             await cliTeamChecks(model)
+            await cliSessionLifeChecks(model)
             await githubFixChecks(model)
             await editorChecks(model)
             await slackChecks(model)
@@ -90,16 +91,16 @@ enum SelfTest {
     private static func noticeChecks(_ model: AppModel) {
         let s1 = "ef032aac-66d1-4b82-b6e1-03b8ee32dc93"
         check("Needs You counts sessions that wait, review requests that wait and unread important rows",
-              model.waitingReviews.count == 1 && model.importantCount == 4 + 1 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
+              model.waitingReviews.count == 2 && model.importantCount == 4 + 2 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
         // T-319: a review request stands until reviewed; Later puts it away, Bring Back Now returns it, Mark Reviewed ends it.
         if let review = model.waitingReviews.first {
             model.putReviewLater(review.url, until: .now.addingTimeInterval(3600))
             check("Later puts a review request away: out of Needs You, in Later with its time",
-                  !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 6)
+                  !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 7)
             model.putReviewLater(review.url, until: nil)
             check("Bring Back Now returns it to Needs You", model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.isEmpty)
             model.markReviewed(review.url)
-            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 6)
+            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7)
             model.undoManager?.undo()
             check("and Undo brings it back", model.waitingReviews.contains { $0.url == review.url })
         }

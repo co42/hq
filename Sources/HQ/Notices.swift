@@ -148,10 +148,10 @@ extension AppModel {
     /// Needs You: blocked sessions, review requests that wait, and unread important rows. The Dock badge.
     var importantCount: Int { blockedSessions.count + waitingReviews.count + notices.filter { $0.level == .important && unread($0) }.count }
 
-    /// PRs that wait for the user's review, not put Later nor reminded later: they stand in Needs You until reviewed (T-319).
+    /// PRs that wait for the user's review, not put Later: they stand in Needs You until reviewed (T-319), a reminder on them or not.
     var waitingReviews: [GitHubItem] {
-        let later = noticeStore.reviewsLater ?? [:], reminded = remindedLater
-        return allReviewRequests.filter { waitsForReview($0) && (later[$0.url] ?? .distantPast) <= now && !reminded.contains($0.url) }
+        let later = noticeStore.reviewsLater ?? [:]
+        return allReviewRequests.filter { waitsForReview($0) && (later[$0.url] ?? .distantPast) <= now }
     }
 
     /// Review requests put Later, with when they come back.

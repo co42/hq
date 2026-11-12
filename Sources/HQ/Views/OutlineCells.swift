@@ -590,10 +590,12 @@ final class TaskCell: NSTableCellView {
     let progress = BlockProgressView()
     /// A reminder that links the task, after its key (T-311).
     let reminderMark = HandButton()
-    /// The fold chevron at the card's top right: all its subtasks, or only its blocked and doing ones (2026-11-10).
+    /// The fold chevron at the card's top right: its subtasks shown or hidden (2026-11-12).
     let fold = HandButton()
-    /// Beside the chevron: shows or hides the task's description in its card, on every card that has one (2026-11-10).
+    /// Beside the chevron, or a story's filter button: shows or hides the task's description in its card, on every card that has one.
     let note = HandButton()
+    /// Beside the chevron, on a story with subtasks: on, its tree shows only its Blocked and doing tasks (2026-11-12).
+    let filter = HandButton()
     private var reminderNotice: Notice?
     let key = KeyField(labelWithString: "")
     /// The tasks it's blocked by, still open: "T-268, T-269", first at the line's end.
@@ -616,9 +618,10 @@ final class TaskCell: NSTableCellView {
     private var isSelectedRow: Bool { (superview as? NSTableRowView)?.isSelected ?? false }
     /// The card's end holds its chevron: the first line stops before it.
     var expandable = false { didSet { if expandable != oldValue { needsLayout = true } } }
-    /// What it shows of its subtasks, and what a click on its chevron shows next.
-    var foldMode: FoldMode = .all
-    var foldNext: FoldMode = .all
+    /// Its subtasks show: the chevron points down.
+    var open = true
+    /// A story with subtasks: its filter button shows.
+    var filterable = false { didSet { if filterable != oldValue { needsLayout = true } } }
     /// Space above the card: from the one before, the trays that close and its own tray's padding.
     var gap: CGFloat = 0 { didSet { if gap != oldValue { needsLayout = true } } }
 
@@ -656,6 +659,11 @@ final class TaskCell: NSTableCellView {
         note.image = KitIcon.description.nsImage(.mark, weight: .semibold)
         note.wantsLayer = true
         note.layer?.cornerRadius = Radius.chip
+        filter.isBordered = false
+        filter.target = self
+        filter.action = #selector(toggleFilter)
+        filter.wantsLayer = true
+        filter.layer?.cornerRadius = Radius.chip
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.setAccessibilityLabel("Copy the task's line")
@@ -667,7 +675,7 @@ final class TaskCell: NSTableCellView {
         reasonMark.image = KitIcon.blocked.nsImage(.mark, weight: .semibold)
         reasonMark.contentTintColor = Ink.blockedTextNS
         reasonMark.imageScaling = .scaleProportionallyDown
-        for view in [glyph, key, reminderMark, fold, note, title, project, labels, blockers, links, progress, reasonMark, reason] as [NSView] {
+        for view in [glyph, key, reminderMark, fold, note, filter, title, project, labels, blockers, links, progress, reasonMark, reason] as [NSView] {
             addSubview(view)
         }
     }
@@ -732,24 +740,16 @@ final class TaskCell: NSTableCellView {
         }
         reminderMark.isHidden = reminderNotice == nil
         fold.isHidden = !expandable
-        let chevron: KitIcon = switch foldMode {
-        case .hidden: .disclosure
-        case .important: .partlyDisclosed
-        case .all: .disclosed
-        }
-        fold.image = chevron.nsImage(.mark, weight: .semibold)
-        let shows = switch foldMode {
-        case .hidden: "Subtasks hidden"
-        case .important: "Only blocked and doing subtasks"
-        case .all: "All subtasks"
-        }
-        let next = switch foldNext {
-        case .hidden: "hide them"
-        case .important: "show only blocked and doing ones"
-        case .all: "show all"
-        }
-        fold.toolTip = "\(shows): click to \(next) (← →)"
+        fold.image = (self.open ? KitIcon.disclosed : KitIcon.disclosure).nsImage(.mark, weight: .semibold)
+        fold.toolTip = self.open ? "Hide its subtasks (←)" : "Show its subtasks (→)"
         fold.setAccessibilityLabel(fold.toolTip ?? "")
+        let filtered = model.storyFilter.contains(id)
+        filter.isHidden = !filterable
+        filter.image = (filtered ? KitIcon.storyFilterOn : KitIcon.storyFilter).nsImage(.mark, weight: .semibold)
+        filter.contentTintColor = filtered ? Ink.accentNS : Ink.secondaryTextNS
+        filter.layer?.backgroundColor = filtered ? Ink.markOnNS.cgColor : nil
+        filter.toolTip = filtered ? "Showing only its Blocked and doing tasks: click to show all" : "Show only its Blocked and doing tasks"
+        filter.setAccessibilityLabel(filter.toolTip ?? "")
         note.isHidden = task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         note.contentTintColor = shownDescription ? Ink.accentNS : Ink.secondaryTextNS
         note.layer?.backgroundColor = shownDescription ? Ink.markOnNS.cgColor : nil
@@ -825,11 +825,12 @@ final class TaskCell: NSTableCellView {
     func button(at point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         let hit = hitTest(superview.convert(point, from: nil))
-        return hit === glyph || hit === project || hit === key || hit === fold || hit === note ? hit : nil
+        return hit === glyph || hit === project || hit === key || hit === fold || hit === note || hit === filter ? hit : nil
     }
 
-    /// The room the chevron and the description button take at the first line's end: both, on every card, so they line up (2026-11-10).
-    private var endReserve: CGFloat { 2 * Metric.cardEndControl + Space.xs + Space.sm }
+    /// The room the chevron and the description button take at the first line's end: both, on every card, so they line up
+    /// (2026-11-10); a story's filter button beside them.
+    private var endReserve: CGFloat { (filterable ? 3 : 2) * Metric.cardEndControl + (filterable ? 2 : 1) * Space.xs + Space.sm }
 
     override func layout() {
         super.layout()
@@ -848,7 +849,10 @@ final class TaskCell: NSTableCellView {
         }
         if expandable { fold.frame = NSRect(x: bounds.width - Metric.cardEndControl, y: top, width: Metric.cardEndControl, height: line) }
         let side = Metric.cardEndControl
-        if !note.isHidden { note.frame = NSRect(x: bounds.width - 2 * side - Space.xs, y: centered(side), width: side, height: side) }
+        // Right to left: the chevron, a story's filter button, the description button (2026-11-12).
+        func endSlot(_ index: CGFloat) -> NSRect { NSRect(x: bounds.width - index * side - (index - 1) * Space.xs, y: centered(side), width: side, height: side) }
+        if filterable { filter.frame = endSlot(2) }
+        if !note.isHidden { note.frame = endSlot(filterable ? 3 : 2) }
         // The line's end, right to left; what doesn't fit hides, the title truncating first.
         var right = bounds.width - endReserve
         let minimumTitle = big ? 0 : Metric.titleMinimum
@@ -939,7 +943,13 @@ final class TaskCell: NSTableCellView {
         return hit === self || hit === links || hit === blockers ? nil : hit
     }
 
-    @objc private func toggleFold() { if let id { coordinator?.stepFold(id) } }
+    @objc private func toggleFold() { if let id { coordinator?.toggleFold(id) } }
+    /// Turns the story's filter on or off, the task selected as the click on its card does.
+    @objc private func toggleFilter() {
+        guard let id else { return }
+        coordinator?.select(id)
+        coordinator?.toggleFilter(id)
+    }
     /// Shows or hides the description, the task selected as the click on its card does.
     @objc private func toggleNote() {
         guard let id else { return }

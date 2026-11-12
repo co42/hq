@@ -48,23 +48,24 @@ extension SelfTest {
               != WindowFrame.key(screens: [NSRect(x: 0, y: 0, width: 1512, height: 982), NSRect(x: 1512, y: 0, width: 2560, height: 1440)])) // grid: ok screen sizes
     }
 
-    /// T-392: a review with a reminder still to come leaves Reviews and Needs You until the reminder is due.
+    /// T-392: a review with a reminder still to come leaves the Reviews list until the reminder is due, and stays in Needs You.
     private static func remindedReviewChecks(_ model: AppModel) {
         let filter = model.reviewFilter
         model.reviewFilter = .all
         defer { model.reviewFilter = filter }
-        guard let review = model.waitingReviews.first else { return check("the seed has a review that waits", false) }
+        guard let review = model.waitingReviews.first(where: { !model.remindedLater.contains($0.url) }) else {
+            return check("the seed has a review that waits, with no reminder on it", false)
+        }
         let other = model.reviewRequests.first { $0.url != review.url }
         let row = model.remind("Review this after lunch", at: .now.addingTimeInterval(3600), level: .important,
                                links: [ModalRoute.github(review.url).selectionKey])
         defer { model.notices.removeAll { $0.id == row.id } }
         check("a review with a reminder still to come leaves Reviews (T-392)", !model.reviewRequests.contains { $0.url == review.url }
               && other.map { o in model.reviewRequests.contains { $0.url == o.url } } != false, "\(model.reviewRequests.map(\.number))")
-        check("and Needs You", !model.waitingReviews.contains { $0.url == review.url })
+        check("and stays in Needs You", model.waitingReviews.contains { $0.url == review.url })
         if let index = model.notices.firstIndex(where: { $0.id == row.id }) { model.notices[index].dueAt = .now.addingTimeInterval(-1) }
         model.fireDue()
-        check("it comes back to Reviews and Needs You once the reminder is due", model.reviewRequests.contains { $0.url == review.url }
-              && model.waitingReviews.contains { $0.url == review.url })
+        check("it comes back to Reviews once the reminder is due", model.reviewRequests.contains { $0.url == review.url })
         let done = model.remind("Look again", at: .now.addingTimeInterval(3600), level: .update, links: [ModalRoute.github(review.url).selectionKey])
         defer { model.notices.removeAll { $0.id == done.id } }
         model.markRead(done.id)

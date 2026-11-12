@@ -445,7 +445,7 @@ extension AppModel {
         syncMenu()
     }
 
-    /// "Role Leader: Follows a story…", for Copy.
+    /// "Role Leader: Leads a story…", for Copy.
     func line(ofRole role: RoleItem) -> String {
         ItemLine.line("Role", role.name, role.line)
     }

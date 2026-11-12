@@ -82,7 +82,7 @@ extension AppModel {
         }
     }
 
-    /// The PRs a reminder still to come links: later for the user, out of Reviews and Needs You until it's due (T-392).
+    /// The PRs a reminder still to come links: out of the Reviews list until it's due; Needs You keeps them (T-392).
     var remindedLater: Set<String> {
         var urls = Set<String>()
         for notice in notices where notice.kind == .reminder && notice.readAt == nil && (notice.dueAt ?? .distantPast) > now {
