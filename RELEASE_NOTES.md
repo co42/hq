@@ -1,5 +1,10 @@
 # Release notes
 
+## v14.2 · 2026-11-12
+
+- HQ opens at once, even when iCloud has moved your notes off the Mac (a full disk makes it do so): it used to read every task note before showing its window, one download at a time, minutes on end. Now nothing waits on a note: iCloud is asked for all the missing ones at once, and they come in as they arrive.
+- Until your tasks and files are read, Tasks and Files say they're loading, and how many notes iCloud is still bringing, instead of showing an empty list.
+
 ## v14.1 · 2026-11-12
 
 **Stories**

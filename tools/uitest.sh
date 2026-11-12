@@ -25,11 +25,17 @@ one() {
   local store=/tmp/HQ-$run.store vault=/tmp/HQ-$run-vault log=/tmp/HQ-$run.log
   rm -f $store $store-shm $store-wal $store.sock $log
   rm -rf $vault && mkdir -p $vault/hq/tasks $vault/hq/files
+  # slowVault: a launch on 40 task notes, each read taking a quarter second, as notes iCloud evicted.
+  local slow=()
+  if [[ $only == slowVault ]]; then
+    for n in {1..40}; do printf '%s\n' '---' "title: Task $n" 'list: overview' '---' >| $vault/hq/tasks/T-$n.md; done
+    slow=(--env HQ_SLOW_NOTES=0.25)
+  fi
   local flags=(-n -W)
   [[ ${HQ_FOREGROUND:-0} == 1 ]] || flags=(-g $flags)
   $tools/watchdog.sh $log $store 45 open $flags $app --env APP_STORE=$store --env HQ_VAULT=$vault --env UITEST_VERBOSE=${UITEST_VERBOSE:-0} \
     --env HQ_FOREGROUND=${HQ_FOREGROUND:-0} --env UITEST_ONLY=$only --env UITEST_EXCEPT=$except --env UITEST_SLOWDOWN=$slowdown \
-    --env UITEST_TIMES=${UITEST_TIMES:-0} --env HQ_MOTION=${HQ_MOTION:-0} --stdout $log --stderr $log --args --uitest -ApplePersistenceIgnoreState YES
+    --env UITEST_TIMES=${UITEST_TIMES:-0} --env HQ_MOTION=${HQ_MOTION:-0} $slow --stdout $log --stderr $log --args --uitest -ApplePersistenceIgnoreState YES
 }
 
 if [[ -n ${UITEST_ONLY:-} || ${UITEST_SHARDS:-4} == 1 || ${HQ_FOREGROUND:-0} == 1 ]]; then
@@ -58,6 +64,8 @@ for i in {1..${#shards}}; do
   one $prefix-$i ${shards[$i]} "" 1.5 & pids+=($!); runs+=($prefix-$i)
 done
 one $prefix-$(( ${#shards} + 1 )) "" ${(j:,:)shards},$alone 1.5 & pids+=($!); runs+=($prefix-$(( ${#shards} + 1 )))
+# The launch on a slow vault, in a copy of its own.
+one $prefix-slow slowVault "" 1 & pids+=($!); runs+=($prefix-slow)
 wait $pids
 
 checks=0 failures=0 skips=0 missing=0

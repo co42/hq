@@ -69,6 +69,8 @@ A section header is its **tile** (the section's symbol, white, on a 24 pt rounde
 
 **Empty states**: Sessions: "No Sessions. Sessions you start with the hq plugin show up here." with New Session…; Tasks: "Nothing on the overview. Add from the Backlog or type a task." (the quick-add line stays); PRs: "GitHub isn't set up" with the fix; Reviews, empty: "All reviewed" (§6). Empty states sit where the content would be, at the content's width.
 
+**Loading** (2026-11-12, T-431): the window comes up at once and reads the vault behind it. Until the first read is in, an empty Tasks list and an empty Files card show a loading line (`LoadingLine`: a small spinner and "Loading tasks…" or "Loading files…", callout, secondary) where their empty state would be, never the empty state; while notes iCloud evicted come down it says "Downloading 12 notes from iCloud…", and the tasks already read show as they arrive. The quick-add line stays.
+
 ## 5. Session cards
 
 - **Grid** (2026-11-11, T-409): the top-level sessions, every card the same size: 2 columns when the content is 1060 pt or wider, 1 below. 12 pt gaps. Fixed card height 68 pt. An `NSCollectionView` inside the page's scroll view. A session another one started (by `hq` or from the page) sits in that one's **team**, inside its card, not on the grid.

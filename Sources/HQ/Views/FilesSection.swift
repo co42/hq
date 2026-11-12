@@ -72,7 +72,12 @@ private struct ItemGroup: View {
             }
             .padding(.horizontal, Space.md)
             .frame(height: Metric.boxRow + Space.xs, alignment: .center)
-            if routes.isEmpty {
+            if routes.isEmpty, card == .files, model.vaultLoading {
+                LoadingLine(title: model.loadingTitle("files"))
+                    .uiTestAnchor("files-loading")
+                    .padding(.horizontal, Space.md)
+                    .frame(height: Metric.boxRow, alignment: .top)
+            } else if routes.isEmpty {
                 Text(empty)
                     .kitType(.callout)
                     .foregroundStyle(.secondary)

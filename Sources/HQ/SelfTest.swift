@@ -677,7 +677,8 @@ enum SelfTest {
         model.files = []
         model.vault = Vault(vault: root)
         model.startVault()
-        await settle(0.8)
+        check("Tasks load until the first scan is in: none read on the main thread", model.vaultLoading && model.tasks.isEmpty, "\(model.tasks.count) tasks")
+        await expect("the first scan migrates the board's notes and reads them", !model.vaultLoading && model.taskTree.top(.overview) == [3])
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: Store.backups.path)) ?? []
         check("the migration backs up hq/tasks first", backups.contains { $0.hasPrefix("tasks-") && $0.hasSuffix(".zip") }, "\(backups)")
         func note(_ id: Int) -> FrontMatter { FrontMatter((try? String(contentsOf: tasks.appending(path: "T-\(id).md"), encoding: .utf8)) ?? "") }
@@ -688,7 +689,8 @@ enum SelfTest {
         check("other keys and bodies stay byte for byte",
               note(1).list("aliases") == ["idea"] && note(1).body == "Keep this **body**.\n" && note(3).body.contains("**2026-11-03 16:12 · Claude**: a note."))
         let snapshot = (1...4).map { (try? String(contentsOf: tasks.appending(path: "T-\($0).md"), encoding: .utf8)) ?? "" }
-        model.migrateVault()
+        model.rescanVault()
+        for _ in 0..<100 where model.vaultScanning { try? await Task.sleep(for: .milliseconds(20)) }
         check("a second run changes nothing", (1...4).map { (try? String(contentsOf: tasks.appending(path: "T-\($0).md"), encoding: .utf8)) ?? "" } == snapshot)
         check("the outline reads the lists", model.taskTree.top(.overview) == [3] && Set(model.taskTree.top(.backlog)) == [1, 2, 4], "\(model.taskTree.top(.overview)) \(model.taskTree.top(.backlog))")
 

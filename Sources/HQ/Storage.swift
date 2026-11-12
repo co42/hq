@@ -230,13 +230,26 @@ final class Storage {
 /// HQ_LAUNCH_LOG=1: when each step of the launch happened, as `launch <step> <seconds since 1970>` (tools/launch.sh).
 enum LaunchLog {
     private static let enabled = ProcessInfo.processInfo.environment["HQ_LAUNCH_LOG"] == "1"
-    private static var marked: Set<String> = []
+    /// When each step first happened, since the process started (a UI test reads them).
+    private(set) static var times: [String: TimeInterval] = [:]
 
     static func mark(_ step: String) {
-        guard enabled, marked.insert(step).inserted else { return }
+        guard times[step] == nil else { return }
+        times[step] = Date.now.timeIntervalSince(started)
+        guard enabled else { return }
         print("launch \(step) \(Date.now.timeIntervalSince1970)")
         fflush(stdout)
     }
+
+    /// When the process started, as the kernel has it.
+    static let started: Date = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&name, 4, &info, &size, nil, 0) == 0 else { return .now }
+        let start = info.kp_proc.p_un.__p_starttime
+        return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
+    }()
 }
 
 enum AppLog {

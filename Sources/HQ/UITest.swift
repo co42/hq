@@ -45,6 +45,13 @@ enum UITest {
                 SelfTest.finish(code: 1)
                 return
             }
+            // A launch on a slow vault: alone in its copy, on the notes tools/uitest.sh put in its vault.
+            if ProcessInfo.processInfo.environment["UITEST_ONLY"] == "slowVault" {
+                await slowVault(model, Driver(window: window, model: model))
+                print(failures == 0 ? "UITEST PASS \(count) checks" : "UITEST FAIL \(failures) of \(count) checks")
+                SelfTest.finish(code: failures == 0 ? 0 : 1)
+                return
+            }
             try? await Task.sleep(for: .seconds(1))
             Driver.front(window)
             try? await Task.sleep(for: .seconds(0.5))

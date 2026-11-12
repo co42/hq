@@ -17,25 +17,26 @@ extension AppModel {
         return FileManager.default.fileExists(atPath: notes.path) ? Vault(vault: notes) : nil
     }
 
+    /// Reads nothing on the main thread: the window comes up at once, Tasks and Files loading until the first scan is in.
     func startVault() {
         guard let vault else { return }
         setup.vaultPath = vault.root.deletingLastPathComponent().path
-        migrateVault()
+        vaultRead = false
+        vaultDownloading = 0
         vaultWatcher = VaultWatcher(vault.root) { [weak self] in self?.rescanVault() }
         rescanVault()
     }
 
-    /// The board's notes move to the cockpit's lists once, after a backup (PLAN.md §5).
-    func migrateVault() {
-        guard let vault else { return }
-        do {
-            let count = try vault.migrate(backups: Store.backups)
-            if count > 0 { FileHandle.standardError.write(Data("HQ: moved \(count) task notes to the cockpit's lists\n".utf8)) }
-        } catch {
-            FileHandle.standardError.write(Data("HQ: \(error.localizedDescription)\n".utf8))
+    /// What Tasks and Files say while the vault loads: what they wait for.
+    func loadingTitle(_ kind: String) -> String {
+        switch vaultDownloading {
+        case 0: "Loading \(kind)…"
+        case 1: "Downloading 1 note from iCloud…"
+        default: "Downloading \(vaultDownloading) notes from iCloud…"
         }
     }
 
+    /// Each scan first moves the board's notes to the cockpit's lists, after a backup (PLAN.md §5).
     func rescanVault() {
         guard let vault else { return }
         guard !vaultScanning else {
@@ -44,9 +45,10 @@ extension AppModel {
         }
         vaultScanning = true
         let cache = vaultCache
+        let backups = Store.backups
         let started = Date.now
         Task {
-            let scanned = await Task.detached { Result { try vault.scan(cache) } }.value
+            let scanned = await Task.detached { Result { try vault.scanMigrating(cache, backups: backups) } }.value
             guard case .success(let result) = scanned else {
                 // Nothing changes: the tasks and files stay as last read, and nothing is written over.
                 if problem != .vaultUnreadable {
@@ -80,12 +82,19 @@ extension AppModel {
                 sortRoles()
             }
             readingVault = false
+            if vaultDownloading == 0, !result.evicted.isEmpty {
+                AppLog.write("vault: \(result.evicted.count) notes were in iCloud only; asked for them", to: "vault.log")
+            }
+            if vaultDownloading != result.evicted.count { vaultDownloading = result.evicted.count }
+            if !vaultRead { vaultRead = true }
+            if !vaultLoading { LaunchLog.mark("loaded") }
             writeShippedRoles()
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
-            forgetEmptySessions()
-            // A note read too early (downloading, mid-write) keeps its last read: read it again soon.
+            // A session whose tasks are still in iCloud isn't empty.
+            if !vaultLoading { forgetEmptySessions() }
+            // A note read too early (mid-write) keeps its last read: read it again soon. So does one still coming from iCloud.
             let unreadable = Set(result.unreadable)
             if unreadable != vaultUnreadable {
                 if !unreadable.isEmpty { AppLog.write("vault: couldn't read \(unreadable.sorted().joined(separator: ", ")); kept their last read, trying again", to: "vault.log") }
@@ -94,7 +103,7 @@ extension AppModel {
             if vaultRescanAgain {
                 vaultRescanAgain = false
                 rescanVault()
-            } else if !unreadable.isEmpty {
+            } else if !unreadable.isEmpty || !result.evicted.isEmpty {
                 try? await Task.sleep(for: .seconds(3))
                 rescanVault()
             }

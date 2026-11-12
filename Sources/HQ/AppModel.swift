@@ -473,6 +473,12 @@ final class AppModel {
     @ObservationIgnored var vaultRescanAgain = false
     /// Task notes the last scan couldn't read, logged once.
     @ObservationIgnored var vaultUnreadable: Set<String> = []
+    /// Whether a scan of the vault has finished since it was opened.
+    var vaultRead = false
+    /// Notes iCloud evicted, asked for and not in yet.
+    var vaultDownloading = 0
+    /// Tasks and Files say they're loading until the vault is read, and while its notes come from iCloud.
+    var vaultLoading: Bool { vault != nil && (!vaultRead || vaultDownloading > 0) }
     /// Set while a scan of the vault replaces tasks and files: nothing to write back.
     @ObservationIgnored var readingVault = false
     /// When HQ last wrote each note (by path).

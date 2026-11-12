@@ -97,7 +97,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 
 - `n` is the highest existing plus one. All other keys and the body keep their exact text.
 - `HQKit.TaskTree`: built from (parent, list, order); a missing parent or a cycle puts a task at the top level. Operations return the notes that change: insert after, insert first child, indent, outdent, move among siblings, move to a list, drop (on a row: last child; between rows: sibling at that index; on a list header: last top-level task), delete with the subtree. Never into its own subtree. Order is fractional: the midpoint between neighbors, the siblings renumbered when a gap falls under 1e-6.
-- **Migration** (once, then idempotent; `HQKit.TaskMigration` plans it, the app applies it after zipping `<vault>/hq/tasks` to `~/Library/Application Support/HQ/Backups/tasks-<date>.zip`): `status: backlog` → `todo` + `list: backlog`; `todo` → `list: backlog`; `doing`, `review` → `list: overview`; `done` → `list: backlog` with `done:` from the file's modification date. A missing type stays missing.
+- **Migration** (once, then idempotent; `HQKit.TaskMigration` plans it, the background vault scan applies it, each note once a launch, after zipping `<vault>/hq/tasks` to `~/Library/Application Support/HQ/Backups/tasks-<date>.zip`): `status: backlog` → `todo` + `list: backlog`; `todo` → `list: backlog`; `doing`, `review` → `list: overview`; `done` → `list: backlog` with `done:` from the file's modification date. A missing type stays missing.
 - **Blocked, blocked by, after** (2026-11-10, T-372): `HQKit.TaskFlow` works out each task's state from the tree and these keys, never stored: done; Blocked; blocked by a task not done; doing; held (under a task that's Blocked or blocked by one not done: a Blocked task holds what's under it, 2026-11-11); waiting (after a task not done); ready. A story's tally counts its leaves, held ones as blocked. A held row looks as it did: its holder shows the red edge or the chips; `hq` says "held by T-n" and leaves it out of Ready. A link to a task that's gone or done holds nothing; a link the tree already says (to a subtask) or that would go in a circle is refused. Marking a task done clears its Blocked. `hq task block`, `unblock`, `link --blocked-by | --after`; `task show` prints the tree with them.
 - **Nothing moves on its own** (2026-11-09, T-345): a task changes list or place only when the user moves it, or a session through `hq`. A done task stays where it is.
 - **Review** is no status (2026-11-06): a note whose front matter says `status: review` reads as doing. On the first vault scan each overview task still in Review gets an Updates row, "T-12 was in Review: <reason>", linked to it; its `review`, `review_by` and `review_at` keys go the next time HQ writes the note.
@@ -242,7 +242,7 @@ The cockpit was built in one go from the T-46 plan (2026-11-04). Since then HQ g
 | GitHub rate limits or outages | A few small queries every 2 minutes, back-off, cached data, a quiet banner |
 | Sessions started with the old plugin | Hook protocol unchanged; they keep reporting |
 | Transcript format is internal | Best effort; hooks are the source of live data |
-| iCloud vault: sync delays, conflict copies | FSEvents plus a rescan when HQ becomes active; `* 2.md` conflict copies never indexed twice |
+| iCloud vault: sync delays, conflict copies | FSEvents plus a rescan when HQ becomes active; `* 2.md` conflict copies never indexed twice; notes iCloud evicted are asked for at once and read as they arrive, the launch reading none of them |
 
 ## 11. Repo
 
@@ -279,3 +279,4 @@ Clicks that land nowhere, rows that vanish and crashes at these seams came back 
 | An observer to remove | `isolated deinit` | |
 | A cache under `@ObservationIgnored` | reads the observed values it depends on | a stale cache showed a deleted file (T-183) |
 | A note read empty while iCloud writes it | never trusted: read again | a subtask lost its parent (T-236) |
+| A note iCloud evicted (dataless: `SF_DATALESS`) | never read on the main thread, nor read at all while evicted: the scan asks iCloud for all of them at once (`startDownloadingUbiquitousItem`) and reads each as it arrives | each read waited for its own download, about 1 s a note: launch took 6 minutes (T-431) |

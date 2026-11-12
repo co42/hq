@@ -56,7 +56,7 @@ private struct OutlineHost: NSViewRepresentable {
              model.backlogOpen, model.folded, model.backlogFilter, model.fold, model.storyFilter, model.editingDescription, model.descriptionEditorHeight, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
-             model.pendingTaskLink, model.slackMessages)
+             model.pendingTaskLink, model.slackMessages, model.vaultLoading)
         context.coordinator.width = width
         context.coordinator.refresh()
     }
@@ -96,6 +96,7 @@ final class OutlineNode: NSObject {
         case task(Int)
         case quickAdd(TaskList)
         case empty(TaskList)
+        case loading(TaskList)
     }
 
     let kind: Kind
@@ -109,7 +110,7 @@ final class OutlineNode: NSObject {
     /// Header, filter and empty rows span both columns.
     var spans: Bool {
         switch kind {
-        case .header, .empty: true
+        case .header, .empty, .loading: true
         case .task, .quickAdd: false
         }
     }
@@ -201,7 +202,7 @@ struct OutlineSnapshot: Equatable {
         tasks.forEach { story($0, hiding: model.hideDone.contains(.overview), found: foundTasks) }
         var overview = tasks.map { OutlineNode.Kind.task($0) }
         if !model.folded.contains(.tasks) {
-            if tasks.isEmpty { overview.append(.empty(.overview)) }
+            if tasks.isEmpty { overview.append(model.vaultLoading ? .loading(.overview) : .empty(.overview)) }
             overview.append(.quickAdd(.overview))
         }
         snapshot.children[.header(.overview)] = overview
@@ -1446,7 +1447,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case .header(let list): list == .backlog ? Metric.outlineHeader + Metric.backlogHeaderGap : Metric.outlineHeader
         // On the page, as far under the last card as the cards are apart.
         case .quickAdd(let list): (plan.trailing[list] ?? 0) + (root == nil ? Metric.storyGap : Metric.taskGap) + Metric.outlineQuick
-        case .empty: Metric.outlineEmpty
+        case .empty, .loading: Metric.outlineEmpty
         case .task(let id): gap(of: id) + height(of: id)
         case nil: Metric.outlineRow
         }
@@ -1495,6 +1496,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case .header(let list): AnyView(OutlineHeader(list: list).handCursors().environment(model))
         case .empty: AnyView(Text(model.search.isEmpty ? "Nothing on the overview. Add from the Backlog or type a task." : "No task matches “\(model.search)”.")
             .kitType(.callout).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, Metric.bigCardPadding + TaskCell.titleX))
+        case .loading: AnyView(LoadingLine(title: model.loadingTitle("tasks"))
+            .uiTestAnchor("tasks-loading")
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .padding(.leading, Metric.bigCardPadding + TaskCell.titleX))
         default: AnyView(EmptyView())
@@ -2349,7 +2354,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let shown = snapshot.children(of: .task(parent)).compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } }
             if index == NSOutlineViewDropOnItemIndex { return (.task(parent), tree.children(of: parent).count) }
             return (.task(parent), treeIndex(before: index, of: shown, in: tree.children(of: parent)))
-        case .quickAdd, .empty:
+        case .quickAdd, .empty, .loading:
             return nil
         }
     }

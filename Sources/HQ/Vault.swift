@@ -20,74 +20,130 @@ nonisolated struct Vault: Sendable {
         var tasks: [String: (Date, TaskItem)] = [:]
         var files: [String: (Date, FileItem)] = [:]
         var roles: [String: (Date, RoleItem)] = [:]
+        /// Evicted notes already asked of iCloud.
+        var asked: Set<String> = []
+        /// Board notes already migrated, or tried: each once a launch.
+        var migrated: Set<String> = []
+    }
+
+    /// What a scan read. `unreadable`: notes caught empty or mid-write; `evicted`: notes still in iCloud, downloading.
+    /// Both keep their last read. `migrate`: task notes still on the board's statuses.
+    struct Scan: Sendable {
+        var tasks: [TaskItem] = []
+        var files: [FileItem] = []
+        var roles: [RoleItem] = []
+        var cache = Cache()
+        var unreadable: [String] = []
+        var evicted: [String] = []
+        var migrate: [URL] = []
     }
 
     // MARK: Reading
 
-    /// Every task and file. Off the main thread: an iCloud file that isn't downloaded yet blocks.
-    /// A task note that can't be read (still downloading, or caught empty mid-write) keeps its last read, uncached,
-    /// and is named in `unreadable` so the caller reads it again.
-    /// A vault that can't be listed (iCloud signed out, access revoked) throws: it isn't an empty one.
-    func scan(_ cache: Cache) throws -> (tasks: [TaskItem], files: [FileItem], roles: [RoleItem], cache: Cache, unreadable: [String]) {
+    /// HQ_SLOW_NOTES=<seconds>, in test copies only: each note read waits that long, as an evicted note's download.
+    private static let slowReads: Double? = ProcessInfo.processInfo.environment["APP_STORE"].flatMap { $0.isEmpty ? nil : ProcessInfo.processInfo.environment["HQ_SLOW_NOTES"] }.flatMap(Double.init)
+
+    /// A note's text, nil when it can't be read.
+    static func read(_ url: URL) -> String? {
+        if let slowReads { Thread.sleep(forTimeInterval: slowReads) }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Whether iCloud evicted the note: reading it would wait for its download.
+    static func isEvicted(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && info.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    /// Every task and file. Off the main thread. An evicted note isn't read: iCloud is asked for all of them at once, and
+    /// a later scan reads each as it arrives. A note that can't be read (evicted, or caught empty mid-write) keeps its
+    /// last read, uncached. A vault that can't be listed (iCloud signed out, access revoked) throws: it isn't an empty one.
+    func scan(_ cache: Cache) throws -> Scan {
         let vault = root.deletingLastPathComponent()
         guard FileManager.default.fileExists(atPath: vault.path) else { throw Unreadable.folder(vault.path) }
         for folder in [tasksDirectory, filesDirectory] where FileManager.default.fileExists(atPath: folder.path) {
             do { _ = try FileManager.default.contentsOfDirectory(atPath: folder.path) } catch { throw Unreadable.folder(folder.path) }
         }
-        var next = Cache()
-        var tasks: [TaskItem] = []
-        var files: [FileItem] = []
-        var unreadable: [String] = []
-        for url in Self.notes(in: tasksDirectory, recursive: false) {
+        var scan = Scan()
+        scan.cache.asked = cache.asked
+        scan.cache.migrated = cache.migrated
+        var evicted: Set<String> = []
+        /// The note's text. Nil while iCloud has it (asked for once) or it can't be read, named in `evicted` or `unreadable`.
+        func text(_ url: URL) -> String? {
+            if Self.isEvicted(url) {
+                evicted.insert(url.path)
+                scan.evicted.append(url.lastPathComponent)
+                if scan.cache.asked.insert(url.path).inserted { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
+                return nil
+            }
+            guard let text = Self.read(url) else {
+                scan.unreadable.append(url.lastPathComponent)
+                return nil
+            }
+            return text
+        }
+        // A note that can't be read now keeps its last read.
+        for url in Self.notes(in: tasksDirectory, recursive: false) where Self.taskNumber(url) != nil {
             let modified = Self.modified(url)
-            if let cached = cache.tasks[url.path], cached.0 == modified {
-                tasks.append(cached.1)
-                next.tasks[url.path] = cached
-            } else if let item = Self.task(at: url, modified: modified) {
-                tasks.append(item)
-                next.tasks[url.path] = (modified, item)
-            } else if Self.taskNumber(url) != nil {
-                unreadable.append(url.lastPathComponent)
-                if let cached = cache.tasks[url.path] {
-                    tasks.append(cached.1)
-                    next.tasks[url.path] = cached
+            var entry = cache.tasks[url.path].flatMap { $0.0 == modified ? $0 : nil }
+            if entry == nil, let text = text(url) {
+                if let item = Self.task(text, at: url, modified: modified) {
+                    entry = (modified, item)
+                    if !cache.migrated.contains(url.path), !TaskMigration.plan(FrontMatter(text), modified: modified).isEmpty { scan.migrate.append(url) }
+                } else {
+                    scan.unreadable.append(url.lastPathComponent)
                 }
+            }
+            if let entry = entry ?? cache.tasks[url.path] {
+                scan.tasks.append(entry.1)
+                scan.cache.tasks[url.path] = entry
             }
         }
         for url in Self.notes(in: filesDirectory, recursive: true) {
             let modified = Self.modified(url)
-            if let item = cache.files[url.path].flatMap({ $0.0 == modified ? $0.1 : nil }) ?? Self.file(at: url, in: filesDirectory, modified: modified) {
-                files.append(item)
-                next.files[url.path] = (modified, item)
-            } else {
-                unreadable.append(url.lastPathComponent)
-                if let cached = cache.files[url.path] {
-                    files.append(cached.1)
-                    next.files[url.path] = cached
-                }
+            let entry = cache.files[url.path].flatMap { $0.0 == modified ? $0 : nil }
+                ?? text(url).map { (modified, Self.file($0, at: url, in: filesDirectory, modified: modified)) } ?? cache.files[url.path]
+            if let entry {
+                scan.files.append(entry.1)
+                scan.cache.files[url.path] = entry
             }
         }
-        var roles: [RoleItem] = []
         for url in Self.notes(in: rolesDirectory, recursive: false) {
             let modified = Self.modified(url)
-            if let item = cache.roles[url.path].flatMap({ $0.0 == modified ? $0.1 : nil }) ?? Self.role(at: url, modified: modified) {
-                roles.append(item)
-                next.roles[url.path] = (modified, item)
-            } else {
-                unreadable.append(url.lastPathComponent)
-                if let cached = cache.roles[url.path] {
-                    roles.append(cached.1)
-                    next.roles[url.path] = cached
-                }
+            let entry = cache.roles[url.path].flatMap { $0.0 == modified ? $0 : nil }
+                ?? text(url).map { (modified, Self.role($0, at: url, modified: modified)) } ?? cache.roles[url.path]
+            if let entry {
+                scan.roles.append(entry.1)
+                scan.cache.roles[url.path] = entry
             }
         }
-        return (tasks, files, roles, next, unreadable)
+        // Asked again once it's back, should iCloud evict it again.
+        scan.cache.asked.formIntersection(evicted)
+        return scan
+    }
+
+    /// A scan that first moves the board's notes to the cockpit's lists (PLAN.md §5), after a backup: each note once.
+    func scanMigrating(_ cache: Cache, backups: URL) throws -> Scan {
+        let first = try scan(cache)
+        guard !first.migrate.isEmpty else { return first }
+        var cache = first.cache
+        cache.migrated.formUnion(first.migrate.map(\.path))
+        do {
+            let count = try migrate(first.migrate, backups: backups)
+            FileHandle.standardError.write(Data("HQ: moved \(count) task notes to the cockpit's lists\n".utf8))
+        } catch {
+            FileHandle.standardError.write(Data("HQ: \(error.localizedDescription)\n".utf8))
+        }
+        return try scan(cache)
     }
 
     /// A role note: its name is the note's, `color` and `line` in the front matter, the text in the body. Nil while it
     /// can't be read: the scan keeps its last read.
     static func role(at url: URL, modified: Date) -> RoleItem? {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        read(url).map { role($0, at: url, modified: modified) }
+    }
+
+    static func role(_ text: String, at url: URL, modified: Date) -> RoleItem {
         let note = FrontMatter(text)
         let name = url.deletingPathExtension().lastPathComponent
         return RoleItem(name: name, color: note.string("color").flatMap { LabelColor(rawValue: $0.lowercased()) } ?? LabelColor.automatic(name),
@@ -104,9 +160,12 @@ nonisolated struct Vault: Sendable {
 
     /// Nil for a note that isn't a task, or that can't be read now: HQ never writes an empty task note.
     static func task(at url: URL, modified: Date) -> TaskItem? {
+        read(url).flatMap { task($0, at: url, modified: modified) }
+    }
+
+    static func task(_ text: String, at url: URL, modified: Date) -> TaskItem? {
         let name = url.deletingPathExtension().lastPathComponent
-        guard let number = taskNumber(url), let text = try? String(contentsOf: url, encoding: .utf8),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard let number = taskNumber(url), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let note = FrontMatter(text)
         let parent = note.string("parent").flatMap(TaskItem.key)
         // Story was a status: such a note reads as a todo story.
@@ -131,10 +190,8 @@ nonisolated struct Vault: Sendable {
                         body: note.body.trimmingCharacters(in: .newlines), path: url.path)
     }
 
-    /// Nil while it can't be read: the scan keeps its last read.
-    static func file(at url: URL, in directory: URL, modified: Date) -> FileItem? {
+    static func file(_ text: String, at url: URL, in directory: URL, modified: Date) -> FileItem {
         let relative = String(url.path.dropFirst(directory.path.count + 1))
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let note = FrontMatter(text)
         let name = url.deletingPathExtension().lastPathComponent
         // The user's convention: "2026-11-03 - Title.md".
@@ -316,17 +373,9 @@ nonisolated struct Vault: Sendable {
 
     // MARK: Migration
 
-    /// Notes still on the board's statuses (TaskMigration), by path.
-    func notesToMigrate() -> [URL] {
-        Self.notes(in: tasksDirectory, recursive: false).filter { url in
-            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            return !TaskMigration.plan(FrontMatter(text), modified: Self.modified(url)).isEmpty
-        }
-    }
-
-    /// Zips `hq/tasks` into `backups`, then writes the migrated keys. Nothing is written unless the backup exists.
-    func migrate(backups: URL) throws -> Int {
-        let notes = notesToMigrate()
+    /// Zips `hq/tasks` into `backups`, then writes the migrated keys of these notes. Nothing is written unless the
+    /// backup exists, nor over a note that can't be read.
+    func migrate(_ notes: [URL], backups: URL) throws -> Int {
         guard !notes.isEmpty else { return 0 }
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         var zip = backups.appending(path: "tasks-\(NoteDate.minute(.now).replacingOccurrences(of: ":", with: "")).zip")
@@ -345,8 +394,7 @@ nonisolated struct Vault: Sendable {
         }
         var count = 0
         for url in notes {
-            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            guard let migrated = TaskMigration.apply(text, modified: Self.modified(url)) else { continue }
+            guard let text = Self.read(url), !text.isEmpty, let migrated = TaskMigration.apply(text, modified: Self.modified(url)) else { continue }
             try Data(migrated.utf8).write(to: url, options: .atomic)
             count += 1
         }
