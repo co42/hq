@@ -173,11 +173,8 @@ struct SessionCard: View {
                     .truncationMode(.tail)
                 HStack(spacing: Space.sm) {
                     if let role = content.role { RoleChip(role: role).opacity(closed ? 0.6 : 1).fixedSize() }
-                    Text(session.place)
-                        .kitType(.secondary)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    FactChip(text: session.place, truncation: .middle)
+                    ModelChip(session: session)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,7 +195,8 @@ struct SessionCard: View {
 
     private var help: String {
         if closed && !content.team.isEmpty { return "\(session.name). Closed; it stays while its sessions run." }
-        return session.reason.map { "\(session.name): \($0)" } ?? session.name
+        let name = session.reason.map { "\(session.name): \($0)" } ?? session.name
+        return session.isRunning ? [name, session.modelHelp].compactMap(\.self).joined(separator: "\n") : name
     }
 
     // MARK: The team's tray
@@ -327,12 +325,9 @@ private struct TeamRow: View {
                 .layoutPriority(1)
             if let role = member.role { RoleChip(role: role).fixedSize() }
             // The name comes first; its place keeps enough to read beside a long one.
-            Text(session.place)
-                .kitType(.secondary)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            FactChip(text: session.place, truncation: .middle)
                 .frame(minWidth: Metric.teamName / 2, maxWidth: .infinity, alignment: .leading)
+            ModelChip(session: session)
             Text(Elapsed.short(from: session.status.since, to: now))
                 .kitType(.meta)
                 .foregroundStyle(.secondary)
@@ -411,5 +406,19 @@ extension SessionItem {
     var stateWords: String {
         guard isRunning else { return "Ended" }
         return status.state == .waiting(.question) ? "Asks a question" : status.title
+    }
+}
+
+/// A running session's model, effort and context on a pill, "Opus VH · 442k", the whole of it on hover (T-446, T-475).
+struct ModelChip: View {
+    let session: SessionItem
+
+    var body: some View {
+        if session.isRunning, let line = session.modelLine {
+            FactChip(text: line)
+                .fixedSize()
+                .help(session.modelHelp ?? line)
+                .accessibilityLabel(session.modelHelp ?? line)
+        }
     }
 }

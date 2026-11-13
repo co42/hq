@@ -40,6 +40,8 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var model = model
+        // Sizes read `Zoom.factor`, which SwiftUI doesn't observe: each zoom step makes Settings again (T-448).
+        let zoom = model.zoom
         TabView(selection: $model.settingsTab) {
             ForEach(SettingsTab.allCases) { tab in
                 page(tab)
@@ -48,6 +50,8 @@ struct SettingsView: View {
             }
         }
         .noInitialFocus()
+        .controlSize(Zoom.controlSize(zoom))
+        .id(zoom)
     }
 
     @ViewBuilder

@@ -122,13 +122,12 @@ struct ClickTarget: NSViewRepresentable {
 
     func updateNSView(_ view: Target, context: Context) { view.action = action }
 
-    final class Target: NSView {
+    final class Target: HandTrackingView {
         var action: ((NSView) -> Void)?
 
         nonisolated override var isFlipped: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         override func mouseDown(with event: NSEvent) { action?(self) }
-        override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
     }
 }
 

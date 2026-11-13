@@ -13,7 +13,7 @@ extension View {
     /// Sizes a Form, List, or ScrollView to its content, up to `max` points.
     /// A Settings page or sheet then grows to fit, and scrolls only when its
     /// content is taller than `max`.
-    func fitsContent(max: CGFloat = 640) -> some View {
+    func fitsContent(max: CGFloat = 640 * Zoom.factor) -> some View {
         modifier(FitsContent(max: max))
     }
 }

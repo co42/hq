@@ -36,6 +36,15 @@ final class OutlineRowView: NSTableRowView {
     override func mouseEntered(with event: NSEvent) { setHovered(true) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
+    /// The hand over a card's links and blocking tasks: their clicks come to the outline, so AppKit sends the pointer's
+    /// update to this row (T-453).
+    override func cursorUpdate(with event: NSEvent) {
+        for case let cell as TaskCell in subviews {
+            if let hand = cell.handCursor(at: event.locationInWindow) { return hand.set() }
+        }
+        super.cursorUpdate(with: event)
+    }
+
     private func setHovered(_ value: Bool) {
         guard hovered != value else { return }
         hovered = value
@@ -235,7 +244,7 @@ final class BlockProgressView: NSView {
 
 /// The tasks a task is blocked by, still open: a red capsule each, "⊘ T-268", first at its card's end; three, then "+2"
 /// (2026-11-10). A click on one selects that task and brings it into view; on "+2", a menu of the others.
-final class BlockersView: NSView, NSViewToolTipOwner {
+final class BlockersView: HandTrackingView, NSViewToolTipOwner {
     struct Chip: Equatable {
         /// The blocking tasks it stands for: one, or the rest behind "+2".
         var ids: [Int]
@@ -298,11 +307,8 @@ final class BlockersView: NSView, NSViewToolTipOwner {
         return nil
     }
 
-    /// The pointer over a window point: the hand over a chip.
-    func cursor(at windowPoint: NSPoint) -> NSCursor? {
-        let local = convert(windowPoint, from: nil)
-        return frames.contains { $0.contains(local) } ? .pointingHand : nil
-    }
+    /// The chips, where the hand shows.
+    override var handParts: [NSRect] { frames }
 
     override func draw(_ dirtyRect: NSRect) {
         for (frame, chip) in zip(layoutFrames(), chips) {
@@ -329,11 +335,6 @@ final class BlockersView: NSView, NSViewToolTipOwner {
         removeAllToolTips()
         frames = layoutFrames()
         for frame in frames { addToolTip(frame, owner: self, userData: nil) }
-        window?.invalidateCursorRects(for: self)
-    }
-
-    override func resetCursorRects() {
-        for frame in frames { addCursorRect(frame, cursor: .pointingHand) }
     }
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
@@ -807,6 +808,9 @@ final class TaskCell: NSTableCellView {
     /// Nothing shows or hides under the pointer (2026-11-10): the card reads the same.
     func setHovered(_ value: Bool) {}
 
+    /// The hand over its links or blocking tasks, for a point in window coordinates.
+    func handCursor(at point: NSPoint) -> NSCursor? { links.handCursor(at: point) ?? blockers.handCursor(at: point) }
+
     /// The links under a point in window coordinates, with their task.
     func links(at point: NSPoint) -> (routes: [ModalRoute], task: Int)? {
         guard let id, !links.isHidden else { return nil }
@@ -966,7 +970,7 @@ final class TaskCell: NSTableCellView {
 /// A task's links at its card's line end, in one family (2026-11-10): a PR or an issue its state's icon, its number and,
 /// for a PR, where it stands as a symbol (approved, changes requested, a draft); files, artifacts, Slack messages and web pages an icon
 /// each, with a count when several. Same size, same weight, secondary: only a PR's or an issue's state colors it.
-final class LinkTokensView: NSView, NSViewToolTipOwner {
+final class LinkTokensView: HandTrackingView, NSViewToolTipOwner {
     struct Token: Equatable {
         var routes: [ModalRoute]
         var icon: KitIcon?
@@ -1072,11 +1076,8 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
         return nil
     }
 
-    /// The pointer over a window point: the hand over a token, nothing of its own elsewhere.
-    func cursor(at windowPoint: NSPoint) -> NSCursor? {
-        let local = convert(windowPoint, from: nil)
-        return frames.contains { $0.contains(local) } && bounds.contains(local) ? .pointingHand : nil
-    }
+    /// The tokens, where the hand shows.
+    override var handParts: [NSRect] { frames }
 
     /// The token's links under a point in this view.
     func routes(at point: NSPoint) -> [ModalRoute]? {
@@ -1116,16 +1117,11 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
         refreshHints()
     }
 
-    /// A tooltip and the pointing hand over each token.
+    /// A tooltip over each token.
     private func refreshHints() {
         removeAllToolTips()
         frames = layoutFrames()
         for frame in frames { addToolTip(frame, owner: self, userData: nil) }
-        window?.invalidateCursorRects(for: self)
-    }
-
-    override func resetCursorRects() {
-        for frame in frames { addCursorRect(frame, cursor: .pointingHand) }
     }
 
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
@@ -1156,10 +1152,10 @@ extension ModalRoute {
 
 // MARK: Faces column
 
-/// The face of the session that matters most on the task, in its slot at the card's left (2026-11-10): a subtask's only
-/// when it isn't its parent's, the slot blank then; a plain avatar when no session works on it. A click shows its
+/// The face of the session that matters most on the task, in its slot at the card's left (2026-11-10), its parent's
+/// session too (T-452); a plain avatar when no session works on it. A click shows its
 /// session's menu, or offers to start one.
-final class FacesCell: NSTableCellView {
+final class FacesCell: NSTableCellView, HandParts {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
     private let faces = FaceStackView()
     let noSession = NoSessionFace()
@@ -1172,11 +1168,9 @@ final class FacesCell: NSTableCellView {
 
     nonisolated override var isFlipped: Bool { true }
 
-    /// The sessions a task's face stands for, the one that matters most first; none when its parent shows the same face.
+    /// The sessions a task's face stands for, the one that matters most first, its parent's too (T-452).
     static func sessions(_ model: AppModel, _ id: Int) -> [SessionItem] {
-        let sessions = model.byImportance(model.sessions(on: id, includeEnded: true))
-        guard let first = sessions.first, let parent = model.taskTree.parent(of: id) else { return sessions }
-        return model.byImportance(model.sessions(on: parent, includeEnded: true)).first?.id == first.id ? [] : sessions
+        model.byImportance(model.sessions(on: id, includeEnded: true))
     }
 
     init() {
@@ -1232,6 +1226,9 @@ final class FacesCell: NSTableCellView {
         faces.frame = NSRect(x: 0, y: gap + lineTop + (Metric.cardLine - side) / 2, width: faces.contentWidth, height: side)
         noSession.frame = NSRect(x: 0, y: faces.frame.minY, width: side, height: side)
     }
+
+    /// Its face, or the plain avatar.
+    var handParts: [NSRect] { [faces, noSession].filter { !$0.isHidden }.map(\.frame) }
 
     /// The face takes the hit, so the hand shows over it; the rest of the cell drags the card.
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1678,7 +1675,6 @@ struct OutputChip: View {
             .background(compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
                         in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .modifier(ChipClick(route: route, task: task, active: !plain))
-            // Under a task's row the outline's AppKit tracking gives the hand (`HandRegionView`).
             .clickable(task == nil)
             .help(LineCut.wrap(model.title(of: route)))
     }
@@ -1773,25 +1769,34 @@ struct FlowLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
-        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0, widest: CGFloat = 0
-        for view in subviews {
-            let size = Self.size(of: view, within: width)
-            if x > 0 && x + size.width > width { x = 0; y += line + spacing; line = 0 }
-            x += size.width + spacing
-            line = max(line, size.height)
-            widest = max(widest, x - spacing)
-        }
-        return CGSize(width: min(widest, width), height: y + line)
+        let frames = Self.lines(subviews.map { Self.size(of: $0, within: width) }, width: width, spacing: spacing)
+        return CGSize(width: min(frames.map(\.maxX).max() ?? 0, width), height: frames.map(\.maxY).max() ?? 0)
     }
 
+    /// The lines it was measured with, from the width proposed: SwiftUI rounds the bounds to the pixel, and the widest
+    /// line's last chip would drop onto a line under it that its height doesn't count (T-451).
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, line: CGFloat = 0
-        for view in subviews {
-            let size = Self.size(of: view, within: bounds.width)
-            if x > bounds.minX && x + size.width > bounds.maxX { x = bounds.minX; y += line + spacing; line = 0 }
-            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+        let width = proposal.width ?? bounds.width
+        let frames = Self.lines(subviews.map { Self.size(of: $0, within: width) }, width: width, spacing: spacing)
+        // What follows it would sit over its last line.
+        if let bottom = frames.map(\.maxY).max(), bottom > bounds.height + 1 {
+            let line = "flow: \(frames.count) chips placed \(Int(bottom)) pt tall in \(Int(bounds.height)) pt, \(Int(width)) wide"
+            MainActor.assumeIsolated { AppLog.write(line, to: "outline.log") }
+        }
+        for (view, frame) in zip(subviews, frames) {
+            view.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    /// Each view's frame, left to right, a new line when the next doesn't fit.
+    static func lines(_ sizes: [CGSize], width: CGFloat, spacing: CGFloat) -> [CGRect] {
+        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0
+        return sizes.map { size in
+            if x > 0 && x + size.width > width { x = 0; y += line + spacing; line = 0 }
+            let frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
             x += size.width + spacing
             line = max(line, size.height)
+            return frame
         }
     }
 
@@ -1820,7 +1825,7 @@ extension AppModel {
         case .session(let id): session(id)?.name ?? "Session"
         case .file(let id): file(id)?.title ?? id
         case .artifact(let url): artifacts.first { $0.id == url }?.title ?? url.lastPathComponent
-        case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? url
+        case .github(let url): githubItem(url).map { "#\($0.number) \($0.title)" } ?? ItemLine.github(url)?.key ?? url
         case .web(let url): Self.webName(url)
         case .slack(let url): slackMessages[url]?.title ?? (SlackLink(url)?.ts == nil ? "Slack channel" : "Slack message")
         case .start: "Start a session"
@@ -1840,7 +1845,7 @@ extension AppModel {
         case .task(let id): return task(id)?.key ?? "T-\(id)"
         case .github(let url):
             if let item = githubItem(url) { return "#\(item.number)" }
-            return URL(string: url).map { "#\($0.lastPathComponent)" } ?? url
+            return ItemLine.github(url)?.key.split(separator: "#").last.map { "#\($0)" } ?? url
         case .web(let url): return URL(string: url)?.host().map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url
         // Where it was said: #infra, or who wrote it in a direct message.
         case .slack(let url):

@@ -83,28 +83,36 @@ final class ToolbarHandView: NSView {
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 }
 
-/// The hand over the chips of a hosted line (a task row's links), from AppKit: SwiftUI's pointer style in a row's hosted
-/// view comes and goes as the line rebuilds. It asks `chip(at:)` where the chips are; clicks go through to them.
-final class HandRegionView: NSView {
-    private let chip: (NSPoint) -> Bool
+/// An AppKit view that draws parts a click acts on: where they are, in its coordinates. The UI check sweeps them for the
+/// hand as the window gives it (T-453).
+@MainActor protocol HandParts: NSView {
+    var handParts: [NSRect] { get }
+}
 
-    init(chip: @escaping (NSPoint) -> Bool) {
-        self.chip = chip
-        super.init(frame: .zero)
+/// An AppKit view whose parts a click acts on, drawn by it (a card's links, its blocking tasks, a face's target): the hand
+/// over each part, the arrow between, from a tracking area that follows scrolling. Where the view leaves its clicks to a
+/// container, that container's `cursorUpdate(with:)` asks `handCursor(at:)`: AppKit sends it to the view it hits.
+class HandTrackingView: NSView, HandParts {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
                                        owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    nonisolated override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// The whole view, unless a subclass draws several parts.
+    var handParts: [NSRect] { [bounds] }
 
-    /// The cursor for a point in window coordinates: the hand over a chip, else the arrow.
-    func cursor(at point: NSPoint) -> NSCursor { chip(convert(point, from: nil)) ? .pointingHand : .arrow }
+    /// The hand over a part, for a point in window coordinates; nil elsewhere.
+    func handCursor(at windowPoint: NSPoint) -> NSCursor? {
+        let local = convert(windowPoint, from: nil)
+        return !isHidden && bounds.contains(local) && handParts.contains { $0.contains(local) } ? .pointingHand : nil
+    }
 
-    override func cursorUpdate(with event: NSEvent) { cursor(at: event.locationInWindow).set() }
-    override func mouseMoved(with event: NSEvent) { cursor(at: event.locationInWindow).set() }
+    override func cursorUpdate(with event: NSEvent) { (handCursor(at: event.locationInWindow) ?? .arrow).set() }
+    override func mouseEntered(with event: NSEvent) { (handCursor(at: event.locationInWindow) ?? .arrow).set() }
+    override func mouseMoved(with event: NSEvent) { (handCursor(at: event.locationInWindow) ?? .arrow).set() }
     override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 }
 

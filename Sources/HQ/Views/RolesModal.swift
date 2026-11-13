@@ -54,7 +54,10 @@ struct RolesModal: View {
         .focusable(model.roleEdit == nil)
         .focusEffectDisabled()
         .focused($focused)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            model.readClaudeDefaults()
+        }
         .onChange(of: model.roleEdit) { _, edit in if edit == nil { focused = true } }
         .onKeyPress(.downArrow) { pick(1) }
         .onKeyPress(.upArrow) { pick(-1) }
@@ -206,44 +209,54 @@ private struct RoleDetail: View {
         let edit = model.roleEdit?.role == role.name ? model.roleEdit : nil
         let users = model.sessions(withRole: role.name)
         VStack(alignment: .leading, spacing: Space.xl) {
-            VStack(alignment: .leading, spacing: Space.sm) {
-                Text(byLine).kitType(.secondary).foregroundStyle(.secondary)
-                FlowLayout(spacing: Space.sm) {
-                    RoleChip(role: role)
-                        .contextMenu { RoleColorMenu(role: role) }
-                        .help("Role: \(role.name). Right-click to change its color")
-                        .uiTestAnchor("role-chip")
-                    Text(users.isEmpty ? "No open session has it" : "Used by")
-                        .kitType(.secondary)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, Space.xs)
-                        .frame(height: Metric.chipHeight + Space.xs)
-                    ForEach(users) { session in UsedBy(session: session) }
+            // The name and its line first, then where it lives and who has it (T-451).
+            VStack(alignment: .leading, spacing: Space.md) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    if edit?.field == .name { field(edit, type: .pageTitle, prompt: "Role name") } else {
+                        Text(role.name)
+                            .kitType(.pageTitle)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(EditOnDoubleClick { _ in model.beginRoleEdit(.name) })
+                            .help("Double-click to rename")
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityAction(named: "Rename") { model.beginRoleEdit(.name) }
+                            .uiTestAnchor("role-name")
+                    }
+                    if edit?.field == .line { field(edit, type: .title, prompt: "What it’s for, in one line") } else {
+                        Text(role.line.isEmpty ? "What it’s for, in one line. Double-click to write it." : role.line)
+                            .kitType(.title)
+                            .foregroundStyle(role.line.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(EditOnDoubleClick { _ in model.beginRoleEdit(.line) })
+                            .help("Double-click to edit")
+                            .accessibilityLabel("Line")
+                            .accessibilityValue(role.line)
+                            .accessibilityAction(named: "Edit") { model.beginRoleEdit(.line) }
+                            .uiTestAnchor("role-line")
+                    }
                 }
-            }
-            VStack(alignment: .leading, spacing: Space.xs) {
-                if edit?.field == .name { field(edit, type: .pageTitle, prompt: "Role name") } else {
-                    Text(role.name)
-                        .kitType(.pageTitle)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(EditOnDoubleClick { _ in model.beginRoleEdit(.name) })
-                        .help("Double-click to rename")
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityAction(named: "Rename") { model.beginRoleEdit(.name) }
-                        .uiTestAnchor("role-name")
-                }
-                if edit?.field == .line { field(edit, type: .title, prompt: "What it’s for, in one line") } else {
-                    Text(role.line.isEmpty ? "What it’s for, in one line. Double-click to write it." : role.line)
-                        .kitType(.title)
-                        .foregroundStyle(role.line.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(EditOnDoubleClick { _ in model.beginRoleEdit(.line) })
-                        .help("Double-click to edit")
-                        .accessibilityLabel("Line")
-                        .accessibilityValue(role.line)
-                        .accessibilityAction(named: "Edit") { model.beginRoleEdit(.line) }
-                        .uiTestAnchor("role-line")
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    Text(byLine).kitType(.secondary).foregroundStyle(.secondary)
+                    FlowLayout(spacing: Space.sm) {
+                        RoleChip(role: role)
+                            .contextMenu { RoleColorMenu(role: role) }
+                            .help("Role: \(role.name). Right-click to change its color")
+                            .uiTestAnchor("role-chip")
+                        Text(users.isEmpty ? "No open session has it" : "Used by")
+                            .kitType(.secondary)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, Space.xs)
+                            .frame(height: Metric.chipHeight + Space.xs)
+                        ForEach(users) { session in UsedBy(session: session) }
+                    }
+                    // What a session with it starts on, unless its form or `hq session new` says otherwise (T-446).
+                    HStack(spacing: Space.sm) {
+                        Text("Starts on").kitType(.secondary).foregroundStyle(.secondary)
+                        ModelPickers(model: role.model, effort: role.effort, anchor: "role") { picked, effort in
+                            model.changeRole(role.name, "Change Model") { ($0.model, $0.effort) = (picked, effort) }
+                        }
+                    }
                 }
             }
             VStack(alignment: .leading, spacing: Space.sm) {

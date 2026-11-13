@@ -2,7 +2,8 @@
 # Holds what review held by hand (CLAUDE.md, Rules; DESIGN.md §12):
 # - views use DesignKit's tokens: no raw color, font size, SF Symbol name or animation outside Sources/HQ/DesignKit;
 # - an `isFlipped` override is nonisolated: AppKit reads it off the main thread when a drag of several items starts;
-# - a double-click goes through SelectOpen, never onTapGesture(count: 2).
+# - a double-click goes through SelectOpen, never onTapGesture(count: 2);
+# - no cursor rects: they go stale as the page scrolls, and AppKit gives a click's pointer to the view it hits (T-453).
 # Usage: tools/code-lint.sh       Silence one line with a reason: // lint: ok <why>
 set -euo pipefail
 src=${0:A:h:h}/Sources/HQ
@@ -13,6 +14,7 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
   if (!/lint: ok/ && !/^\s*\/\//) {
     my @bad;
     push @bad, "isFlipped must be nonisolated" if /override var isFlipped/ && !/nonisolated/;
+    push @bad, "a cursor rect: use HandTrackingView or trackHandCursor()" if /\b(?:addCursorRect|resetCursorRects)\b/;
     if (!$kit && !$tests) {
       push @bad, "a raw color" if /\b(?:NS)?Color\((?:red|white|hue|srgbRed|calibratedRed):/;
       push @bad, "a raw font size" if /\.(?:system|monospacedSystemFont)\((?:size|ofSize):/;

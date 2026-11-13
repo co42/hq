@@ -1,11 +1,15 @@
 import AppKit
 import HQKit
+import SwiftUI
 
 /// v14's stability fixes: a turn that ends without a Stop (T-371).
 extension SelfTest {
     static func stabilityChecks(_ model: AppModel) async {
         await cancelledTurnChecks(model)
         remindedReviewChecks(model)
+        nextReviewChecks(model)
+        draftReviewChecks(model)
+        await flowChecks()
         windowFrameChecks(model)
         bringForwardChecks(model)
     }
@@ -48,12 +52,12 @@ extension SelfTest {
               != WindowFrame.key(screens: [NSRect(x: 0, y: 0, width: 1512, height: 982), NSRect(x: 1512, y: 0, width: 2560, height: 1440)])) // grid: ok screen sizes
     }
 
-    /// T-392: a review with a reminder still to come leaves the Reviews list until the reminder is due, and stays in Needs You.
+    /// T-392, T-462: a review with something about it in Later leaves the Reviews list until it comes back; a reminder leaves it in Needs You.
     private static func remindedReviewChecks(_ model: AppModel) {
         let filter = model.reviewFilter
         model.reviewFilter = .all
         defer { model.reviewFilter = filter }
-        guard let review = model.waitingReviews.first(where: { !model.remindedLater.contains($0.url) }) else {
+        guard let review = model.waitingReviews.first(where: { !model.inLater.contains($0.url) }) else {
             return check("the seed has a review that waits, with no reminder on it", false)
         }
         let other = model.reviewRequests.first { $0.url != review.url }
@@ -70,6 +74,104 @@ extension SelfTest {
         defer { model.notices.removeAll { $0.id == done.id } }
         model.markRead(done.id)
         check("a reminder marked done before its time doesn't hide the review", model.reviewRequests.contains { $0.url == review.url })
+        // T-462: Later on the review itself in Needs You, or on a notification about it, hides it too.
+        model.putReviewLater(review.url, until: .now.addingTimeInterval(3600))
+        check("a review put Later leaves Reviews until it comes back (T-462)", !model.reviewRequests.contains { $0.url == review.url },
+              "\(model.reviewRequests.map(\.number))")
+        model.putReviewLater(review.url, until: nil)
+        check("and Bring Back Now brings it back", model.reviewRequests.contains { $0.url == review.url })
+        let note = model.notify("Look at this one", level: .update, source: "selftest-later", links: [ModalRoute.github(review.url).selectionKey])
+        defer { model.notices.removeAll { $0.id == note.id } }
+        model.snooze(note.id, until: .now.addingTimeInterval(3600))
+        check("a notification about it put Later hides it too", !model.reviewRequests.contains { $0.url == review.url })
+    }
+
+    /// T-456: Next Review marks the PR reviewed and shows the next one waiting in its place, Back kept; the last one has none.
+    private static func nextReviewChecks(_ model: AppModel) {
+        let seen = model.seen, saved = model.github
+        defer { model.seen = seen; model.github = saved; model.closeModal() }
+        // Two more like the seed's waiting review, asked a minute and two before it.
+        guard var snapshot = saved, let first = model.waitingReviews.first else { return check("the seed has a review that waits", false) }
+        for step in 1...2 {
+            var copy = first
+            copy.number = 9100 + step
+            copy.url = first.url.replacingOccurrences(of: "/\(first.number)", with: "/\(copy.number)")
+            copy.reviewRequestedAt = first.reviewRequestedAt.map { $0.addingTimeInterval(-60 * Double(step)) }
+            snapshot.items.append(copy)
+        }
+        model.github = snapshot
+        let filter = model.reviewFilter
+        defer { model.reviewFilter = filter }
+        model.reviewFilter = .waiting
+        let waiting = model.reviewRequests
+        guard waiting.count >= 3 else { return check("three reviews that wait", false, "\(waiting.count)") }
+        model.open(.notifications)
+        model.open(.github(waiting[0].url), push: true)
+        check("Next Review goes to the next PR of the Reviews list", model.nextReview(after: waiting[0].url)?.url == waiting[1].url)
+        model.goToNextReview(from: waiting[0].url)
+        check("it marks this one reviewed and shows the next in its place, Back still to the center",
+              model.githubItem(waiting[0].url).map(model.waitsForReview) == false && model.modal == .github(waiting[1].url)
+              && model.modalStack == [.notifications], "\(String(describing: model.modal)) \(model.modalStack)")
+        check("from the last one it goes around to the first the list shows",
+              model.nextReview(after: waiting[waiting.count - 1].url)?.url == model.reviewRequests.first?.url)
+        // The list as it shows: a reviewed PR is next with All or Not Approved, never with Waiting.
+        model.reviewFilter = .all
+        let all = model.reviewRequests
+        let reviewed = all.firstIndex { $0.url == waiting[0].url }
+        let before = reviewed.map { all[($0 + all.count - 1) % all.count].url }
+        check("with All, a PR already reviewed is next too", before.flatMap { model.nextReview(after: $0) }?.url == waiting[0].url,
+              "\(all.map(\.number))")
+        model.reviewFilter = .waiting
+        for item in waiting.dropFirst(2) { model.markReviewed(item.url) }
+        check("with no other in the list, there is none: Mark Reviewed stays", model.nextReview(after: waiting[1].url) == nil, "\(model.reviewRequests.map(\.number))")
+    }
+
+    /// T-457: a draft that asks for the user's review leaves Reviews and Needs You until Show Drafts.
+    private static func draftReviewChecks(_ model: AppModel) {
+        let saved = model.github
+        defer { model.github = saved; model.reviewDrafts = false }
+        guard var snapshot = saved, let index = snapshot.items.firstIndex(where: { item in model.waitingReviews.contains { $0.url == item.url } }) else {
+            return check("the seed has a review that waits", false)
+        }
+        let url = snapshot.items[index].url
+        snapshot.items[index].state = .draft
+        model.github = snapshot
+        func shown() -> (reviews: Bool, needsYou: Bool) {
+            (model.allReviewRequests.contains { $0.url == url }, model.waitingReviews.contains { $0.url == url })
+        }
+        check("a draft that asks for your review leaves Reviews and Needs You by default (T-457)", shown() == (false, false), "\(shown())")
+        model.reviewDrafts = true
+        check("Show Drafts brings it back to both", shown() == (true, true), "\(shown())")
+    }
+
+    /// T-451: wrapping chips keep the lines they were measured with, however SwiftUI rounds their bounds: what follows
+    /// never sits over the last line. Widths with fractions, the widest line just fitting, at every width around it.
+    private static func flowChecks() async {
+        final class Probe { var chips: CGFloat = 0; var below: CGFloat = 0 }
+        var overlaps: [String] = []
+        for width in stride(from: CGFloat(200), through: 224, by: 0.25) {
+            let probe = Probe()
+            let root = VStack(alignment: .leading, spacing: 0) {
+                FlowLayout(spacing: 8) {
+                    ForEach([100.3, 100.2, 50.15], id: \.self) { chip in
+                        Color.clear.frame(width: chip, height: 12)
+                            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("flow")).maxY } action: { probe.chips = max(probe.chips, $0) }
+                    }
+                }
+                Color.clear.frame(height: 1)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("flow")).minY } action: { probe.below = $0 }
+            }
+            .frame(width: width, alignment: .leading)
+            .coordinateSpace(.named("flow"))
+            let host = NSHostingView(rootView: root)
+            host.frame = NSRect(x: 0, y: 0, width: width, height: 100)
+            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: true)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(10))
+            if probe.chips > probe.below + 0.01 { overlaps.append("\(width): chips to \(probe.chips), next at \(probe.below)") }
+        }
+        check("wrapping chips never run under what follows them (T-451)", overlaps.isEmpty, overlaps.prefix(3).joined(separator: "; "))
     }
 
     /// A hook event with the session's pid, as `hq hook` sends it.

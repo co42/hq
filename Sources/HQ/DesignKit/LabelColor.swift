@@ -77,10 +77,27 @@ struct LabelChip: View {
             }
             Text(text).lineLimit(1).foregroundStyle(.secondary)
         }
-        .kitType(.secondary)
-        .fontWeight(.medium)
-        .padding(.horizontal, Space.xs + 2)
-        .frame(height: Metric.chipHeight)
-        .background(Ink.labelFill, in: Capsule())
+        .labelCapsule()
+    }
+}
+
+/// A fact on a label's capsule, without a color: a session's folder and branch, its model and context (T-446).
+struct FactChip: View {
+    let text: String
+    var truncation: Text.TruncationMode = .tail
+
+    var body: some View {
+        Text(text).lineLimit(1).truncationMode(truncation).foregroundStyle(.secondary).monospacedDigit()
+            .labelCapsule()
+    }
+}
+
+private extension View {
+    func labelCapsule() -> some View {
+        kitType(.secondary)
+            .fontWeight(.medium)
+            .padding(.horizontal, Space.xs + 2)
+            .frame(height: Metric.chipHeight)
+            .background(Ink.labelFill, in: Capsule())
     }
 }

@@ -267,11 +267,11 @@ extension SelfTest {
         check("--tree is for sessions only", failure(agent("ls", ["kind": "tasks", "tree": "true"]))?.code == "usage")
         let roles = agent("ls", ["kind": "roles"])
         check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(2).compactMap { $0["name"] as? String } == ["Leader", "Worker"]
-              && AgentCLI.human(roles).hasPrefix("Leader [indigo] Leads a story and keeps its task tree small and current. Never writes the code. · ships with HQ · "), AgentCLI.human(roles))
+              && AgentCLI.human(roles).hasPrefix("Leader [indigo] Leads a story and keeps its task tree small and current. Never writes the code. · opus xhigh · ships with HQ · "), AgentCLI.human(roles))
 
         // role show, new, edit, delete.
         let shown = AgentCLI.human(agent("role show", ["role": "worker"]))
-        check("role show prints its line, its text and who uses it", shown.hasPrefix("Worker [brown] · ships with HQ · ") && shown.contains(RoleItem.workerText)
+        check("role show prints its line, its text and who uses it", shown.hasPrefix("Worker [brown] · opus high · ships with HQ · ") && shown.contains(RoleItem.workerText)
               && shown.contains("\n\nUsed by:\n") && shown.contains("\n  \(workerID.prefix(8)) [idle] CLI worker"), shown)
         let made = agent("role new", ["name": "CLI Reviewer", "line": "Reviews one PR.", "color": "pink", "body": "Read the diff.\n"])
         check("role new makes its note", model.role(named: "CLI Reviewer").map { $0.color == .pink && $0.line == "Reviews one PR." && $0.text == "Read the diff." && $0.path != nil } == true

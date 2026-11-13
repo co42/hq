@@ -221,6 +221,15 @@ private struct ModalActions: View {
             }
         case .session(let id):
             if let session = model.session(id) {
+                // What it runs on, "Opus VH · 442k", and Model ▸ Effort ▸ (T-446, T-475).
+                if session.isRunning {
+                    Menu { RunMenus(session: session) } label: { Text(session.modelLine ?? "Model") }
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help([session.modelHelp, model.canChangeRun(session) ? "Change its model or effort" : "Its model or effort changes while it waits for its next message"]
+                            .compactMap(\.self).joined(separator: "\n"))
+                        .uiTestAnchor("session-model")
+                }
                 CopyItemButton(route: .session(id))
                 if session.isRunning, session.tty != nil {
                     Button("Close Session") { model.closeSession(id) }
@@ -262,7 +271,13 @@ private struct ModalActions: View {
                 CopyItemButton(route: .github(url))
                 RemindMeButton(route: .github(url))
                 CopyLinkButton(link: url)
-                if model.waitsForReview(item) {
+                // Next Review while another PR waits for the user, else Mark Reviewed (T-456).
+                if let next = model.nextReview(after: url) {
+                    Button("Next Review") { model.goToNextReview(from: url) }
+                        .help((model.waitsForReview(item) ? "Mark it reviewed and open the next PR waiting for you: " : "Open the next PR waiting for you: ")
+                              + model.title(of: .github(next.url)))
+                        .uiTestAnchor("next-review")
+                } else if model.waitsForReview(item) {
                     Button("Mark Reviewed") { model.markReviewed(url) }
                         .help("Mark it reviewed: quiet until its next commit")
                 }

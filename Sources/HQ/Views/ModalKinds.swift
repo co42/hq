@@ -685,7 +685,7 @@ struct LinkPicker: View {
         case .task: "Task"
         case .file: "File"
         case .artifact: "Artifact"
-        case .github(let url): model.githubItem(url).map { "\($0.kind == .issue ? "Issue" : "PR") · \($0.reference)" } ?? "Link"
+        case .github(let url): model.githubItem(url).map { "\($0.kind == .issue ? "Issue" : "PR") · \($0.reference)" } ?? ItemLine.github(url).map { "\($0.kind) · \($0.key)" } ?? "Link"
         case .web: "Link"
         case .slack: "Slack"
         default: ""
@@ -1238,6 +1238,18 @@ struct StartSessionForm: View {
                         }
                     }
                     GridRow {
+                        label("Model")
+                        HStack(spacing: Space.md) {
+                            ModelPickers(model: draft.model, effort: draft.effort, anchor: "start") { picked, effort in
+                                model.startDraft?.model = picked
+                                model.startDraft?.effort = effort
+                                model.startDraft?.modelChosen = true
+                            }
+                            .frame(width: Metric.startPicker, alignment: .leading)
+                            hint(draft.modelChosen ? "Picked for this session." : draft.role == nil ? "Claude Code’s own." : "Its role’s.")
+                        }
+                    }
+                    GridRow {
                         label("Parent")
                         HStack(spacing: Space.md) {
                             sessionPicker("Parent", none: "None: at the top level", selection: draft.parent,
@@ -1370,12 +1382,23 @@ extension AppModel {
         draft.parent = parent
         if let folder = session(parent)?.cwd { draft.folder = folder }
         if !draft.roleChosen { draft.role = siblingsRole(under: parent) }
+        followRole(&draft)
         startDraft = draft
     }
 
     func setStartRole(_ role: String?) {
-        startDraft?.role = role
-        startDraft?.roleChosen = true
+        guard var draft = startDraft else { return }
+        draft.role = role
+        draft.roleChosen = true
+        followRole(&draft)
+        startDraft = draft
+    }
+
+    /// The form's model and effort are its role's until the user picks them (T-446).
+    func followRole(_ draft: inout StartDraft) {
+        guard !draft.modelChosen else { return }
+        let role = role(named: draft.role)
+        (draft.model, draft.effort) = (role?.model, role?.effort)
     }
 }
 

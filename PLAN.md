@@ -108,6 +108,8 @@ A Claude `session_id` with its name (the latest of the user's rename in HQ, the 
 
 Teams (v14, 2026-11-11): `parentID`, the session that started it (`hq session new` from a session, Start a Session with a Parent, Move Under), and `role`, the name of the role note it started with. HQKit's `SessionTree` reads the teams: a parent that isn't there, or a loop, reads as top level; the grid shows the top-level sessions, and a closed one stays, faded, while a session under it is open, then leaves with the last one for Closed Sessions. After /clear the new conversation keeps its parent and role and leads the sessions the old one started. Move Under and Make Root take Undo; a session never goes under its own team. The grid orders the top-level sessions by their `order`; a team's sessions keep theirs among their siblings. A drop between cards or rows, Move Above, Move Below and ⇧ with the arrows place a session under a parent (none: the grid) before or after a sibling, renumbering that parent's sessions 1, 2, 3…: one Undo step that puts back every parent and order it touched (`placeSession`). The team shown open (`openTeam`, one at a time) isn't stored.
 
+What a running session runs on (v15, 2026-11-13, T-446, T-475): `model`, `effort` and `contextTokens` (input, cache and output tokens of its last reply, what its next turn starts from), read from the last reply of its transcript's main thread on each prompt, each Stop, each write while it runs (at most once a second) and at launch; not stored. Model ▸ and Effort ▸ type `/model` or `/effort` in its terminal, only while it waits for its next message.
+
 Task ↔ session links live in the task notes (`sessions:`), many to many. They are made by `hq` commands from a session, Start Session on a task, a task dropped on a card, and Link to… in a modal.
 
 ### Role: `<vault>/hq/roles/<Name>.md`
@@ -116,11 +118,13 @@ Task ↔ session links live in the task notes (`sessions:`), many to many. They 
 ---
 color: indigo           # a label color; HQ writes it, as `line`
 line: Leads a story and keeps its task tree small and current. Never writes the code.
+model: opus             # the model and effort its sessions start on (v15, T-446); none: Claude Code's own
+effort: xhigh
 ---
 You lead a story: the task you were given and everything under it. …
 ```
 
-(v14, 2026-11-11.) The note's name is the role's, unique with case ignored, and its body is the text a session started with it gets (§7). Read at each vault scan like files, so an edit in Obsidian reaches HQ; every change in HQ or `hq` writes the note (a rename renames it and the `role` of the sessions that have it; Delete sends it to the Trash, with Undo; other keys keep their text). Leader and Worker ship with HQ: each is written once, when its note is missing (`roles.shipped` in the preferences remembers it, per vault), so one the user deletes stays deleted; Restore Default brings back a shipped role's color, line and text. A session whose role is gone keeps the text it started with and loses the chip.
+(v14, 2026-11-11.) The note's name is the role's, unique with case ignored, and its body is the text a session started with it gets (§7). Read at each vault scan like files, so an edit in Obsidian reaches HQ; every change in HQ or `hq` writes the note (a rename renames it and the `role` of the sessions that have it; Delete sends it to the Trash, with Undo; other keys keep their text). Leader and Worker ship with HQ: each is written once, when its note is missing (`roles.shipped` in the preferences remembers it, per vault), so one the user deletes stays deleted; Restore Default brings back a shipped role's color, line, text, model and effort. Its `model` and `effort` (v15, 2026-11-13, T-446) are what a session started with it gets (`claude --model --effort`), unless Start a Session or `hq session new` says otherwise; none: Claude Code's own. Leader ships on Opus, xhigh; Worker on Opus, high. A session whose role is gone keeps the text it started with and loses the chip.
 
 ### File and artifact
 
@@ -198,13 +202,13 @@ hq file write <name> [--body - [--append]] [--section S --body -] [--replace old
 hq file show <name>                            # its name, path or title
 hq file delete <name> [--yes]                  # to the Trash; without --yes: what it would delete
 hq artifact add <url> --title t [--date d] [--task T-n]     # one HQ didn't capture; a ?sk= share key is dropped
-hq session new "Name" [--task T-n] [--role R] [--parent <session> | --parent none | --beside] [--history <session>] [--cwd dir] [--message -]
+hq session new "Name" [--task T-n] [--role R] [--parent <session> | --parent none | --beside] [--history <session>] [--cwd dir] [--model m] [--effort e] [--message -]
                                                # from a session: under it, in its Ghostty window; --beside: at its level (a handoff)
 hq session edit <session> --parent <session>|none   # Move Under, Make Root; never under its own team
 hq session show <id>                           # its id or 6 characters of it; --parent and --history take a name too
 hq session close <session>                     # one under this session (any depth), as Close Session: input emptied, /exit; refused while it waits on the user
 hq session resume <session>                    # a closed one under this session, as Resume: a new tab in its parent's Ghostty window, its place in the team kept
-hq role show | new | edit | delete <name>      # new and edit: [--name n] [--line l] [--color c] [--body -]; delete: to the Trash, without --yes what it would do
+hq role show | new | edit | delete <name>      # new and edit: [--name n] [--line l] [--color c] [--model m] [--effort e] [--body -]; delete: to the Trash, without --yes what it would do
 hq notify "…" [--important] [--link T-n,<url>,…] [--task T-n]   # Updates; --important: Needs You, with a banner
 hq remind "…" --at <when> [--important] [--link …] [--task T-n] # Later until <when> (16:00, in 2h, tomorrow at 15:00, friday 3pm); a word it doesn't read is refused, the reply says the time it read
 hq notification done|delete <id> [--not-mine]              # one this session sent or set; the id's first 8 characters do

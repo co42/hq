@@ -44,6 +44,7 @@ extension AppModel {
         // A /rename writes the transcript only: read again on each prompt and Stop.
         if ["UserPromptSubmit", "Stop"].contains(event.name), let path = item.transcriptPath {
             Self.applyTitles(TranscriptTitle.read(path), to: &item)
+            Self.applyUsage(ClaudeModel.usage(path), to: &item)
         }
         if let pid = event.pid { item.pid = pid }
         if let tty = event.tty { item.tty = tty }
@@ -569,20 +570,38 @@ extension AppModel {
         return changed
     }
 
-    /// At launch: a /rename too far back for the end of a running session's transcript still names it.
+    /// At launch: a /rename too far back for the end of a running session's transcript still names it; its last reply says
+    /// its model, effort and context.
     func adoptRenames() {
         let paths = sessions.filter(\.isRunning).compactMap { item in item.transcriptPath.map { (item.id, $0) } }
         guard !paths.isEmpty else { return }
         Task.detached(priority: .utility) {
-            let found = paths.compactMap { id, path in TranscriptTitle.lastRename(path).map { (id, $0) } }
+            let found = paths.map { id, path in (id, TranscriptTitle.lastRename(path), ClaudeModel.usage(path)) }
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                for (id, renamed) in found {
-                    guard var item = self.session(id), Self.applyTitles(.init(renamed: renamed), to: &item) else { continue }
-                    self.put(item)
+                for (id, renamed, usage) in found {
+                    guard var item = self.session(id) else { continue }
+                    let named = renamed.map { Self.applyTitles(.init(renamed: $0), to: &item) } ?? false
+                    if Self.applyUsage(usage, to: &item) || named { self.put(item) }
                 }
             }
         }
+    }
+
+    /// The model, effort and context its last reply shows (T-446, T-475).
+    @discardableResult
+    static func applyUsage(_ usage: ClaudeModel.Usage?, to item: inout SessionItem) -> Bool {
+        guard let usage else { return false }
+        let before = (item.model, item.effort, item.contextTokens)
+        item.contextTokens = usage.contextTokens ?? item.contextTokens
+        // HQ's own Model ▸ or Effort ▸ holds until a reply written after it.
+        if let changed = item.runChangedAt {
+            guard let at = usage.at, at > changed else { return before != (item.model, item.effort, item.contextTokens) }
+            item.runChangedAt = nil
+        }
+        item.model = usage.model ?? item.model
+        item.effort = usage.effort ?? item.effort
+        return before != (item.model, item.effort, item.contextTokens)
     }
 
     /// At most one read a second while Claude writes.
@@ -596,6 +615,7 @@ extension AppModel {
                 return
             }
             var changed = Self.applyTitles(TranscriptTitle.read(path), to: &item)
+            changed = Self.applyUsage(ClaudeModel.usage(path), to: &item) || changed
             // Esc or Ctrl+C in the terminal: no Stop comes, the transcript says so.
             if let stopped = TranscriptInterrupt.read(path) {
                 var live = item.live
@@ -679,6 +699,29 @@ extension AppModel {
             put(item)
         }
         registerUndo("Move Session") { $0.restoreOrder(current) }
+    }
+
+    /// Model › and Effort › reach a session that runs in a Ghostty terminal and waits for its next message: never one at
+    /// work or asking something, where the keys would land in its queue or answer it (T-446).
+    func canChangeRun(_ item: SessionItem) -> Bool {
+        guard item.isRunning, item.inGhostty, item.tty != nil, backgroundHandles[item.id] == nil else { return false }
+        return item.status.state == .idle || item.status.state == .done || item.status.state == .failed
+    }
+
+    /// /model or /effort typed in its terminal, its input emptied first as Close Session does; the card says it at once
+    /// and its next reply confirms it.
+    func changeRun(_ id: String, model picked: String? = nil, effort: String? = nil) {
+        guard var item = session(id), canChangeRun(item), let tty = item.tty,
+              let command = picked.map({ "/model \($0)" }) ?? effort.map({ "/effort \($0)" }) else { return }
+        if let picked { item.model = picked }
+        if let effort { item.effort = effort }
+        item.runChangedAt = .now
+        put(item)
+        if Store.isOverridden { return ghosttyLog.append("clear the input, then type \(command) in \(tty)") }
+        Task.detached {
+            let typed = (try? Ghostty.type(command, tty: tty, clearing: true)) ?? false
+            await MainActor.run { AppLog.write("\(command) in \(tty): \(typed ? "typed" : "no terminal")", to: "clicks.log") }
+        }
     }
 
     /// Close Session: /exit in its terminal, Escape first while it works, then the terminal closes once Claude has quit.
@@ -979,19 +1022,23 @@ extension AppModel {
     /// message read from a file so any shell takes it whole. Linked to the task it starts for.
     @discardableResult
     func startSession(named name: String, in directory: String, task taskID: Int? = nil, pullRequest: String? = nil, message: String = "",
-                      parent: SessionItem.ID? = nil, role: String? = nil, history: SessionItem.ID? = nil,
-                      done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
+                      parent: SessionItem.ID? = nil, role: String? = nil, history: SessionItem.ID? = nil, model: String? = nil,
+                      effort: String? = nil, done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
         let id = UUID().uuidString.lowercased()
         var item = newSession(id, named: name, in: directory)
         // A review session shows on its PR from the start.
         if let pullRequest { item.links.append(pullRequest) }
         item.parent = session(parent)?.id
         item.role = role
+        (item.model, item.effort) = (model, effort)
         put(item)
         if let taskID, task(taskID) != nil { link(task: taskID, session: id) }
         var command = "claude --session-id \(id) --name \(Self.shellQuoted(name))"
         // History from another session: its conversation so far, as Claude's fork.
         if let history = session(history)?.id { command = "claude --resume \(history) --fork-session --session-id \(id) --name \(Self.shellQuoted(name))" }
+        // Its model and effort, else Claude Code's own (T-446).
+        if let model { command += " --model \(Self.shellQuoted(model))" }
+        if let effort { command += " --effort \(Self.shellQuoted(effort))" }
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty, let file = writePrompt(text, id: id) {
             command += " \"$(cat \(Self.shellQuoted(file.path)))\""

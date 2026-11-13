@@ -442,6 +442,24 @@ extension UITest {
             }
         }
         await check("every AppKit view a click acts on in a row shows the pointing hand", bare.isEmpty, bare.prefix(5).joined(separator: "; "))
+        // Every part a click acts on shows the hand as the window gives it, the page scrolled: a card's links and
+        // blocking tasks too, whose clicks go to the outline (T-453).
+        model.link(.github("https://github.com/acme/registry/pull/9101"), to: parent.id)
+        model.link(.web("https://example.com/hand"), to: parent.id)
+        model.addLink(parent.id, .blockedBy, above.id)
+        await endUndoGroup(model)
+        if parentRow() >= 0 { outline.scrollRowToVisible(parentRow()) }
+        await ui.settle(0.5)
+        let card = (outline.view(atColumn: 1, row: parentRow(), makeIfNecessary: false) as? TaskCell)
+        var bareParts = ui.partsWithoutHand()
+        if let grid = ui.find(SessionGrid.CardCollection.self) {
+            grid.scrollToVisible(grid.bounds)
+            await ui.settle(0.4)
+            bareParts += ui.partsWithoutHand()
+        }
+        await check("every AppKit part a click acts on shows the pointing hand, as the window gives it, links and blockers too (T-453)",
+                    bareParts.isEmpty && card?.links.handParts.count == 2 && card?.blockers.handParts.count == 1,
+                    "links \(card?.links.handParts.count ?? -1), blockers \(card?.blockers.handParts.count ?? -1); " + bareParts.prefix(6).joined(separator: "; "))
         model.indentTasks([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
@@ -556,8 +574,8 @@ extension UITest {
               "\(model.waitingReviews.count) waiting")
         guard let row = model.notices(in: .updates).first(where: { $0.readAt == nil && !$0.links.isEmpty }) else { return await check("an update with links", false) }
         if let frame = ui.anchorFrame("notice:\(row.id.uuidString)"), let face = ui.anchorFrame("notice-avatar:\(row.id.uuidString)") {
-            await check("a row's face or tile starts at its left padding, as on the other lists (no unread dot)",
-                  abs(face.minX - frame.minX - Space.sm) < 1, "\(face.minX - frame.minX) pt in")
+            await check("a card's face or tile starts at its padding, as on a task's card (no unread dot)",
+                  abs(face.minX - frame.minX - Metric.cardPadding) < 1, "\(face.minX - frame.minX) pt in")
         } else {
             await check("a row's face or tile has its anchor", false)
         }
@@ -575,18 +593,29 @@ extension UITest {
         await check("where the row read went to Earlier at once (T-365)", model.notices(in: .earlier).contains { $0.id == row.id }
               && !model.notices(in: .updates).contains { $0.id == row.id })
 
-        // A long text: two lines at rest, all of it once selected.
-        if let long = model.notices(in: .updates).first(where: { $0.text.count > 200 }) {
-            model.noticeSelection = nil
-            await ui.settle(0.3)
-            let rest = ui.anchorFrame("notice:\(long.id.uuidString)")?.height ?? 0
-            model.noticeSelection = long.id.uuidString
-            await ui.settle(0.3)
-            func open() -> CGFloat { ui.anchorFrame("notice:\(long.id.uuidString)")?.height ?? 0 }
-            await check("a selected row shows its whole text", open() > rest + Space.sm, "\(rest) → \(open())")
-        } else {
-            await check("an update with a long text", false)
+        // A long text: three lines at rest, its toggle shows all of it; selecting it doesn't (T-458). Many links: one line.
+        let long = model.notify(String(repeating: "A notification with a long text that needs more than three lines. ", count: 12), level: .update,
+                                source: "uitest-long", links: (40...47).map { "task:\($0)" } + ["github:https://github.com/acme/registry/pull/418"])
+        await ui.settle(0.4)
+        func height() -> CGFloat { ui.anchorFrame("notice:\(long.id.uuidString)")?.height ?? 0 }
+        /// Cards that overlap the one under them, in the center.
+        func overlaps() -> [String] {
+            let cards = (model.notices.map { "notice:\($0.id.uuidString)" } + model.blockedSessions.map { "blocked:\($0.id)" })
+                .compactMap { ui.anchorFrame($0) }.sorted { $0.minY < $1.minY }
+            return zip(cards, cards.dropFirst()).filter { $0.maxY > $1.minY + 0.5 && $0.minX < $1.maxX && $1.minX < $0.maxX }.map { "\($0.integral) over \($1.integral)" }
         }
+        let rest = height()
+        model.noticeSelection = long.id.uuidString
+        await ui.settle(0.3)
+        await check("a long notification shows three lines, its links on one line, and its toggle; selecting it shows no more (T-458)",
+                    ui.anchor("more:\(long.id.uuidString)") != nil && rest > 0 && rest < 200 && abs(height() - rest) < 1, "\(rest) → \(height())")
+        await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), inSheet: true)
+        await check("its toggle shows all of it, and no card runs over the next", height() > rest + Space.xl && overlaps().isEmpty,
+                    "\(rest) → \(height()); \(overlaps().prefix(2))")
+        await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), inSheet: true)
+        await check("and three lines again", abs(height() - rest) < 1, "\(rest) → \(height())")
+        model.notices.removeAll { $0.id == long.id }
+        model.noticeSelection = nil
         if let other = model.notices(in: .updates).first(where: { $0.readAt == nil }) {
             // Selected, as a click or the arrows select it: its Read shows.
             model.noticeSelection = other.id.uuidString
@@ -798,6 +827,15 @@ extension UITest {
             let foldedRow = await row(plain.id)
             let folded = foldedRow?.faces.shownSession
             await check("a task shows its own session's face, open or folded", open == low.id && folded == low.id, "open \(open ?? "-"), folded \(folded ?? "-")")
+            // Its parent's session too: every card shows its face (T-452).
+            model.setFold(plain.id, .all)
+            model.unlink(task: sub.id, session: top.id)
+            model.link(task: sub.id, session: low.id)
+            await endUndoGroup(model)
+            await ui.settle(0.5)
+            let subFace = await row(sub.id)?.faces.shownSession
+            await check("a subtask shows its session's face when it's its parent's too (T-452)", subFace == low.id, subFace ?? "none")
+            model.unlink(task: sub.id, session: low.id)
             model.unlink(task: plain.id, session: low.id)
             model.deleteTasks([sub.id])
             await endUndoGroup(model)
@@ -965,10 +1003,12 @@ extension UITest {
                 return row < 0 ? nil : outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell
             }
             func shown() -> Set<Int> { Set((subtasks + [deep, inner.id]).filter { outline.row(forItem: coordinator.node(.task($0))) >= 0 }) }
-            func press(_ button: NSButton?) async {
-                guard let button else { return problems.append("no button") }
-                outline.scrollRowToVisible(outline.row(for: button))
+            // Looked up again after the scroll, which can give its cell to another row (T-436).
+            func press(_ find: @autoclosure () -> NSButton?) async {
+                guard let first = find() else { return problems.append("no button") }
+                outline.scrollRowToVisible(outline.row(for: first))
                 await ui.settle(0.2)
+                guard let button = find() else { return problems.append("no button after the scroll") }
                 if ui.canClickTables { await ui.click(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)) } else { button.performClick(nil) }
                 await ui.settle(0.6)
             }
@@ -1256,7 +1296,7 @@ extension UITest {
            let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(added.id))), makeIfNecessary: false) as? TaskCell,
            let token = cell.links.windowPoint(of: route) {
             let past = cell.links.convert(NSPoint(x: -Space.sm, y: cell.links.bounds.midY), to: nil)
-            await check("the hand over a link on a task's card, the arrow beside", cell.links.cursor(at: token) == .pointingHand && cell.links.cursor(at: past) == nil)
+            await check("the hand over a link on a task's card, as the window gives it, the arrow beside", ui.cursorShown(at: token) == .pointingHand && ui.cursorShown(at: past) != .pointingHand)
             let opened = model.slackLog.count
             await ui.click(token)
             await ui.settle(0.4)
@@ -2369,8 +2409,8 @@ extension UITest {
         // A click on a row's key copies its key and title, through the outline as AppKit delivers it.
         // The edits above reload rows: the row's cell now may be another view.
         let keyRow = outline.row(forItem: coordinator.node(.task(child)))
+        if keyRow >= 0 { outline.scrollRowToVisible(keyRow) }
         if let task = model.task(child), let cell = outline.view(atColumn: 1, row: keyRow, makeIfNecessary: true) as? TaskCell {
-            outline.scrollRowToVisible(keyRow)
             cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
             cell.setHovered(true)
             ui.window.layoutIfNeeded()

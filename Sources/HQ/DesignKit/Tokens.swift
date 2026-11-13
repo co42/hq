@@ -328,24 +328,26 @@ nonisolated enum Metric {
     static var linkedTaskMax: CGFloat { 240 * Zoom.factor }
     /// The field + opens after a list of tags.
     static var tagField: CGFloat { 140 * Zoom.factor }
-    static let settingsWidth: CGFloat = 520
+    // Sheets and Settings grow with the zoom, as what they hold does (T-446, T-448).
+    static var settingsWidth: CGFloat { 520 * Zoom.factor }
     /// A secret pasted in Settings, the Slack token.
-    static let settingsField: CGFloat = 240
+    static var settingsField: CGFloat { 240 * Zoom.factor }
     static var sheetWidth: CGFloat { 480 * Zoom.factor }
     static let windowMin = CGSize(width: 720, height: 600)
     /// The modal: this share of the window's content, at least `modalMin`.
     static let modalShare: CGFloat = 0.88
-    static let modalMin = CGSize(width: 720, height: 520)
+    static var modalMin: CGSize { zoomed(720, 520) }
     /// New Reminder…: what, its links, when, important, then its buttons.
-    static let reminderSheet = CGSize(width: 560, height: 262)
+    static var reminderSheet: CGSize { zoomed(560, 262) }
     /// New Task…: the title, a description, the list, the project and the links, then its buttons.
-    static let taskSheet = CGSize(width: 560, height: 328)
+    static var taskSheet: CGSize { zoomed(560, 328) }
     /// New File…: its title, then its buttons.
-    static let fileSheet = CGSize(width: 560, height: 160)
+    static var fileSheet: CGSize { zoomed(560, 160) }
     /// Import Artifact…: its link with a word on it, its title, then its buttons.
-    static let importSheet = CGSize(width: 560, height: 212)
+    static var importSheet: CGSize { zoomed(560, 212) }
     /// Start a Session: name, folder, role, parent, history, the first message, then its buttons.
-    static let startSheet = CGSize(width: 720, height: 600)
+    static var startSheet: CGSize { zoomed(720, 600) }
+    private static func zoomed(_ width: CGFloat, _ height: CGFloat) -> CGSize { CGSize(width: width * Zoom.factor, height: height * Zoom.factor) }
     /// Its pop-ups, one width, so a long folder or session name never pushes the form past the sheet.
     static var startPicker: CGFloat { 260 * Zoom.factor }
     /// The Roles modal's list card, beside the role from this modal width, above it under.

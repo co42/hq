@@ -10,6 +10,21 @@ extension AppModel {
         registerUndo("Mark Reviewed") { $0.seen["review:\(url)"] = old }
     }
 
+    /// After a PR in Reviews, the next one the list shows, with its filter and search, and around; nil when it shows no
+    /// other (T-456).
+    func nextReview(after url: String) -> GitHubItem? {
+        let order = searched(reviewRequests)
+        guard let index = order.firstIndex(where: { $0.url == url }) else { return nil }
+        return (order[(index + 1)...] + order[..<index]).first
+    }
+
+    /// Next Review in a review PR's window: marks it reviewed while it waits and shows the next one in its place.
+    func goToNextReview(from url: String) {
+        guard let next = nextReview(after: url) else { return }
+        if let item = githubItem(url), waitsForReview(item) { markReviewed(url) }
+        open(.github(next.url), replacing: true)
+    }
+
     func waitsForReview(_ item: GitHubItem) -> Bool {
         item.waitsForReview(markedReviewedAt: seen["review:\(item.url)"])
     }
@@ -71,7 +86,7 @@ extension AppModel {
 
     /// Reviews, as its filter shows them, without those the user set a reminder on for later.
     var reviewRequests: [GitHubItem] {
-        let reminded = remindedLater
+        let reminded = inLater
         return allReviewRequests.filter { item in
             guard !reminded.contains(item.url) else { return false }
             return switch reviewFilter {
@@ -82,19 +97,21 @@ extension AppModel {
         }
     }
 
-    /// The PRs a reminder still to come links: out of the Reviews list until it's due; Needs You keeps them (T-392).
-    var remindedLater: Set<String> {
-        var urls = Set<String>()
-        for notice in notices where notice.kind == .reminder && notice.readAt == nil && (notice.dueAt ?? .distantPast) > now {
+    /// The PRs something in Later is about, a reminder, a notification or the review itself: out of the Reviews list
+    /// until it comes back (T-392, T-462).
+    var inLater: Set<String> {
+        var urls = Set((noticeStore.reviewsLater ?? [:]).filter { $0.value > now }.keys)
+        for notice in notices where notice.readAt == nil && (notice.dueAt ?? .distantPast) > now {
             for case .github(let url) in notice.links.compactMap(ModalRoute.init(noticeKey:)) { urls.insert(url) }
         }
         return urls
     }
 
     /// Every open PR that asks for the user's review, waiting or reviewed, and the others' open PRs they reviewed:
-    /// the latest asked first.
+    /// the latest asked first. Drafts only with Show Drafts, here and in Needs You (T-457).
     var allReviewRequests: [GitHubItem] {
-        (github?.items ?? []).filter { ($0.reviewRequested || $0.reviewedByMe) && $0.kind == .pullRequest && ($0.state == .open || $0.state == .draft) }
+        let drafts = reviewDrafts
+        return (github?.items ?? []).filter { ($0.reviewRequested || $0.reviewedByMe) && $0.kind == .pullRequest && ($0.state == .open || $0.state == .draft && drafts) }
             .sorted { ($0.reviewAskedAt, $0.number) > ($1.reviewAskedAt, $1.number) }
     }
 

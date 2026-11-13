@@ -19,7 +19,7 @@ while kill -0 $runner 2>/dev/null; do
     if [[ -n $app ]]; then
       sample $app 2 -file $log.sample >/dev/null 2>&1
       print "the main thread:"
-      awk '/com.apple.main-thread/ {on=1} on {print; if (++n > 40) exit}' $log.sample
+      awk '/Main Thread|com.apple.main-thread/ {on=1} on {print; if (++n > 40) exit}' $log.sample
       kill -9 $app
     fi
   } >> $log

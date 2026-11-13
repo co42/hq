@@ -463,15 +463,19 @@ enum AgentCLI {
             let role = (object["role"] as? String).map { " · \($0)" } ?? ""
             let reason = (object["reason"] as? String).map { " · \($0)" } ?? ""
             let folder = (object["cwd"] as? String).flatMap { $0.isEmpty ? nil : " · " + ($0 as NSString).abbreviatingWithTildeInPath } ?? ""
+            // What it runs on: "claude-opus-5-5 xhigh 442k" (T-446, T-475).
+            let run = [object["model"] as? String, object["effort"] as? String, (object["context"] as? Int).map(ClaudeModel.shortTokens)].compactMap(\.self)
+            let runs = run.isEmpty ? "" : " · " + run.joined(separator: " ")
             let me = object["thisSession"] as? Bool == true ? " · this session" : ""
             // A closed one says so: hq session resume brings it back.
-            return "\(indent)\(id.prefix(8)) [\(object["closed"] as? Bool == true ? "closed" : state)] \(title)\(role)\(reason)\(folder)\(me)"
+            return "\(indent)\(id.prefix(8)) [\(object["closed"] as? Bool == true ? "closed" : state)] \(title)\(role)\(runs)\(reason)\(folder)\(me)"
         }
         if let name = object["name"] as? String, let color = object["color"] as? String, let line = object["line"] as? String {
             // A role: its name, color, line, and how many open sessions have it.
             let users = (object["sessions"] as? [Any])?.count ?? 0
             let shipped = object["builtin"] as? Bool == true ? " · ships with HQ" + (object["changed"] as? Bool == true ? ", changed" : "") : ""
-            return "\(name) [\(color)]\(line.isEmpty ? "" : " \(line)")\(shipped) · \(users == 0 ? "no" : "\(users)") open session\(users == 1 ? "" : "s")"
+            let run = [object["model"] as? String, object["effort"] as? String].compactMap(\.self).joined(separator: " ")
+            return "\(name) [\(color)]\(line.isEmpty ? "" : " \(line)")\(run.isEmpty ? "" : " · " + run)\(shipped) · \(users == 0 ? "no" : "\(users)") open session\(users == 1 ? "" : "s")"
         }
         if let url = object["url"] as? String, let state = object["state"] as? String, let number = object["number"] as? Int {
             // "Reviews: Waiting for you", "Yours: Approved by noor".

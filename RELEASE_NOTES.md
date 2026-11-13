@@ -1,5 +1,30 @@
 # Release notes
 
+## v15 · 2026-11-13 · Models
+
+**Sessions** (plugin 0.12.0)
+- A session card says what it runs on, in a pill after its folder and branch's: "Opus VH · 442k", its model, its effort (L, M, H, VH for very high, Max) and the tokens its context holds. Hover it for the whole of it. Its team rows and its window show the same; a /model or /effort typed in its terminal shows after its next reply.
+- Start a Session has Model and Effort, its role's until you pick; with neither, they name Claude Code's own from its settings ("Opus", "High"). A card's menu and the session's window have Model ▸ and Effort ▸: HQ types /model or /effort in its terminal, only while it waits for its next message, and the card keeps what you picked until a later reply says otherwise.
+- Roles have a model and an effort (Starts on, in Roles): Leader ships on Opus, very high; Worker on Opus, high. `hq session new --model --effort` and `hq role edit --model --effort`; a session started with a role gets its role's.
+- The Worker text asks a Worker to check the ask against the task's goal and to look past the instance; the Leader text starts a Worker for a trivial task on Opus medium.
+- A subtask whose session is its parent's shows that face too.
+
+**Notifications**
+- Every notification is a card, as a task is: its text in three lines, the button at its end shows all of it; its links on one line, "+3" for the rest. Nothing runs over the next card.
+
+**Pull Requests**
+- In a review's window, Next Review marks it reviewed and shows the next PR of the Reviews list, as its filter shows it (Go › Next Review too).
+- Show Drafts in the Reviews filter: drafts are hidden by default, from Reviews and Needs You.
+
+**Fixes**
+- A review you put Later in Needs You leaves the Reviews list until it comes back, as one with a reminder does.
+- Every link and blocking task at the end of a task's card shows the pointing hand, wherever the page has scrolled. A check now sweeps the whole window for any clickable part without it.
+- The role window shows its name and line first; its Used by chips wrap without running under the title. The same fix holds every wrapping row of chips.
+- A GitHub link HQ hasn't fetched yet reads owner/repo#n, not its whole address.
+- With scroll bars shown always (a mouse plugged in), the page's column stays centered and no longer runs under the scroll bar.
+- Every sheet and Settings grow with View › Zoom: at 115% Start a Session's top was cut.
+- README: install from a clone with `./build.sh --force "install"`.
+
 ## v14.2 · 2026-11-12
 
 - HQ opens at once, even when iCloud has moved your notes off the Mac (a full disk makes it do so): it used to read every task note before showing its window, one download at a time, minutes on end. Now nothing waits on a note: iCloud is asked for all the missing ones at once, and they come in as they arrive.

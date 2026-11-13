@@ -92,13 +92,14 @@ extension AppModel {
             role.line = shipped.line
             role.text = shipped.text
             role.color = shipped.color
+            (role.model, role.effort) = (shipped.model, shipped.effort)
         }
     }
 
     /// Whether a role that ships with HQ was changed since: Restore Default shows.
     func isChangedDefault(_ role: RoleItem) -> Bool {
         RoleItem.defaults.first { $0.name.caseInsensitiveCompare(role.name) == .orderedSame }
-            .map { $0.text != role.text || $0.line != role.line || $0.color != role.color } ?? false
+            .map { $0.text != role.text || $0.line != role.line || $0.color != role.color || $0.model != role.model || $0.effort != role.effort } ?? false
     }
 
     /// The open sessions that have a role, in the grid's order.
@@ -151,8 +152,9 @@ nonisolated extension RoleItem {
     /// The roles that ship with HQ.
     static let defaults: [RoleItem] = [
         RoleItem(name: "Leader", color: .indigo, line: "Leads a story and keeps its task tree small and current. Never writes the code.", text: leaderText,
-                 builtin: true),
-        RoleItem(name: "Worker", color: .brown, line: "Works on one task and reports to its leader.", text: workerText, builtin: true),
+                 model: "opus", effort: "xhigh", builtin: true),
+        RoleItem(name: "Worker", color: .brown, line: "Works on one task and reports to its leader.", text: workerText,
+                 model: "opus", effort: "high", builtin: true),
     ]
 
     static func isShipped(_ name: String) -> Bool {
@@ -181,6 +183,7 @@ nonisolated extension RoleItem {
         Running it:
         - Read it whole first: `hq task show T-n --deep`, its files, PRs and Slack threads.
         - Start a Worker on each task that can move now: `hq session new "T-n Title" --task T-n --role Worker`.
+        - A trivial task (a typo, a one-line fix, a doc line): start its Worker with `--model opus --effort medium`.
         - Check what a Worker reports against the task's Done when, its PR and its checks, then update the task.
         - A Worker whose task is done: check its work, then close it (`hq session close <id>`); `hq session resume <id>` brings it back, conversation and all, when its task needs it again. `hq ctx` lists your sessions, closed ones too.
         - Answer Workers from what you know. What only the user can decide goes in one `hq notify`, each question with your recommendation.
@@ -189,11 +192,13 @@ nonisolated extension RoleItem {
     static let workerText = """
         You work on one task for your leader, the session that started you (`hq ctx` names it). You report to it, not to the user.
 
+        - Own the outcome: before you build, check the ask against the task goal (a flaw, a missed case, a simpler way) and tell your leader, with your recommendation.
+        - Look past the instance: the same bug elsewhere, the check that would have caught it, a doc the change makes wrong. Inside your task, fix it; outside, tell your leader.
         - Keep your task current: Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
         - Blocked the moment you can't go on without someone: `hq task block T-n "who and what"`, then tell your leader. Unblock it when it moves.
         - Create, split or remove no task. More work, a bug or a follow-up: tell your leader, who decides.
         - Message your leader (SendMessage, to its name) each time your task moves: what changed, what's next.
         - Need a decision: ask your leader first; it asks the user when it can't answer.
-        - Done: tell your leader what to check, and stop.
+        - Done: tell your leader what to check and what you are unsure of, and stop.
         """
 }

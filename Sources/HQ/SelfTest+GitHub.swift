@@ -8,7 +8,17 @@ extension SelfTest {
         heldChecks(model)
         linkOrderChecks(model)
         frontMatterChecks(model)
+        unfetchedTitleChecks(model)
         await mermaidChecks()
+    }
+
+    /// A GitHub link HQ hasn't fetched reads owner/repo#n, never its whole address (T-449).
+    private static func unfetchedTitleChecks(_ model: AppModel) {
+        let issue = ModalRoute.github("https://github.com/acme/unfetched/issues/9002")
+        let files = ModalRoute.github("https://github.com/acme/unfetched/pull/418/files")
+        check("an unfetched GitHub link reads owner/repo#n (T-449)", model.title(of: issue) == "acme/unfetched#9002"
+              && model.title(of: files) == "acme/unfetched#418", "\(model.title(of: issue)) · \(model.title(of: files))")
+        check("and its short title is its number", model.shortTitle(of: files) == "#418", model.shortTitle(of: files))
     }
 
     /// A Blocked reason with a line break stays on its key's line and reads back whole.

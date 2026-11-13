@@ -52,6 +52,12 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var parent: String?
     /// The name of the role it started with: a note in hq/roles/.
     var role: String?
+    /// What its last reply ran on and the tokens its context holds, from its transcript; not stored (T-446, T-475).
+    var model: String?
+    var effort: String?
+    var contextTokens: Int?
+    /// When HQ last typed /model or /effort in its terminal: a reply older than that doesn't undo it.
+    var runChangedAt: Date?
 
     /// The user's name, else Claude's title, else the first prompt, else the repository.
     var name: String {
@@ -287,6 +293,9 @@ nonisolated struct RoleItem: Identifiable, Hashable, Sendable {
     var line: String = ""
     /// What a session with it starts with: markdown.
     var text: String = ""
+    /// The model and effort a session with it starts on, as `claude --model --effort` takes them; nil, Claude Code's own (T-446).
+    var model: String?
+    var effort: String?
     /// One that ships with HQ (Leader, Worker): Restore Default brings its text back.
     var builtin = false
     var modified: Date = .distantPast

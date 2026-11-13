@@ -233,6 +233,19 @@ enum Snapshot {
                 model.openCenter()
                 model.noticeSelection = model.notices(in: .updates).max { $0.text.count < $1.text.count }?.id.uuidString
             },
+            // Cards (T-458): a long one cut at three lines with its toggle and links on one line, another shown in full.
+            Page(name: "modal-notifications-long", capture: .sheet) { model in
+                reset(model)
+                let text = "The retry budget lands in #418: one budget per upload, shared by its parts, so a slow part can't starve the others. "
+                    + "The canary ran for 30 minutes on eu-west with no 503 storm, p99 complete time down from 41 s to 6 s. Three things to check "
+                    + "before merging: the jitter on small uploads, the metrics names, and whether the budget should be per tenant."
+                let links = ["task:13", "task:44", "task:53", "file:2026-11-04 - Retry budget plan.md", "github:https://github.com/acme/registry/pull/418"]
+                let cut = model.notify(text, level: .important, source: "250a8563-5c74-4592-a463-b41398dc5b55", links: links)
+                let full = model.notify(text, level: .update, source: "83b6ab7a-8155-40ac-b149-16e2b8313b81", links: Array(links.prefix(2)))
+                model.expandedNotices = [full.id.uuidString]
+                model.noticeSelection = cut.id.uuidString
+                model.openCenter()
+            },
             Page(name: "modal-session-question", capture: .sheet) { reset($0); $0.open(.session("250a8563-5c74-4592-a463-b41398dc5b55")) },
             Page(name: "modal-session-plan", capture: .sheet) { reset($0); $0.open(.session("83b6ab7a-8155-40ac-b149-16e2b8313b81")) },
             Page(name: "modal-file", capture: .sheet) { model in reset(model); if let file = model.files.first { model.open(.file(file.id)) } },
@@ -256,6 +269,19 @@ enum Snapshot {
                 if let lead = seedTeam(model), let worker = model.team(of: lead).last?.session.id { model.beginStart(history: worker) }
             },
             Page(name: "modal-roles", capture: .sheet) { reset($0); $0.openRoles("Leader") },
+            // At the user's zoom, used by every seed session: its Used by wraps onto three lines (T-451).
+            Page(name: "modal-roles-zoom", capture: .sheet) { model in
+                reset(model)
+                model.zoom = 1.15
+                let names = ["T-201 Map region filter", "T-302 Retry loop", "T-304/305 Pooled buffers", "T-363 Token only to registry",
+                             "T-310 Logs everywhere", "T-467 HQ v15"]
+                for (var session, name) in zip(model.sessions.filter(\.isRunning), names) {
+                    session.role = "Worker"
+                    session.customName = name
+                    model.put(session)
+                }
+                model.openRoles("Worker")
+            },
             Page(name: "modal-roles-edit", capture: .sheet) { model in
                 reset(model)
                 model.openRoles("Worker")
@@ -360,6 +386,8 @@ enum Snapshot {
     static func runIfRequested(model: AppModel, openSettings: OpenSettingsAction) {
         let env = ProcessInfo.processInfo.environment
         guard let dir = env["APP_SNAPSHOT"], !dir.isEmpty else { return }
+        // Each line reaches the log at once: the watchdog judges a pass by it.
+        setvbuf(stdout, nil, _IOLBF, 0)
         guard Store.isOverridden else {
             print("SNAPSHOT refused: set APP_STORE to a file in /tmp")
             NSApp.terminate(nil)

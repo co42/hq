@@ -32,7 +32,7 @@ enum AgentCommands {
                               .init(name: "limit", kind: .integer, help: "at most this many (default 50; tasks with --overview, --project or --parent: all)"),
                               .init(name: "offset", kind: .integer, help: "skip this many, for the next page")],
                      example: "hq ls tasks --parent T-12",
-                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, list, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, role, parent, thisSession, depth (--tree)}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}, a role {name, color, line, builtin, changed, sessions}",
+                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, list, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, role, parent, model, effort, context, thisSession, depth (--tree)}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}, a role {name, color, line, builtin, changed, sessions}",
                      readOnly: true) { args, model in try listCommand(args, model) },
         AgentCommand(name: "task show", summary: "Show tasks: the tasks each is part of, its reminders, its description, the tree under it and what's linked to it.",
                      params: [.init(name: "task", required: true, positional: true, list: true, help: "T-12, or several: T-12 T-13"),
@@ -312,6 +312,8 @@ enum AgentCommands {
                      params: [.init(name: "name", required: true, positional: true, help: "the session's name, short: \"T-12 Dedup layers\""),
                               .init(name: "task", help: "T-12: the task the new session works on"),
                               .init(name: "role", help: "a role's name (hq ls roles): the text the session starts with, again on resume and after a compact"),
+                              .init(name: "model", help: "the model it starts on: opus, sonnet, haiku, fable or a full name (default: its role's, else Claude Code's own)"),
+                              .init(name: "effort", help: "low, medium, high, xhigh or max (default: its role's, else Claude Code's own)"),
                               .init(name: "parent", help: "the session it starts under: its id (6 characters or more) or name; none: the top level (default: this session)"),
                               .init(name: "beside", kind: .boolean, help: "at this session's level, under the session that started it: a handoff to a fresh session"),
                               .init(name: "history", help: "a session whose conversation it starts with: its id or name"),
@@ -356,15 +358,19 @@ enum AgentCommands {
                      params: [.init(name: "name", required: true, positional: true, help: "its name, short: Reviewer"),
                               .init(name: "line", help: "one line: what a session with it does"),
                               .init(name: "color", help: "its chip's color: red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown or gray (default: from its name)"),
+                              .init(name: "model", help: "the model its sessions start on: opus, sonnet, haiku, fable or a full name (default: Claude Code's own)"),
+                              .init(name: "effort", help: "their effort: low, medium, high, xhigh or max (default: Claude Code's own)"),
                               .init(name: "body", help: "its text in markdown; - reads stdin")],
                      example: "hq role new Reviewer --line \"Reviews one pull request, never pushes.\" --color pink --body -", output: roleOutput + "; text") { args, model in
             try roleNewCommand(args, model)
         },
-        AgentCommand(name: "role edit", summary: "Change a role's name, line, color or text. Its sessions get a new text when they next start, resume or compact; a new name follows to them.",
+        AgentCommand(name: "role edit", summary: "Change a role's name, line, color, model, effort or text. Its sessions get a new text when they next start, resume or compact; a new name follows to them.",
                      params: [.init(name: "role", required: true, positional: true, help: "its name"),
                               .init(name: "name", help: "a new name: the note is renamed"),
                               .init(name: "line", help: "the new line"),
                               .init(name: "color", help: "the new color"),
+                              .init(name: "model", help: "the model its sessions start on; none: Claude Code's own"),
+                              .init(name: "effort", help: "their effort: low, medium, high, xhigh or max; none: Claude Code's own"),
                               .init(name: "body", help: "the new text in markdown; - reads stdin")],
                      example: "hq role edit Reviewer --line \"Reviews one PR\"", output: roleOutput + "; text") { args, model in try roleEditCommand(args, model) },
         AgentCommand(name: "role delete", summary: "Delete a role: its note goes to the Trash. Sessions that have it keep the text they started with.",
@@ -566,7 +572,7 @@ enum AgentCommands {
     static let taskOutput = "{id, title, status, list, project, parent, tags, links, related, sessions, state, flow, blocked, blockedReason, blockedBy, after, modified}"
     static let fileOutput = "{name, title, path, modified, tasks}"
     static let noticeOutput = "{id, section, level, kind, text, at, due, when, read, source, links: [{kind, title, id | name | url}]}"
-    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, closedAt, role, parent, thisSession}"
+    static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, closedAt, role, parent, model, effort, context, thisSession}"
 
     /// What each session last read of each description, as a digest: `task edit --body` refuses to write over a newer one.
     private static var reads: [String: [Int: Int]] = [:]
@@ -707,6 +713,11 @@ extension SessionItem {
         }
         if let role = model.role(named: role) { json["role"] = role.name }
         if let parent = model.parentSession(of: id) { json["parent"] = parent.id }
+        if isRunning {
+            if let model = self.model { json["model"] = model }
+            if let effort { json["effort"] = effort }
+            if let contextTokens { json["context"] = contextTokens }
+        }
         return json
     }
 }
@@ -945,8 +956,8 @@ extension AgentCommands {
                     && (args.string("tag").map { tag in task.tags.contains(tag.replacingOccurrences(of: "#", with: "")) } ?? true)
             }.map { $0.agentJSON(model) }
         case "prs":
-            // As on the page: Reviews (every one, whatever its filter, but those reminded later), then Yours, then the other linked ones.
-            let reminded = model.remindedLater
+            // As on the page: Reviews (every one, whatever its filter, but those in Later), then Yours, then the other linked ones.
+            let reminded = model.inLater
             let reviews = model.allReviewRequests.filter { !reminded.contains($0.url) }, yours = model.ownPullRequests
             let shown = Set((reviews + yours).map(\.url))
             let others = (model.github?.items ?? []).filter { !shown.contains($0.url) && (all || $0.state == .open || $0.state == .draft) }

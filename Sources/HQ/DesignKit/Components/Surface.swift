@@ -138,6 +138,39 @@ extension View {
     func surface(radius: CGFloat = Radius.card, glow: Color? = nil, breathing: Bool = false, lifted: Bool = false, tint: Color? = nil) -> some View {
         modifier(SurfaceModifier(radius: radius, glow: glow, breathing: breathing, lifted: lifted, tint: tint))
     }
+
+    /// A card in a list, selected as a task's card: a 2 pt accent ring and a faint accent tint while its list has the
+    /// keyboard, gray without the ring otherwise (T-458).
+    func listCard(selected: Bool, active: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+        return padding(Metric.cardPadding)
+            .surface(tint: selected ? (active ? Color(nsColor: Ink.cardSelectionNS) : Ink.selectionInactive) : nil)
+            .overlay { if selected && active { shape.strokeBorder(Ink.accent, lineWidth: Metric.selectionRing).allowsHitTesting(false) } }
+            .contentShape(shape)
+    }
+}
+
+/// A card's own toggle, as a task card's description button: the accent on a faint accent tile while on (T-458).
+struct CardToggle: View {
+    let icon: KitIcon
+    let on: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            icon.image
+                .fontWeight(.semibold)
+                .foregroundStyle(on ? AnyShapeStyle(Ink.accent) : AnyShapeStyle(.secondary))
+                .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .background(on ? Color(nsColor: Ink.markOnNS) : .clear, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .help(help)
+        .accessibilityLabel(on ? "Show Less" : "Show More")
+    }
 }
 
 /// The soft sky over the top of the page: a mesh of three colors that fades into the canvas.

@@ -111,6 +111,7 @@ struct HQCommands: Commands {
             Picker("Reviews", selection: Binding(get: { menu.reviewFilter }, set: { model.reviewFilter = $0 })) {
                 ForEach(ReviewFilter.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Show Drafts in Reviews", isOn: Binding(get: { menu.reviewDrafts }, set: { model.reviewDrafts = $0 }))
             Toggle("Pinned Files and Artifacts Only", isOn: Binding(get: { menu.pinnedOnly }, set: { model.pinnedOnly = $0 }))
             Divider()
             Button("Zoom In") { model.zoom(by: 1) }
@@ -138,6 +139,8 @@ struct HQCommands: Commands {
             Divider()
             Button("Mark Reviewed") { if case .github(let url) = model.menuRoute { model.markReviewed(url) } }
                 .disabled(!menu.reviewable)
+            Button("Next Review") { if case .github(let url) = model.modal { model.goToNextReview(from: url) } }
+                .disabled(!menu.nextReview)
         }
 
         CommandMenu("Task") {

@@ -29,9 +29,9 @@ struct NotificationCenterView: View {
                 }
                 if !blocked.isEmpty || !reviews.isEmpty || !needs.isEmpty {
                     ModalGroup(title: "Needs You · \(blocked.count + reviews.count + needs.count)") {
-                        ModalBox(rows: true) {
+                        NoticeCards {
                             ForEach(blocked) { session in
-                                BlockedRow(session: session, selected: model.noticeSelection == key(session), active: focused)
+                                BlockedRow(session: session, selected: model.noticeSelection == key(session), active: focused, expanded: expanded(key(session)))
                                     .id(key(session))
                                     .simultaneousGesture(TapGesture().onEnded { select(key(session)) })
                             }
@@ -41,11 +41,11 @@ struct NotificationCenterView: View {
                     }
                 }
                 if !updates.isEmpty {
-                    ModalGroup(title: "Updates · \(updates.count)") { ModalBox(rows: true) { ForEach(updates) { notice in row(notice) } } }
+                    ModalGroup(title: "Updates · \(updates.count)") { NoticeCards { ForEach(updates) { notice in row(notice) } } }
                 }
                 if !later.isEmpty || !laterReviews.isEmpty {
                     ModalGroup(title: "Later · \(later.count + laterReviews.count)") {
-                        ModalBox(rows: true) {
+                        NoticeCards {
                             ForEach(laterReviews, id: \.item.url) { entry in reviewRow(entry.item, until: entry.until) }
                             ForEach(later) { notice in row(notice) }
                         }
@@ -53,7 +53,7 @@ struct NotificationCenterView: View {
                 }
                 if !earlier.isEmpty {
                     ModalGroup(title: "Earlier · \(earlier.count)", open: Binding(get: { model.earlierOpen }, set: { model.earlierOpen = $0 })) {
-                        ModalBox(rows: true) {
+                        NoticeCards {
                             ForEach(shownEarlier(earlier)) { notice in row(notice) }
                             if earlier.count > Self.earlierShown {
                                 Button(allEarlier ? "Show Fewer" : "Show \(earlier.count - Self.earlierShown) More") { allEarlier.toggle() }
@@ -104,7 +104,7 @@ struct NotificationCenterView: View {
                 ReminderEditor(notice: notice) { finishEditing() }
             } else {
                 NoticeRow(notice: notice, section: model.section(of: notice), selected: model.noticeSelection == notice.id.uuidString,
-                          active: focused, edit: { edit(notice) },
+                          active: focused, expanded: expanded(notice.id.uuidString), edit: { edit(notice) },
                           showLater: Binding(get: { laterFor == notice.id.uuidString }, set: { laterFor = $0 ? notice.id.uuidString : nil }))
                     .simultaneousGesture(TapGesture().onEnded { select(notice.id.uuidString) })
             }
@@ -118,6 +118,11 @@ struct NotificationCenterView: View {
                          showLater: Binding(get: { laterFor == key }, set: { laterFor = $0 ? key : nil }))
             .id(key)
             .simultaneousGesture(TapGesture().onEnded { select(key) })
+    }
+
+    /// Whether a card shows its whole text, and its toggle.
+    private func expanded(_ key: String) -> Binding<Bool> {
+        Binding(get: { model.expandedNotices.contains(key) }, set: { if $0 { model.expandedNotices.insert(key) } else { model.expandedNotices.remove(key) } })
     }
 
     private func shownEarlier(_ rows: [Notice]) -> [Notice] {
@@ -198,8 +203,9 @@ private struct BlockedRow: View {
     let session: SessionItem
     let selected: Bool
     let active: Bool
+    @Binding var expanded: Bool
     @Environment(AppModel.self) private var model
-    @State private var hovering = false
+    @State private var cut = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
@@ -209,12 +215,12 @@ private struct BlockedRow: View {
                     Text(session.name).kitType(.titleBold).lineLimit(1)
                     Spacer(minLength: Space.sm)
                     Text(AppModel.ago(session.status.since, now: model.now)).kitType(.meta).foregroundStyle(.secondary).fixedSize()
+                    if cut || expanded { MoreToggle(expanded: $expanded, anchor: "more:session:\(session.id)") }
                 }
-                NoticeBody(text: session.reason ?? session.status.title, full: selected)
+                NoticeBody(text: session.reason ?? session.status.title, expanded: expanded, selectable: selected, cut: $cut)
                 let tasks = model.tasks(of: session.id).filter { $0.status != .done }
                 if !tasks.isEmpty {
-                    FlowLayout(spacing: Space.xs) { ForEach(tasks) { NoticeChip(route: .task($0.id), notice: nil) } }
-                        .padding(.top, Space.xs)
+                    ChipLine(routes: tasks.map { .task($0.id) }, notice: nil).padding(.top, Space.xs)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -224,8 +230,7 @@ private struct BlockedRow: View {
                 .clickable()
                 .help("Bring its terminal forward to answer it (⌘O)")
         }
-        .noticeRowStyle(selected: selected, hovering: hovering, active: active)
-        .onHover { hovering = $0 }
+        .listCard(selected: selected, active: active)
         .onTapGesture(count: 2) { model.open(session.id) } // lint: ok the center's rows keep their own selection
         .help("\(session.name): \(session.reason ?? session.status.title)")
         .uiTestAnchor("blocked:\(session.id)")
@@ -239,16 +244,19 @@ private struct NoticeRow: View {
     let section: NoticeSection
     let selected: Bool
     let active: Bool
+    @Binding var expanded: Bool
     let edit: () -> Void
     @Binding var showLater: Bool
     @Environment(AppModel.self) private var model
     @State private var hovering = false
     @State private var changingTime = false
+    @State private var cut = false
 
     private var done: Bool { model.isDone(notice) }
     private var reminder: Bool { notice.kind == .reminder }
 
     var body: some View {
+        let toggle = cut || expanded
         HStack(alignment: .top, spacing: Space.sm) {
             avatar
             VStack(alignment: .leading, spacing: Metric.lineGap) {
@@ -260,20 +268,19 @@ private struct NoticeRow: View {
                     }
                     Spacer(minLength: Space.sm)
                     time
+                    if toggle { MoreToggle(expanded: $expanded, anchor: "more:\(notice.id.uuidString)") }
                 }
-                NoticeBody(text: notice.text, full: selected, struck: reminder && done)
+                NoticeBody(text: notice.text, expanded: expanded, selectable: selected, struck: reminder && done, cut: $cut)
                 let links = notice.links.compactMap(ModalRoute.init(noticeKey:)).filter { $0 != source }
-                if !links.isEmpty {
-                    FlowLayout(spacing: Space.xs) { ForEach(links, id: \.self) { NoticeChip(route: $0, notice: notice) } }
-                        .padding(.top, Space.xs)
-                }
+                if !links.isEmpty { ChipLine(routes: links, notice: notice).padding(.top, Space.xs) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .noticeRowStyle(selected: selected, hovering: hovering, active: active)
+        .listCard(selected: selected, active: active)
+        // Over the time, beside the toggle, which stays where it is.
         .overlay(alignment: .topTrailing) {
             if hovering || selected || showLater || changingTime {
-                actions.padding(.top, Space.xs).padding(.trailing, Space.xs)
+                actions.padding(.top, Space.xs).padding(.trailing, toggle ? Metric.cardPadding + Metric.rowAction + Space.sm : Space.xs)
             }
         }
         .onHover { hovering = $0 }
@@ -429,22 +436,39 @@ private struct NoticeRow: View {
     }
 }
 
-/// A row's text: two lines at rest, all of it and selectable once the row is selected.
+/// A card's text: three lines at rest, all of it once shown in full (T-458); selectable while its card is selected or
+/// shown in full. `cut` says when it needs more than three lines, for the card's toggle.
 private struct NoticeBody: View {
+    static let lines = 3
     let text: String
-    let full: Bool
+    var expanded = false
+    var selectable = false
     var struck = false
+    @Binding var cut: Bool
+    @State private var heights: (three: CGFloat, all: CGFloat) = (0, 0)
 
     var body: some View {
-        let line = Text(text)
+        let line = styled(expanded ? nil : Self.lines)
+            .background(alignment: .topLeading) {
+                ZStack(alignment: .topLeading) {
+                    styled(Self.lines).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights.three = $0 }
+                    styled(nil).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights.all = $0 }
+                }
+                .hidden()
+            }
+            .onChange(of: heights.all > heights.three + 0.5, initial: true) { cut = $1 }
+        if selectable || expanded { line.textSelection(.enabled) } else { line }
+    }
+
+    private func styled(_ limit: Int?) -> some View {
+        Text(text)
             .kitType(.title)
             .foregroundStyle(struck ? .secondary : .primary)
             .strikethrough(struck)
-            .lineLimit(full ? nil : 2)
+            .lineLimit(limit)
             .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-        if full { line.textSelection(.enabled) } else { line }
     }
 }
 
@@ -530,10 +554,7 @@ struct ReminderEditor: View {
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .uiTestAnchor("reminder-add")
         }
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
-        .frame(minHeight: Metric.boxRow + Space.sm)
-        .background(Ink.hoverFill, in: RoundedRectangle(cornerRadius: Radius.row, style: .continuous))
+        .listCard(selected: true, active: true)
         // Escape cancels the edit; the center stays.
         .preference(key: OwnsEscape.self, value: true)
         .onAppear { typing = true }
@@ -548,14 +569,66 @@ struct ReminderEditor: View {
     }
 }
 
-private extension View {
-    /// A row in the center: its padding, then hover and selection as the other lists draw them.
-    func noticeRowStyle(selected: Bool, hovering: Bool, active: Bool) -> some View {
-        padding(.horizontal, Space.sm)
-            .padding(.vertical, Space.sm)
-            .frame(minHeight: Metric.boxRow + Space.sm)
-            .rowHighlight(selected: selected, hovering: hovering, active: active)
-            .contentShape(Rectangle())
+/// A section's cards, as tasks' are: 8 pt apart (T-458).
+private struct NoticeCards<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.sm) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Shows a card's whole text, or three lines again.
+private struct MoreToggle: View {
+    @Binding var expanded: Bool
+    let anchor: String
+
+    var body: some View {
+        CardToggle(icon: .description, on: expanded, help: expanded ? "Show less" : "Show all of it") { expanded.toggle() }
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            .uiTestAnchor(anchor)
+    }
+}
+
+/// What a card links, on one line: the chips that fit, then "+3", a menu of the rest.
+private struct ChipLine: View {
+    let routes: [ModalRoute]
+    let notice: Notice?
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: routes.count, through: 1, by: -1)), id: \.self) { shown in
+                HStack(spacing: Space.xs) {
+                    ForEach(routes.prefix(shown), id: \.self) { NoticeChip(route: $0, notice: notice) }
+                    if shown < routes.count { more(Array(routes.dropFirst(shown))) }
+                }
+                .fixedSize()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func more(_ rest: [ModalRoute]) -> some View {
+        Menu {
+            ForEach(rest, id: \.self) { route in
+                Button(LineCut.line(model.title(of: route))) {
+                    if let notice, notice.kind != .reminder { model.markRead(notice.id) }
+                    model.open(route, from: notice)
+                }
+            }
+        } label: {
+            Text("+\(rest.count)").kitType(.meta).foregroundStyle(.secondary)
+                .padding(.horizontal, Space.sm).frame(height: Metric.rowAction)
+                .background(Ink.chipFill, in: Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .clickable()
+        .help(rest.map { model.title(of: $0) }.joined(separator: "\n"))
     }
 }
 
@@ -643,7 +716,6 @@ private struct ReviewRow: View {
     let active: Bool
     @Binding var showLater: Bool
     @Environment(AppModel.self) private var model
-    @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
@@ -658,7 +730,7 @@ private struct ReviewRow: View {
                     }
                     .kitType(.meta).foregroundStyle(.secondary).lineLimit(1).fixedSize()
                 }
-                NoticeBody(text: "\(item.author) asked for your review", full: selected)
+                NoticeBody(text: "\(item.author) asked for your review", selectable: selected, cut: .constant(false))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Button("Later", icon: .later) { showLater = true }
@@ -681,8 +753,7 @@ private struct ReviewRow: View {
                 .clickable()
                 .help("Open the pull request to review it (Return)")
         }
-        .noticeRowStyle(selected: selected, hovering: hovering, active: active)
-        .onHover { hovering = $0 }
+        .listCard(selected: selected, active: active)
         .onTapGesture(count: 2) { model.open(.github(item.url), push: true) } // lint: ok the center's rows keep their own selection
         .contextMenu {
             Button("Review") { model.open(.github(item.url), push: true) }

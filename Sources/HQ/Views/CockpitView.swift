@@ -6,7 +6,7 @@ import SwiftUI
 /// Backlog, top to bottom, on a canvas with the sky at its top; the section bar sits in the toolbar.
 struct CockpitView: View {
     @Environment(AppModel.self) private var model
-    /// The scroll view's visible width: a legacy scroller takes some of the window's.
+    /// The width the scroll view gives the page: a scroll bar shown always takes some of the window's (T-436).
     @State private var visible: CGFloat = 0
     /// The SwiftUI section with the keyboard.
     @FocusState private var keyboard: PageSection?
@@ -53,6 +53,9 @@ struct CockpitView: View {
                 .padding(.top, Metric.pageTitleTop)
                 .padding(.bottom, Space.section + end.overflow)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    if abs(width - visible) >= 1 { visible = width }
+                }
                 .contentShape(Rectangle())
                 .onTapGesture { model.selectSection(nil) }
                 .gridArea("page", inset: 0)
@@ -61,9 +64,6 @@ struct CockpitView: View {
                 .id(zoom)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .onScrollGeometryChange(for: CGFloat.self) { $0.visibleRect.width } action: { _, width in
-                if abs(width - visible) >= 1 { visible = width }
-            }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height > geometry.visibleRect.height + 1 && geometry.visibleRect.maxY >= geometry.contentSize.height - 2
             } action: { _, bottom in

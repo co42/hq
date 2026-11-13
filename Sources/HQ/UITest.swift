@@ -585,6 +585,54 @@ struct Driver {
         (target ?? window).contentView?.superview?.hitTest(point)
     }
 
+    /// The pointer the window shows at a point: AppKit sends the update to the view it hits, which passes it up its
+    /// responder chain unless it sets one (T-453).
+    func cursorShown(at point: NSPoint) -> NSCursor? {
+        guard let hit = hitView(point),
+              let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return nil }
+        NSCursor.arrow.set()
+        hit.cursorUpdate(with: event)
+        return NSCursor.current
+    }
+
+    /// Every AppKit part a click acts on in the window that doesn't show the pointing hand where it shows: what draws
+    /// its parts (`HandParts`), buttons, and HQ's views that take a press themselves. Rows, cards and text keep the arrow.
+    func partsWithoutHand() -> [String] {
+        let surfaces: Set<String> = ["TaskOutlineView", "CardCollection", "EditorTextView"]
+        var bare: [String] = []
+        func takesPress(_ view: NSView) -> Bool {
+            var base: AnyClass? = Swift.type(of: view)
+            while let cls = base, String(reflecting: cls).hasPrefix("HQ.") { base = class_getSuperclass(cls) }
+            guard let base, base != Swift.type(of: view) else { return false }
+            let press = #selector(NSView.mouseDown(with:))
+            return class_getMethodImplementation(Swift.type(of: view), press) != class_getMethodImplementation(base, press)
+        }
+        func visit(_ view: NSView) {
+            guard !view.isHidden, view.alphaValue > 0 else { return }
+            let name = "\(Swift.type(of: view))"
+            // SwiftUI's own controls take the hand from SwiftUI (`clickable()`, `handCursors()`).
+            let swiftUI = String(reflecting: Swift.type(of: view)).hasPrefix("SwiftUI.")
+            let parts: [NSRect] = if let drawn = view as? HandParts { drawn.handParts }
+                else if (view as? NSButton)?.isEnabled == true && !swiftUI || (takesPress(view) && !surfaces.contains(name)) { [view.bounds] }
+                else { [] }
+            for part in parts {
+                let shown = part.intersection(view.visibleRect)
+                guard shown.width >= 2, shown.height >= 2 else { continue }
+                let point = view.convert(NSPoint(x: shown.midX, y: shown.midY), to: nil)
+                // Covered by something else (a section bar, a floating card): not the user's pointer on this part.
+                guard let hit = hitView(point), hit === view || hit.isDescendant(of: view) || view.isDescendant(of: hit) else { continue }
+                guard cursorShown(at: point) != .pointingHand else { continue }
+                let button = (view as? NSButton).map { "'\($0.title)' \($0.image?.accessibilityDescription ?? "")" } ?? ""
+                let parent = view.superview.map { "\(Swift.type(of: $0))" } ?? "-"
+                bare.append("\(name) \(view.identifier?.rawValue ?? view.toolTip ?? "") \(button) in \(parent) at \(view.convert(part, to: nil).integral)")
+            }
+            view.subviews.forEach(visit)
+        }
+        if let content = window.contentView { visit(content) }
+        return bare
+    }
+
     /// True when the view under the anchor takes the click that activates the window.
     func takesFirstClick(_ point: NSPoint?) -> Bool {
         guard let point, let event = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,

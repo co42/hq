@@ -148,6 +148,7 @@ nonisolated struct Vault: Sendable {
         let name = url.deletingPathExtension().lastPathComponent
         return RoleItem(name: name, color: note.string("color").flatMap { LabelColor(rawValue: $0.lowercased()) } ?? LabelColor.automatic(name),
                         line: note.string("line") ?? "", text: note.body.trimmingCharacters(in: .whitespacesAndNewlines),
+                        model: note.string("model").flatMap { $0.isEmpty ? nil : $0 }, effort: note.string("effort").flatMap { $0.isEmpty ? nil : $0 },
                         builtin: RoleItem.defaults.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame },
                         modified: modified, path: url.path)
     }
@@ -323,12 +324,14 @@ nonisolated struct Vault: Sendable {
         try write(note, to: URL(fileURLWithPath: path))
     }
 
-    /// Writes hq's keys of a role, `color` and `line`, and its text. Other keys keep their text.
+    /// Writes hq's keys of a role, `color`, `line`, `model` and `effort`, and its text. Other keys keep their text.
     func save(_ role: RoleItem) throws {
         guard let path = role.path else { return }
         var note = try Self.existing(path, emptyIsFine: true)
         note.set("color", role.color.rawValue)
         optional(&note, "line", role.line)
+        optional(&note, "model", role.model ?? "")
+        optional(&note, "effort", role.effort ?? "")
         note.body = role.text.isEmpty ? "" : role.text + "\n"
         try write(note, to: URL(fileURLWithPath: path))
     }

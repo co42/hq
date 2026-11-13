@@ -25,7 +25,32 @@ extension UITest {
         await scenario(model, ui)
         await zoomSteps(model, ui)
         await scenario(model, ui)
+        await sheetsFollowZoom(model, ui)
+        await scenario(model, ui)
         await linkRows(model, ui)
+    }
+
+    /// Every form sheet grows with the zoom: its header and its buttons stay inside it, at the user's 115% and at 150% (T-446).
+    private static func sheetsFollowZoom(_ model: AppModel, _ ui: Driver) async {
+        let forms: [(ModalRoute, String)] = [(.start, "start-button"), (.newTask(.overview), "new-task-add"), (.newReminder, "new-reminder-add"),
+                                             (.newFile, "new-file-create"), (.importArtifact, "import-add")]
+        for zoom in [1.15, 1.5] as [CGFloat] {
+            model.zoom = zoom
+            for (route, button) in forms {
+                if route == .start { model.beginStart() } else { model.open(route) }
+                /// The parts of the sheet that run past its edges.
+                func cut() -> [String] {
+                    guard let sheet = ui.window.attachedSheet, let bounds = sheet.contentView?.bounds.insetBy(dx: -0.5, dy: -0.5) else { return ["no sheet"] }
+                    return ["modal-close", button].filter { name in ui.anchorFrame(name).map { !bounds.contains($0) } ?? true }
+                        .map { "\($0) at \(ui.anchorFrame($0)?.integral ?? .zero) in \(sheet.frame.size)" }
+                }
+                await ui.settle(0.3)
+                await check("at \(Int((zoom * 100).rounded()))%, \(model.title(of: route)) shows its header and its buttons whole", cut().isEmpty, cut().joined(separator: ", "))
+                model.closeModal()
+                await ui.until { ui.window.attachedSheet == nil }
+            }
+        }
+        model.zoom = 1
     }
 
     /// View › Zoom In, Zoom Out and Actual Size, as choosing them does. An inactive app's menu bar keeps the state it had,
@@ -71,6 +96,12 @@ extension UITest {
             }
             return off.filter { !$0.hasSuffix(" ") }
         }
+        // Scroll bars shown always, as with a mouse plugged in: the column fits the room they leave (T-436).
+        let page = probe("page-column")?.enclosingScrollView, style = page?.scrollerStyle
+        page?.scrollerStyle = .legacy
+        defer { if let style { page?.scrollerStyle = style } }
+        await check("with scroll bars shown always, the page's scroll bar takes room",
+                    page.map { $0.contentView.bounds.width < $0.bounds.width - 1 } == true && off().isEmpty, off().joined(separator: ", "))
         // Quick Open made at 100%, as the first ⌘K makes it.
         _ = AppDelegate.shared?.quickOpenPanel.frame
         for (title, zoom) in [("Zoom In", 1.15), ("Zoom In", 1.3), ("Zoom In", 1.5), ("Zoom Out", 1.3), ("Zoom Out", 1.15), ("Zoom Out", 1), ("Zoom Out", 0.85), ("Actual Size", 1)] as [(String, CGFloat)] {

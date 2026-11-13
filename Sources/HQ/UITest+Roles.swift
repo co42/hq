@@ -94,6 +94,14 @@ extension UITest {
                     && model.startDraft?.folder == team.lead.cwd, "\(shown(ui, "Parent") ?? "-"), \(shown(ui, "Role") ?? "-")")
         await check("the form is 720 pt wide", ui.window.attachedSheet.map { abs($0.frame.width - Metric.startSheet.width) < 1 } ?? false,
                     "\(ui.window.attachedSheet?.frame.width ?? 0)")
+        // Nothing picked: the pop-ups name Claude Code's own, as its settings say (the test copy's: Opus, High).
+        let picked = (model.startDraft?.model, model.startDraft?.effort)
+        model.startDraft?.model = nil
+        model.startDraft?.effort = nil
+        await check("with nothing picked, Model and Effort name Claude Code's own: Opus, High",
+                    ui.anchorFrame("start-model=Opus") != nil && ui.anchorFrame("start-effort=High") != nil)
+        model.startDraft?.model = picked.0
+        model.startDraft?.effort = picked.1
         let fields = ["start-name", "start-folder", "start-role", "start-parent", "start-history"]
         func edges() -> [CGFloat] { fields.compactMap { ui.anchorFrame($0)?.minX } }
         await check("every field starts on the name field's leading edge", edges().count == fields.count && Set(edges().map { $0.rounded() }).count == 1,

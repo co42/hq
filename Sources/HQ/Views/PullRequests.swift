@@ -39,11 +39,14 @@ struct PullRequestsSection: View {
                             allReviewed: !searching) {
                         @Bindable var model = model
                         // Always there: it brings back what it hides.
-                        FilterPicker(icon: .filter, name: "Reviews", value: model.reviewFilter.title,
-                                     active: model.reviewFilter != .notApproved, help: model.reviewFilter.help) {
+                        FilterPicker(icon: .filter, name: "Reviews", value: model.reviewFilter.title + (model.reviewDrafts ? " + Drafts" : ""),
+                                     active: model.reviewFilter != .notApproved || model.reviewDrafts,
+                                     help: model.reviewFilter.help + (model.reviewDrafts ? ", drafts included" : ", drafts left out")) {
                             Picker("Reviews", selection: $model.reviewFilter) {
                                 ForEach(ReviewFilter.allCases) { Text($0.title).tag($0) }
                             }
+                            Divider()
+                            Toggle("Show Drafts", isOn: $model.reviewDrafts)
                         }
                     }
                     PRGroup(title: "Yours", card: .yours, items: mine, total: model.ownPullRequests.count,

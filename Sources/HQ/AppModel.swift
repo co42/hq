@@ -44,6 +44,10 @@ struct StartDraft: Hashable {
     var history: String?
     /// The user picked the role: a new parent no longer changes it.
     var roleChosen = false
+    /// Its model and effort, from its role until the user picks them; nil, Claude Code's own (T-446).
+    var model: String?
+    var effort: String?
+    var modelChosen = false
 }
 
 /// The Backlog's filter bar.
@@ -265,6 +269,8 @@ final class AppModel {
         didSet { remember(folded.map(\.rawValue).sorted(), as: "page.folded"); syncMenu() }
     }
     /// The notification center's Earlier, folded by default as the Backlog is; remembered.
+    /// The notification center's cards shown in full, by their key (T-458).
+    var expandedNotices: Set<String> = []
     var earlierOpen = Prefs.defaults.bool(forKey: "notifications.earlierOpen") {
         didSet { remember(earlierOpen, as: "notifications.earlierOpen") }
     }
@@ -286,6 +292,15 @@ final class AppModel {
     /// Which reviews the Reviews card lists, remembered.
     var reviewFilter = Prefs.defaults.string(forKey: "prs.reviewFilter").flatMap(ReviewFilter.init(rawValue:)) ?? .notApproved {
         didSet { remember(reviewFilter.rawValue, as: "prs.reviewFilter") }
+    }
+    /// Claude Code's own model and effort, which the Model and Effort pop-ups name: read as Start a Session and Roles open.
+    var claudeDefaults: (model: String?, effort: String?) = (nil, nil)
+    func readClaudeDefaults() {
+        claudeDefaults = Store.isOverridden ? ("opus", "high") : ClaudeModel.defaults(settings: ClaudeModel.settingsPath)
+    }
+    /// Draft PRs in Reviews and Needs You: hidden by default, remembered (T-457).
+    var reviewDrafts = Prefs.defaults.bool(forKey: "prs.reviewDrafts") {
+        didSet { remember(reviewDrafts, as: "prs.reviewDrafts") }
     }
     /// GitHub is being asked: the PR section's Refresh turns into a spinner.
     var githubPolling = false
@@ -593,7 +608,8 @@ final class AppModel {
     // MARK: The modal
 
     /// From the page or Next: a fresh modal. From inside it: pushed, so Back returns.
-    func open(_ route: ModalRoute, push: Bool = false) {
+    /// `replacing`: in the open modal's place, what Back goes to kept (Next Review, T-456).
+    func open(_ route: ModalRoute, push: Bool = false, replacing: Bool = false) {
         // A web page opens in the browser, a Slack link in Slack: HQ shows its own items only.
         if case .web(let url) = route {
             if let address = URL(string: url) { NSWorkspace.shared.open(address) }
@@ -612,7 +628,7 @@ final class AppModel {
         saveModalEdits()
         if push, let current = modal, current != route {
             modalStack.append(current)
-        } else if !push {
+        } else if !push, !replacing {
             modalStack = []
         }
         modal = route
@@ -677,6 +693,7 @@ final class AppModel {
     func beginStart(task: Int? = nil, pullRequest: GitHubItem? = nil, parent: SessionItem.ID? = nil, history: SessionItem.ID? = nil,
                     push: Bool = false) {
         showWindow()
+        readClaudeDefaults()
         let item = self.task(task)
         let source = session(history)
         let under = source.map { $0.parent } ?? session(parent)?.id
@@ -687,9 +704,11 @@ final class AppModel {
         let folder = source?.cwd ?? session(parent)?.cwd ?? project.flatMap { links(of: $0).folder } ?? pullRequest.flatMap { clone(of: $0.repo) }
             ?? recentDirectories(for: task).first ?? NSHomeDirectory()
         let message = item.map(Self.taskPrompt) ?? pullRequest.map(Self.reviewPrompt) ?? ""
-        startDraft = StartDraft(name: name, folder: folder, message: message + (message.isEmpty ? "" : "\n\n"), task: task,
-                                pullRequest: pullRequest?.url, parent: under, role: source.map { $0.role } ?? siblingsRole(under: under),
-                                history: source?.id)
+        var draft = StartDraft(name: name, folder: folder, message: message + (message.isEmpty ? "" : "\n\n"), task: task,
+                               pullRequest: pullRequest?.url, parent: under, role: source.map { $0.role } ?? siblingsRole(under: under),
+                               history: source?.id)
+        followRole(&draft)
+        startDraft = draft
         open(.start, push: push)
     }
 
@@ -708,7 +727,7 @@ final class AppModel {
         guard let draft = startDraft, !draft.name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         startSession(named: draft.name.trimmingCharacters(in: .whitespaces), in: (draft.folder as NSString).expandingTildeInPath,
                      task: draft.task, pullRequest: draft.pullRequest, message: draft.message,
-                     parent: draft.parent, role: draft.role, history: draft.history) { [weak self] started in
+                     parent: draft.parent, role: draft.role, history: draft.history, model: draft.model, effort: draft.effort) { [weak self] started in
             guard let self, started else { return }
             if self.modal == .start { self.closeModal() }
         }
@@ -749,6 +768,7 @@ final class MenuState: ObservableObject {
     @Published private(set) var github = false
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
     @Published private(set) var pinnedOnly = false
+    @Published private(set) var reviewDrafts = false
     @Published private(set) var descriptions: Set<TaskList> = []
     @Published private(set) var zoom: CGFloat = 1
     @Published private(set) var hideDone: Set<TaskList> = []
@@ -781,6 +801,7 @@ final class MenuState: ObservableObject {
     @Published private(set) var link: String?
     @Published private(set) var pullRequest = false
     @Published private(set) var reviewable = false
+    @Published private(set) var nextReview = false
     @Published private(set) var artifact = false
     /// What Remind Me… acts on: the open or selected task, PR, file or artifact.
     @Published private(set) var remindable: ModalRoute?
@@ -824,6 +845,7 @@ final class MenuState: ObservableObject {
         set(\.github, model.github != nil)
         set(\.reviewFilter, model.reviewFilter)
         set(\.pinnedOnly, model.pinnedOnly)
+        set(\.reviewDrafts, model.reviewDrafts)
         set(\.hasClosed, !model.closedSessions.isEmpty)
         set(\.descriptions, model.allDescriptions)
         set(\.zoom, model.zoom)
@@ -844,6 +866,7 @@ final class MenuState: ObservableObject {
         let item: GitHubItem? = if case .github(let url) = model.menuRoute { model.githubItem(url) } else { nil }
         set(\.pullRequest, item?.kind == .pullRequest)
         set(\.reviewable, item.map(model.waitsForReview) ?? false)
+        set(\.nextReview, model.modal == model.menuRoute && item.flatMap { model.nextReview(after: $0.url) } != nil)
         let artifact: Bool = switch model.modal { case .artifact, .github: true; default: false }
         set(\.artifact, artifact)
         let remindable: ModalRoute? = switch model.menuRoute {

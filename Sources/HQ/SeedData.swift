@@ -116,6 +116,12 @@ enum SeedData {
         }
         model.openTeam = nil
         for index in sessions.indices { sessions[index].faceSalt = 0 }
+        // What their last replies ran on (T-446, T-475): an Opus team, one Sonnet, one with Claude Code's own effort.
+        let runs: [(String, String?, Int)] = [("claude-opus-5-5", "xhigh", 441_898), ("claude-opus-5-5", "high", 86_240),
+                                              ("claude-sonnet-5-5", "medium", 12_400), ("claude-opus-5-5", nil, 203_117)]
+        for index in sessions.indices where sessions[index].isRunning {
+            (sessions[index].model, sessions[index].effort, sessions[index].contextTokens) = runs[index % runs.count]
+        }
         model.sessions = sessions
         for index in model.sessions.indices { model.sessions[index].faceSalt = model.faceSalt(for: model.sessions[index].id) }
 

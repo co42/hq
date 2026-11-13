@@ -110,7 +110,7 @@ A list cut at its page ends with a line like `50 of 112: --limit 200`. The text 
 
 ## Sessions you start
 
-`hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists.
+`hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists. It starts on its role's model and effort; `--model opus --effort medium` picks others (efforts: low, medium, high, xhigh, max).
 
 When a session you started has finished its task, close it: `hq session close <session>` (its input emptied, then /exit; one waiting on the user is refused). `hq session resume <session>` reopens it, conversation and all, in your Ghostty window, in its place in your team. Both act only on the sessions you started and theirs; `hq ctx` lists them, closed ones too.
 
