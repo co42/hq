@@ -3273,13 +3273,19 @@ extension UITest {
         // Its cards act as the list's: a row's menu goes through the window's outline.
         await check("a subtask in the window belongs to the window's outline", OutlineCoordinator.owner(of: second.id)?.root == goal.id)
         // The last subtask's open tray closes inside the outline, as far above the new subtask's card as cards are apart (T-483).
-        let tail = model.addSubtask(to: third.id, title: "A part of the third")
+        let tail = model.taskTree.children(of: goal.id).last.flatMap { model.addSubtask(to: $0, title: "A part of the last") }
         await endUndoGroup(model)
+        // As the user opens it: the window opens on a tray already there.
+        model.closeModal()
+        await ui.settle(0.5)
+        model.open(.task(goal.id))
+        await ui.until(2) { ui.window.attachedSheet != nil }
+        await ui.settle(1)
         func trayGap() -> (gap: CGFloat, text: String) {
             guard let sheet = ui.window.attachedSheet, let inner = ui.find(TaskOutlineView.self, in: sheet.contentView),
                   let bottom = inner.cardsView.shapes.map(\.rect.maxY).max(), let new = ui.anchorFrame("new-subtask") else { return (-1, "no outline or card") }
             let drawn = inner.convert(NSRect(x: 0, y: bottom, width: 1, height: 0), to: nil).minY
-            return (drawn - new.maxY, "shapes end \(bottom) in \(inner.bounds.height), new card top \(new.maxY), drawn bottom \(drawn)")
+            return (bottom > inner.bounds.height + 0.5 ? -1 : drawn - new.maxY, "shapes end \(bottom) in \(inner.bounds.height), new card top \(new.maxY), drawn bottom \(drawn)")
         }
         await ui.until(2) { tail.map { OutlineCoordinator.scoped(goal.id)?.shows($0.id) } == true && trayGap().gap >= Metric.taskGap - 0.5 }
         await check("the last subtask's tray ends a card gap above the new subtask's card", tail != nil && trayGap().gap >= Metric.taskGap - 0.5, trayGap().text)

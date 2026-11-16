@@ -1,5 +1,9 @@
 # Release notes
 
+## v15.3.1 · 2026-11-16
+
+- In a task's window, the New Subtask card keeps its gap under a last subtask shown open with its own subtasks: it touched that card.
+
 ## v15.3 · 2026-11-16
 
 - ⇧↑ and ⇧↓ move a task on screen at every press. They used to swap it with a sibling the outline hides (a done task under Hide Done, the Backlog's Open filter, a search, a story's filter), so a press could do nothing until the other direction was tried. ⇧→ had the same cause and did nothing under a hidden task: it now indents under the task shown above.

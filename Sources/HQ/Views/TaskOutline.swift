@@ -360,7 +360,10 @@ final class OutlineContainer: NSView {
     /// The rows' height, whatever the frame is now.
     var contentHeight: CGFloat {
         let rows = outline.numberOfRows
-        return rows == 0 ? 0 : outline.rect(ofRow: rows - 1).maxY
+        guard rows > 0 else { return 0 }
+        // A task's window has no new task row to hold the trays that close after its last subtask: they add their padding.
+        let trailing = outline.coordinator.map { $0.root == nil ? 0 : $0.plan.trailing[.overview] ?? 0 } ?? 0
+        return outline.rect(ofRow: rows - 1).maxY + trailing
     }
 
     /// The page sizes the container from its rows: told the moment AppKit lays them out (`tile`).
