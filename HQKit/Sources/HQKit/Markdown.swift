@@ -123,8 +123,19 @@ public enum Markdown {
                     let encoded = name.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(.init(charactersIn: "-._~"))) ?? name
                     return "[\(label)](\(noteScheme):\(encoded))"
                 }
-                return taskKey.stringByReplacingMatches(in: notes, range: NSRange(location: 0, length: (notes as NSString).length),
-                                                        withTemplate: "[T-$1](\(taskScheme):$1)")
+                // Only between links: a key in a link's words stays its words (T-520).
+                let text = notes as NSString
+                var linked = ""
+                var from = 0
+                func keys(_ range: NSRange) -> String {
+                    taskKey.stringByReplacingMatches(in: text.substring(with: range), range: NSRange(location: 0, length: range.length),
+                                                     withTemplate: "[T-$1](\(taskScheme):$1)")
+                }
+                for link in markdownLink.matches(in: notes, range: NSRange(location: 0, length: text.length)) {
+                    linked += keys(NSRange(location: from, length: link.range.location - from)) + text.substring(with: link.range)
+                    from = NSMaxRange(link.range)
+                }
+                return linked + keys(NSRange(location: from, length: text.length - from))
             }.joined(separator: "`")
         }.joined(separator: "\n")
     }
@@ -132,6 +143,9 @@ public enum Markdown {
     nonisolated(unsafe) private static let notePattern = /\[\[([^\[\]|\n]+)(?:\|([^\[\]\n]+))?\]\]/
 
     /// `T-12` as a word: not in an address (`/T-12`), a link's words or address (`[T-12]`, `(…T-12)`), or another word.
+    /// A markdown link, `[words](address)`.
+    private static let markdownLink = try! NSRegularExpression(pattern: #"!?\[[^\]\n]*\]\([^)\n]*\)"#)
+
     private static let taskKey = try! NSRegularExpression(pattern: #"(?<![\w\[/#:.=-])T-(\d+)\b(?![\]\w-])"#)
 
     /// The fence a line opens or closes (```` ``` ```` or `~~~`), else nil.

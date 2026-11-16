@@ -125,14 +125,30 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
         (dark ? "dark\n" : "light\n") + source
     }
 
-    /// A system color in light or dark, as CSS.
+    /// A color in light or dark as CSS, laid over the cards' color when it's see-through: mermaid takes solid colors.
     private static func hex(_ color: NSColor, dark: Bool) -> String {
         var css = dark ? "#1e1e1e" : "#ffffff"
         NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
-            guard let rgb = color.usingColorSpace(.sRGB) else { return }
-            css = String(format: "#%02x%02x%02x", Int(rgb.redComponent * 255), Int(rgb.greenComponent * 255), Int(rgb.blueComponent * 255))
+            guard let rgb = color.usingColorSpace(.sRGB), let card = Ink.surfaceNS.usingColorSpace(.sRGB) else { return }
+            let solid = card.blended(withFraction: rgb.alphaComponent, of: rgb.withAlphaComponent(1)) ?? rgb
+            css = String(format: "#%02x%02x%02x", Int(solid.redComponent * 255), Int(solid.greenComponent * 255), Int(solid.blueComponent * 255))
         }
         return css
+    }
+
+    /// mermaid's base theme in HQ's look (T-469 item 7, T-509): boxes on the quiet fill with a quiet line, text in the
+    /// label color, lines secondary, labels on the card's color.
+    private static func theme(dark: Bool) -> [String: String] {
+        let card = hex(Ink.surfaceNS, dark: dark), fill = hex(Ink.trayNS, dark: dark), line = hex(Ink.newCardLineNS, dark: dark)
+        let text = hex(Ink.textNS, dark: dark), quiet = hex(Ink.secondaryTextNS, dark: dark)
+        return ["background": card, "mainBkg": fill, "primaryColor": fill, "secondaryColor": fill, "tertiaryColor": card,
+                "primaryBorderColor": line, "secondaryBorderColor": line, "tertiaryBorderColor": line, "nodeBorder": line,
+                "clusterBkg": card, "clusterBorder": line, "primaryTextColor": text, "secondaryTextColor": text, "tertiaryTextColor": text,
+                "textColor": text, "titleColor": text, "lineColor": quiet, "edgeLabelBackground": card,
+                "noteBkgColor": fill, "noteBorderColor": line, "noteTextColor": text,
+                "actorBkg": fill, "actorBorder": line, "actorTextColor": text, "actorLineColor": quiet, "signalColor": quiet, "signalTextColor": text,
+                "labelBoxBkgColor": fill, "labelBoxBorderColor": line, "labelTextColor": text, "loopTextColor": text,
+                "fontSize": "13px", "fontFamily": "-apple-system, BlinkMacSystemFont, sans-serif"]
     }
 
     // MARK: Drawing
@@ -140,7 +156,7 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
     private func draw(_ source: String, dark: Bool) async -> Result {
         guard let web = await page() else { return .failed(Self.hasScript ? "Its page didn’t load" : "mermaid.js isn’t in HQ’s bundle") }
         do {
-            let arguments: [String: Any] = ["source": source, "dark": dark, "background": Self.hex(Ink.surfaceNS, dark: dark)]
+            let arguments: [String: Any] = ["source": source, "theme": Self.theme(dark: dark)]
             let size = try await web.callAsyncJavaScript(Self.script, arguments: arguments, contentWorld: .page) as? [Double]
             guard let size, size.count == 2, size[0] > 0, size[1] > 0 else { return .failed("The diagram is empty") }
             let rect = CGRect(x: 0, y: 0, width: size[0], height: size[1])
@@ -171,9 +187,7 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
     private static let script = """
         mermaid.initialize({
             startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
-            theme: dark ? 'dark' : 'neutral',
-            fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-            themeVariables: { background: background, edgeLabelBackground: background, fontSize: '14px' }
+            theme: 'base', fontFamily: theme.fontFamily, themeVariables: theme
         });
         const box = document.getElementById('box');
         box.innerHTML = '';

@@ -16,4 +16,10 @@ struct TaskKeyLinkTests {
     @Test func notInCodeAddressesOrLinks() {
         #expect(taskLinks("Code `T-1`, https://x.y/T-2, [T-3](https://x.y), [[T-4 plan]], AT-5, T-6x") == [])
     }
+
+    @Test func aKeyInALinksWordsStaysItsWords() {
+        guard case .paragraph(let parsed)? = Markdown.blocks("See [the canary for T-12](https://x.y) and T-13.").first else { return #expect(Bool(false)) }
+        let links = parsed.runs.compactMap { $0.link?.absoluteString }
+        #expect(links == ["https://x.y", "hq-task:13"])
+    }
 }
