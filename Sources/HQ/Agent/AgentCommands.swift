@@ -783,6 +783,10 @@ extension AppModel {
         if !by.isEmpty { parts.append("blocked by " + by.map { "T-\($0)" }.joined(separator: ", ")) }
         if !before.isEmpty { parts.append("after " + before.map { "T-\($0)" }.joined(separator: ", ")) }
         if flow.state(id) == .held, let holder = flow.holder(id) { parts.append("held by T-\(holder)") }
+        if flow.state(id) == .later, task.status != .backlog,
+           let story = TaskStatus.backlogAncestors(of: id, parent: { self.task($0)?.parent }, status: { self.task($0)?.status }).first {
+            parts.append("later: T-\(story) is in the backlog")
+        }
         if ready, flow.state(id) == .ready, taskTree.children(of: id).isEmpty { parts.append("ready") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -803,7 +807,8 @@ extension AppModel {
         if short { return "\(tally.done)/\(tally.total)\(blocked)" }
         let doing = tally.doing > 0 ? " · \(tally.doing) doing" : ""
         let ready = tally.ready > 0 ? " · \(tally.ready) ready" : ""
-        return "\(tally.done) of \(tally.total) done\(doing)\(blocked)\(ready)"
+        let later = tally.later > 0 ? " · \(tally.later) in the backlog" : ""
+        return "\(tally.done) of \(tally.total) done\(doing)\(blocked)\(ready)\(later)"
     }
 
     /// What `task show` lists as linked: the files, artifacts, PRs, issues and tasks under the task's row.

@@ -685,7 +685,7 @@ enum SelfTest {
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: Store.backups.path)) ?? []
         check("the migration backs up hq/tasks first", backups.contains { $0.hasPrefix("tasks-") && $0.hasSuffix(".zip") }, "\(backups)")
         func note(_ id: Int) -> FrontMatter { FrontMatter((try? String(contentsOf: tasks.appending(path: "T-\(id).md"), encoding: .utf8)) ?? "") }
-        check("backlog becomes todo in the Backlog", note(1).string("status") == "todo" && note(1).string("list") == "backlog")
+        check("a board backlog note stays backlog, in the Backlog", note(1).string("status") == "backlog" && note(1).string("list") == "backlog")
         check("todo goes to the Backlog, doing to the overview", note(2).string("list") == "backlog" && note(3).string("list") == "overview")
         check("done goes to the Backlog with its date", note(4).string("list") == "backlog" && note(4).string("done") != nil)
         check("a note without a type keeps none", (1...4).allSatisfy { note($0).string("type") == nil })

@@ -138,6 +138,7 @@ struct StorySummary: View {
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity)
+        .help(tally.help)
         .accessibilityElement(children: .combine)
     }
 
@@ -148,6 +149,13 @@ struct StorySummary: View {
         }
         .font(KitType.meta.font)
         .foregroundStyle(.secondary)
+    }
+}
+
+extension TaskFlow.Tally {
+    /// "2 done, 1 doing, 1 blocked, 2 to do, 1 in the backlog": a progress bar's tooltip.
+    var help: String {
+        "\(done) done, \(doing) doing, \(blocked) blocked, \(ready + waiting) to do" + (later > 0 ? ", \(later) in the backlog" : "")
     }
 }
 

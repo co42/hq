@@ -191,7 +191,7 @@ final class BlockProgressView: NSView {
     func show(_ tally: TaskFlow.Tally) {
         guard tally != self.tally else { return }
         self.tally = tally
-        toolTip = "\(tally.done) done, \(tally.doing) doing, \(tally.blocked) blocked, \(tally.ready + tally.waiting) to do"
+        toolTip = tally.help
         setAccessibilityLabel(toolTip)
         needsDisplay = true
     }

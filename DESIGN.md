@@ -148,7 +148,7 @@ One AppKit outline (`NSOutlineView`, view-based) holds both lists, so cards drag
 - **Selected**: a 2 pt accent ring on the card's own layer, whole, and a faint accent tint, as a session card (2026-11-10); gray, without the ring, while the outline doesn't have the keyboard. A double-click on the card outside the title and description, Space or ⌘I opens the task's window. One task at a time (2026-11-10, after the fourth preview: moving several crashed; back in a later version).
 - **Padding**: 12 pt left and right in every card; a top-level task with no tray of its own gets a story's tray padding too, so every top-level glyph, title and end line up, folded or open (2026-11-10).
 - **No types** (2026-11-06: they don't use them): the page, the modal, the menus, the Backlog's filters, `hq` and its skills (2026-11-09, T-220) have none. Older notes keep their `type:` as written; `#bug` in a title is a tag.
-- **Three statuses** (2026-11-06): Todo, Doing, Done. What the user must check is a notification (§11) and the task stays doing; nothing on a row asks for the user.
+- **Four statuses** (2026-11-16, T-471; three since 2026-11-06): Backlog (later, at any level: a story for later or a step pushed to later), Todo, Doing, Done. The glyph's click and ⌘Return go Todo, Doing, Done, Todo; a backlog task's goes to Todo. What the user must check is a notification (§11) and the task stays doing; nothing on a row asks for the user.
 
 ### Blocked, blocked by, after
 
@@ -396,6 +396,7 @@ One drawn family, 14 pt in a 16 pt slot, 1.5 pt stroke. Marks inside discs are c
 
 | Task | Glyph |
 |---|---|
+| backlog | secondary ring, dashed (ten dashes, as Linear draws its backlog) |
 | todo | secondary ring |
 | doing | yellow ring, right half filled |
 | done | green disc, check cut out |

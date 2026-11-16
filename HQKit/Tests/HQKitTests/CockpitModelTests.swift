@@ -7,7 +7,7 @@ import Testing
 private let modified = NoteDate.parse("2026-10-30T09:15")!
 
 @Test("Each old status gets its list", arguments: [
-    ("backlog", ["status": "todo", "list": "backlog"]),
+    ("backlog", ["list": "backlog"]),
     ("todo", ["list": "backlog"]),
     ("doing", ["list": "overview"]),
     ("review", ["list": "overview"]),
@@ -21,10 +21,10 @@ func migrationPlansEachStatus(_ status: String, _ expected: [String: String]) {
     let text = "---\ntitle: Dedup layers\nstatus: backlog\naliases: [dedup]\ntags:\n  - registry\n---\nBody with `code`.\n\n**2026-11-03**: a note.\n"
     let once = try #require(TaskMigration.apply(text, modified: modified))
     let note = FrontMatter(once)
-    #expect(note.string("status") == "todo" && note.string("list") == "backlog" && note.string("type") == nil)
+    #expect(note.string("status") == "backlog" && note.string("list") == "backlog" && note.string("type") == nil)
     #expect(note.list("aliases") == ["dedup"] && note.list("tags") == ["registry"])
     #expect(note.body == FrontMatter(text).body)
-    #expect(once.hasPrefix("---\ntitle: Dedup layers\nstatus: todo\naliases: [dedup]\ntags:\n  - registry\nlist: backlog\n---\n"))
+    #expect(once.hasPrefix("---\ntitle: Dedup layers\nstatus: backlog\naliases: [dedup]\ntags:\n  - registry\nlist: backlog\n---\n"))
     #expect(TaskMigration.apply(once, modified: .now) == nil)
     // A subtask gets no list; a type the user set stays.
     #expect(TaskMigration.plan(FrontMatter("---\nstatus: todo\nparent: T-3\ntype: bug\n---\n"), modified: modified).isEmpty)

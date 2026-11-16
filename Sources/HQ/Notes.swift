@@ -389,12 +389,11 @@ extension AppModel {
         }
     }
 
-    /// ⌘Return and ⌘-click on the glyph: the next status, from Done back to Todo.
+    /// ⌘Return and ⌘-click on the glyph: the next status, from Done back to Todo; a backlog task's goes to Todo.
     func nextStatus(_ ids: [Int]) {
-        let all = TaskStatus.allCases
         for id in ids {
-            guard let status = task(id)?.status, let index = all.firstIndex(of: status) else { continue }
-            setStatus(id, all[(index + 1) % all.count])
+            guard let status = task(id)?.status else { continue }
+            setStatus(id, status.next)
         }
     }
 
@@ -573,7 +572,7 @@ extension AppModel {
         if let cached = flowCache, cached.version == tasksVersion { return cached.flow }
         let flow = TaskFlow(tasks.map {
             TaskFlow.Node(id: $0.id, parent: $0.parent, done: $0.status == .done, doing: $0.status == .doing,
-                          blocked: $0.blocked, blockedBy: $0.blockedBy, after: $0.after)
+                          later: $0.status == .backlog, blocked: $0.blocked, blockedBy: $0.blockedBy, after: $0.after)
         })
         flowCache = (tasksVersion, flow)
         return flow

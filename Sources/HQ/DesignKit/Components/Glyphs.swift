@@ -87,6 +87,7 @@ struct TaskGlyph: View {
     var body: some View {
         GlyphSlot {
             switch status {
+            case .backlog: Ring(style: style(AnyShapeStyle(Ink.quiet)), dashed: true)
             case .todo: Ring(style: style(AnyShapeStyle(Ink.quiet)))
             case .doing:
                 ZStack {
@@ -299,6 +300,13 @@ class TaskGlyphView: NSView {
             return
         }
         switch status {
+        case .backlog:
+            // Ten dashes that close evenly around the ring, as the SwiftUI glyph draws them.
+            let segment = .pi * ring.width / 10
+            ctx.setStrokeColor(color(.secondaryLabelColor))
+            ctx.setLineDash(phase: 0, lengths: [segment * 0.55, segment * 0.45])
+            ctx.strokeEllipse(in: ring)
+            ctx.setLineDash(phase: 0, lengths: [])
         case .todo:
             ctx.setStrokeColor(color(.secondaryLabelColor))
             ctx.strokeEllipse(in: ring)

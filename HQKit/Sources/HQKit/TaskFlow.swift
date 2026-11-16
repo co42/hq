@@ -9,16 +9,19 @@ public struct TaskFlow: Sendable {
         public var parent: Int?
         public var done: Bool
         public var doing: Bool
+        /// Backlog: later, with everything under it.
+        public var later: Bool
         public var blocked: Bool
         public var blockedBy: [Int]
         public var after: [Int]
 
-        public init(id: Int, parent: Int? = nil, done: Bool = false, doing: Bool = false, blocked: Bool = false,
+        public init(id: Int, parent: Int? = nil, done: Bool = false, doing: Bool = false, later: Bool = false, blocked: Bool = false,
                     blockedBy: [Int] = [], after: [Int] = []) {
             self.id = id
             self.parent = parent
             self.done = done
             self.doing = doing
+            self.later = later
             self.blocked = blocked
             self.blockedBy = blockedBy
             self.after = after
@@ -33,6 +36,8 @@ public struct TaskFlow: Sendable {
         /// Blocked by a task that isn't done.
         case blockedBy
         case doing
+        /// In the backlog, or under a backlog task: later, never ready.
+        case later
         /// Not doing, under a task that's Blocked or blocked by an open one: it waits with it.
         case held
         /// After a task that isn't done.
@@ -51,7 +56,8 @@ public struct TaskFlow: Sendable {
         public var blocked = 0
         public var ready = 0
         public var waiting = 0
-        public var total: Int { done + doing + blocked + ready + waiting }
+        public var later = 0
+        public var total: Int { done + doing + blocked + ready + waiting + later }
 
         public init() {}
     }
@@ -91,6 +97,7 @@ public struct TaskFlow: Sendable {
         if node.blocked { return .blocked }
         if node.blockedBy.contains(where: open) { return .blockedBy }
         if node.doing { return .doing }
+        if node.later || laterAbove(id) { return .later }
         if holder(id) != nil { return .held }
         if node.after.contains(where: open) { return .waiting }
         return .ready
@@ -105,6 +112,17 @@ public struct TaskFlow: Sendable {
             next = node.parent
         }
         return nil
+    }
+
+    /// An open task above it is in the backlog: what's under a later story is later too.
+    private func laterAbove(_ id: Int) -> Bool {
+        var seen: Set<Int> = [id]
+        var next = nodes[id]?.parent
+        while let parent = next, seen.insert(parent).inserted, let node = nodes[parent] {
+            if !node.done, node.later { return true }
+            next = node.parent
+        }
+        return false
     }
 
     /// The tasks still holding it, in its order.
@@ -135,6 +153,7 @@ public struct TaskFlow: Sendable {
             case .blocked, .blockedBy, .held: tally.blocked += 1
             case .ready: tally.ready += 1
             case .waiting: tally.waiting += 1
+            case .later: tally.later += 1
             }
         }
         return tally
