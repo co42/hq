@@ -100,10 +100,20 @@ extension UITest {
         // 10,000 archived tasks: opening and each keystroke stay quick.
         let big = SeedData.archiveIndex(stories: 2_000, now: .now)
         let searcher = ArchiveIndex.Searcher(big)
-        let open = await Stall.measure([{ model.archiveShown = ArchiveShown(index: big, searcher: searcher); model.open(.archive) }], gap: 1)
+        // Five opens, their median judged: a loaded shard can hold one (T-519).
+        var opens: [Int] = []
+        for round in 0..<5 {
+            let one = await Stall.measure([{ model.archiveShown = ArchiveShown(index: big, searcher: searcher); model.open(.archive) }], gap: 1)
+            opens.append(one.worst)
+            guard round < 4 else { break }
+            model.closeModal()
+            await ui.until(2) { model.modal == nil }
+        }
+        let open = Stall.Result(steps: opens)
         let typing = await Stall.measure(["s", "st", "sto", "stor", "story 1", "story 19", "story 199", ""].map { text in { model.archiveQuery = text } })
         print("  perf: archive open \(open); typing \(typing)")
-        await check("the Archive opens with 10,000 archived tasks holding the main thread under 150 ms (debug ×1.5)", open.worst < Stall.budget(150), "\(open)")
+        await check("the Archive opens with 10,000 archived tasks holding the main thread under 150 ms, the median of five (debug ×1.5)",
+                    open.median < Stall.budget(150), "\(open)")
         // As the list's search: a search that changes every card on screen lays them all out anew, SwiftUI's part (2026-11-16).
         await check("a keystroke in its search with 10,000 holds it under 100 ms, as the list's search (debug ×1.5)",
                     typing.worst < Stall.budget(100), "\(typing)")

@@ -385,6 +385,22 @@ struct Driver {
     /// True while a wait asks for an anchor that may not be there yet.
     static var polling = false
 
+    /// Where a click aims once it holds still, at most 1 s: a sheet still sliding in, or a layout still settling under load,
+    /// moves what it aims at between the reading and the press (T-518).
+    func steady(_ first: NSPoint, _ point: () async -> NSPoint?) async -> NSPoint {
+        var last = first
+        let deadline = Date.now.addingTimeInterval(Driver.slowdown)
+        while Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(16))
+            Driver.polling = true
+            let next = await point()
+            Driver.polling = false
+            guard let next, next != last else { return last }
+            last = next
+        }
+        return last
+    }
+
     /// What `point` gives once it gives something, at most 2 s: a view that just appeared, a sheet still opening.
     func appearing(_ point: () async -> NSPoint?) async -> NSPoint? {
         let deadline = Date.now.addingTimeInterval(2 * Driver.slowdown)
@@ -453,7 +469,8 @@ struct Driver {
     /// The mouse-up waits in the queue while the window handles the mouse-down, as AppKit's
     /// tracking loops (tables, outlines) expect.
     func click(_ point: @autoclosure () async -> NSPoint?, count: Int = 1, flags: NSEvent.ModifierFlags = [], inSheet: Bool = false, line: Int = #line, file: String = #fileID) async {
-        guard let point = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
+        guard let found = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
+        let point = await steady(found, point)
         let target = inSheet ? window.attachedSheet ?? window : window
         if UITest.verbose {
             let hit = hitView(point, in: target)
@@ -488,7 +505,8 @@ struct Driver {
 
     /// A right-click, as the window gets it.
     func rightClick(_ point: @autoclosure () async -> NSPoint?, line: Int = #line, file: String = #fileID) async {
-        guard let point = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
+        guard let found = await appearing(point) else { return UITest.record("a click at \(file):\(line) finds what it clicks", false, "no anchor or point") }
+        let point = await steady(found, point)
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,

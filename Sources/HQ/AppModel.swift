@@ -325,6 +325,9 @@ final class AppModel {
     @ObservationIgnored var claudeCheckedAt = Date.distantPast
     /// The sessions open when HQ quit whose Claude was gone at launch: Closed Sessions offers to reopen them (T-505).
     var reopenOffer: ReopenOffer?
+    /// Counts moves by keys and the Task menu (Move Up, Move Down, Indent, Outdent): the rows take each at once, as a drop,
+    /// with no slide (Co, 2026-11-16, T-514).
+    @ObservationIgnored var keyMoves = 0
     /// Tasks whose subtasks are hidden or shown by the user's choice, by key; a task not in it shows them.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
         didSet { FoldMode.remember(fold) }

@@ -157,6 +157,13 @@ extension SelfTest {
         check("notify and remind take --task", (told["links"] as? [JSONObject])?.first?["id"] as? String == key(story)
               && (set["links"] as? [JSONObject])?.first?["id"] as? String == key(story), "\(told) \(set)")
         for row in [told, set] { if let rowID = (row["id"] as? String).flatMap({ UUID(uuidString: $0) }) { model.removeNotice(rowID) } }
+        // A deleted task's key isn't given to the next new one, though nothing names it any more (T-516).
+        if let gone = model.addTask(status: .todo, title: "Key that goes") {
+            model.deleteTasks([gone.id])
+            let next = model.addTask(status: .todo, title: "Key after it")
+            check("a deleted task's key isn't given again", (next?.id ?? 0) > gone.id, "T-\(gone.id) then T-\(next?.id ?? 0)")
+            if let next { model.deleteTasks([next.id]) }
+        }
         // A session's second notify replaces its unread one, and says so; a ping gets its own row (T-511).
         let speaker = "cli-speaker-session"
         model.put(SessionItem(id: speaker, customName: "CLI speaker", status: SessionStatus(state: .idle, since: .now), cwd: "/tmp", repo: "cli", branch: "main",

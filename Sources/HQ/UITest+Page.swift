@@ -41,7 +41,8 @@ extension UITest {
                 /// The parts of the sheet that run past its edges.
                 func cut() -> [String] {
                     guard let sheet = ui.window.attachedSheet, let bounds = sheet.contentView?.bounds.insetBy(dx: -0.5, dy: -0.5) else { return ["no sheet"] }
-                    return ["modal-close", button].filter { name in ui.anchorFrame(name).map { !bounds.contains($0) } ?? true }
+                    let shown = [button, "\(button)-off"].first { ui.anchorFrame($0) != nil } ?? button
+                    return ["modal-close", shown].filter { name in ui.anchorFrame(name).map { !bounds.contains($0) } ?? true }
                         .map { "\($0) at \(ui.anchorFrame($0)?.integral ?? .zero) in \(sheet.frame.size)" }
                 }
                 await ui.settle(0.3)

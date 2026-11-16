@@ -37,7 +37,8 @@ struct FormButtons: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .clickable()
                 .disabled(!ready)
-                .uiTestAnchor(anchor)
+                // Its anchor only while it's on: a test's click waits for it, as a user waits for the button to light (T-515).
+                .uiTestAnchor(ready ? anchor : "\(anchor)-off")
         }
         .preference(key: OwnsEscape.self, value: true)
     }

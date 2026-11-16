@@ -78,6 +78,7 @@ extension AppModel {
             LaunchLog.mark("vault")
             readingVault = true
             if self.tasks != tasks { self.tasks = tasks }
+            givenHighestKey = tasks.map(\.id).max() ?? 0
             if self.files != files { self.files = files }
             if Set(self.roles) != Set(roles) {
                 self.roles = roles
@@ -280,7 +281,14 @@ extension AppModel {
     var nextTaskID: Int {
         let named = tasks.flatMap { [$0.id] + $0.related + $0.blockedBy + $0.after } + files.flatMap(\.tasks) + artifacts.flatMap(\.tasks)
         // An archived key is never given again (T-471).
-        return max(named.max() ?? 0, archivedHighestKey) + 1
+        // Nor a deleted one, even when nothing names it any more (T-516).
+        return max(named.max() ?? 0, archivedHighestKey, givenHighestKey) + 1
+    }
+
+    /// The highest key HQ has seen on a task: a new task's key is above it, so a deleted one's never comes back (T-516).
+    var givenHighestKey: Int {
+        get { Prefs.defaults.integer(forKey: "tasks.highestKey") }
+        set { if newValue > givenHighestKey { Prefs.defaults.set(newValue, forKey: "tasks.highestKey") } }
     }
 
     /// A new task note, placed by the tree. Undo moves the note to the Trash.
@@ -422,6 +430,7 @@ extension AppModel {
     }
 
     func indent(_ id: Int) {
+        keyMoves += 1
         let tree = taskTree
         let shown = shownBeside(id)
         if let previous = tree.neighbor(of: id, by: -1, shown: shown) { showSubtasks(previous) }
@@ -430,11 +439,13 @@ extension AppModel {
 
     func outdent(_ id: Int) {
         guard !keptInWindow(id) else { return }
+        keyMoves += 1
         place(taskTree.outdent(id), "Outdent")
         keepShown(id)
     }
 
     func shift(_ id: Int, by offset: Int) {
+        keyMoves += 1
         place(taskTree.shift(id, by: offset, shown: shownBeside(id)), offset < 0 ? "Move Up" : "Move Down")
         keepShown(id)
     }
@@ -486,6 +497,7 @@ extension AppModel {
         let all = ids.flatMap { tree.subtree(of: $0) }.filter { seen.insert($0).inserted }
         let items = all.compactMap { task($0) }
         guard !items.isEmpty else { return }
+        givenHighestKey = items.map(\.id).max() ?? 0
         var trashed: [Int: URL] = [:]
         for item in items { trashed[item.id] = trash(item.path) }
         let gone = Set(all)
