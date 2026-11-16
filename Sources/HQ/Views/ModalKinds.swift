@@ -61,7 +61,7 @@ struct TaskModal: View {
                     placeLine(task)
                     HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                         StatusButton(id: id, status: task.status)
-                        TextField("New task", text: $title, axis: .vertical)
+                        TextField("New task", text: $title, axis: .vertical) // lint: ok a title wraps; it is not markdown
                             .textFieldStyle(.plain)
                             .kitType(.pageTitle)
                             .accessibilityLabel("Title")
@@ -413,34 +413,15 @@ private struct TaskRelations: View {
 private struct DescriptionCard: View {
     let id: Int
     @Environment(AppModel.self) private var model
-    /// The editor's text height, and the rendered text's: the editor opens as tall as what it replaces, then grows with its text.
-    @State private var editorHeight: CGFloat = 0
-    @State private var renderedHeight: CGFloat = 0
 
     var body: some View {
         @Bindable var model = model
-        let editing = model.modalEditingDescription
-        TextCard(editing: editing) {
-            if editing {
-                MarkdownEditor(text: $model.descriptionDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
-                               onHeight: { editorHeight = $0 },
-                               onCommit: { model.saveModalEdits() },
-                               onCancel: { model.saveModalEdits() },
-                               onEnd: { model.saveModalEdits() })
-                    .frame(height: max(editorHeight > 0 ? editorHeight : renderedHeight, MarkdownStyle.lineHeight(.body)))
-                    .onAppear { model.editorCaret = nil }
-                    .onDisappear { editorHeight = 0 }
-                    .uiTestAnchor("modal-description-editor")
-            } else if let body = model.task(id)?.body, !body.isEmpty {
-                MarkdownView(body) { index in model.toggleCheckbox(id, at: index) }
-                    .background(EditOnDoubleClick { point in edit(at: point) })
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
-                    .uiTestAnchor("modal-description")
-            } else {
-                Text("No description yet. Double-click to write one.").kitType(.callout).foregroundStyle(.secondary)
-                    .background(EditOnDoubleClick { _ in edit(at: nil) })
-            }
-        }
+        MarkdownSurface(text: model.task(id)?.body ?? "", look: .compact, placeholder: "No description yet. Double-click to write one.",
+                        toggle: { index in model.toggleCheckbox(id, at: index) },
+                        editing: MarkdownEditing(isOn: model.modalEditingDescription, draft: $model.descriptionDraft, label: "Description",
+                                                 begin: { point in edit(at: point) }, commit: { model.saveModalEdits() },
+                                                 cancel: { model.saveModalEdits() }, end: { model.saveModalEdits() }),
+                        anchors: MarkdownAnchors(text: "modal-description", editor: "modal-description-editor"))
     }
 
     /// Edits the description: the caret under a point of the rendered text, else at the end.
@@ -788,10 +769,7 @@ struct SessionModal: View {
                 }
                 if let message = session.lastMessage, !message.isEmpty {
                     ModalGroup(title: "Last message") {
-                        MarkdownView(message)
-                            .padding(Space.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .surface(radius: Radius.card)
+                        MarkdownSurface(text: message, look: .compact)
                     }
                 }
                 ModalGroup(title: "Details") {
@@ -853,7 +831,7 @@ struct SessionModal: View {
                 if let path = session.planPath {
                     Group {
                         if let plan = model.diskTexts[path]?.text {
-                            MarkdownView(plan)
+                            MarkdownSurface(text: plan)
                                 .padding(Space.md)
                                 .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                         } else {
@@ -935,9 +913,6 @@ private struct TeamRows: View {
 struct FileModal: View {
     let file: FileItem
     @Environment(AppModel.self) private var model
-    /// The editor's text height, and the rendered text's: the editor opens as tall as what it replaces, then grows with its text.
-    @State private var editorHeight: CGFloat = 0
-    @State private var renderedHeight: CGFloat = 0
 
     var body: some View {
         @Bindable var model = model
@@ -951,37 +926,21 @@ struct FileModal: View {
                            setTags: { model.setFileLabels(file.id, tags: $0) },
                            setPinned: { model.setFileLabels(file.id, pinned: $0) })
             }
-            let text = model.fileBody(file.id)
+            let editing = model.editingFile == file.id
             let blocks = model.fileMarkdown(file.id)
-            TextCard(size: .page, editing: model.editingFile == file.id) {
-                VStack(alignment: .leading, spacing: Space.md) {
-                    // A note without a `# Title` shows its file's, as tall and as far above its text.
-                    if blocks != nil, !MarkdownView.hasTitle(blocks) {
-                        Text(file.title).kitType(.pageTitle).padding(.bottom, Space.md)
-                    }
-                    if text == nil || (blocks == nil && model.editingFile != file.id) {
-                        LoadingLine(title: "Loading the note…")
-                            .uiTestAnchor("file-loading")
-                    } else if model.editingFile == file.id {
-                        MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: file.title,
-                                       title: MarkdownView.hasTitle(blocks), onHeight: { editorHeight = $0 },
-                                       onCommit: { model.saveModalEdits() }, onCancel: { model.saveModalEdits() }, onEnd: {})
-                            .frame(height: max(editorHeight > 0 ? editorHeight : renderedHeight, MarkdownStyle.lineHeight(.body)))
-                            .onAppear { model.editorCaret = nil }
-                            .onDisappear { editorHeight = 0 }
-                            .uiTestAnchor("file-editor")
-                    } else {
-                        MarkdownView(prepared: blocks ?? [], title: true) { index in model.toggleFileCheckbox(file.id, at: index) }
-                            .background(EditOnDoubleClick { point in
-                                model.editorCaret = point
-                                model.beginFileEdit(file.id)
-                            })
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
-                            .uiTestAnchor("file-text")
-                    }
-                }
-            }
-            .uiTestAnchor("file-card")
+            // A note without a `# Title` shows its file's, as tall and as far above its text.
+            MarkdownSurface(prepared: blocks ?? [], look: .page, title: true, fallbackTitle: file.title,
+                            loading: model.fileBody(file.id) == nil || (blocks == nil && !editing) ? "Loading the note…" : nil,
+                            placeholder: "No text yet. Double-click to write it.",
+                            toggle: { index in model.toggleFileCheckbox(file.id, at: index) },
+                            editing: MarkdownEditing(isOn: editing, draft: $model.fileDraft, label: file.title,
+                                                     begin: { point in
+                                                         model.editorCaret = point
+                                                         model.beginFileEdit(file.id)
+                                                     },
+                                                     commit: { model.saveModalEdits() }, cancel: { model.saveModalEdits() }),
+                            anchors: MarkdownAnchors(text: "file-text", editor: "file-editor", loading: "file-loading"))
+                .uiTestAnchor("file-card")
         }
         .task(id: file.modified) { await model.loadFileBody(file.id) }
         .uiTestAnchor("file-page")
@@ -1302,11 +1261,9 @@ struct StartSessionForm: View {
                 }
                 VStack(alignment: .leading, spacing: Space.xs) {
                     Text("First message").kitType(.groupLabel).foregroundStyle(.secondary)
-                    MarkdownEditor(text: Binding(get: { model.startDraft?.message ?? "" }, set: { model.startDraft?.message = $0 }),
-                                   focusOnAppear: true, label: "First message", inset: Space.sm, onCommit: { model.startFromDraft() }, onCancel: { model.closeModal() })
-                        .frame(minHeight: Metric.messageEditor)
-                        .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
+                    MarkdownField(text: Binding(get: { model.startDraft?.message ?? "" }, set: { model.startDraft?.message = $0 }),
+                                  label: "First message", focusOnAppear: true, minHeight: Metric.messageEditor,
+                                  submit: { model.startFromDraft() }, cancel: { model.closeModal() })
                         .uiTestAnchor("start-message")
                     Text("Sent as the first prompt, after HQ’s line and its role’s text; the task stays as it is.")
                         .kitType(.secondary).foregroundStyle(.secondary)

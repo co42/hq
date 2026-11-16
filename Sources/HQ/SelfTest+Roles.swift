@@ -114,6 +114,21 @@ extension SelfTest {
 
         await startTextChecks(model)
 
+        // A checkbox in a role's text ticks in place, one Undo, as a description's (T-469 item 8).
+        await UITest.endUndoGroup(model)
+        model.changeRole("Reviewer") { $0.text = "- [ ] Read the diff\n- [ ] Run it" }
+        await UITest.endUndoGroup(model)
+        model.toggleRoleCheckbox("Reviewer", at: 1)
+        await UITest.endUndoGroup(model)
+        check("a checkbox in a role's text ticks in place", model.role(named: "Reviewer")?.text == "- [ ] Read the diff\n- [x] Run it",
+              model.role(named: "Reviewer")?.text ?? "no role")
+        model.undoManager?.undo()
+        check("and Undo unticks it", model.role(named: "Reviewer")?.text == "- [ ] Read the diff\n- [ ] Run it", model.role(named: "Reviewer")?.text ?? "no role")
+        // A notification's text: inline marks only; tooltips and banners without them (item 8).
+        check("a notification's text drops its marks where it can't draw them",
+              MarkdownLine.plain("Retry **budget** in `cli`, see [the plan](https://example.com) and _why_") == "Retry budget in cli, see the plan and why",
+              MarkdownLine.plain("Retry **budget** in `cli`, see [the plan](https://example.com) and _why_"))
+
         // Leave the vault as the other checks had it.
         for name in ["Reviewer", "Planner", "Planner 2"] { model.deleteRole(name) }
         model.sessions.removeAll { $0.id == reviewing }

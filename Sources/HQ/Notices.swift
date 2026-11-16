@@ -210,7 +210,7 @@ extension AppModel {
     func reminderMark(_ notice: Notice) -> (due: Bool, help: String) {
         let due = notice.dueAt.map { $0 <= now } ?? true
         let when = due ? "due" : ReminderTime.describe(notice.dueAt ?? now, now: now)
-        return (due, "Reminder, \(when): \(notice.text). Click to see it in the notifications")
+        return (due, "Reminder, \(when): \(MarkdownLine.plain(notice.text)). Click to see it in the notifications")
     }
 
     /// A reminder's mark clicked: the center, on that reminder.
@@ -477,7 +477,7 @@ extension AppModel {
         case .github: githubItem(row.source).map(\.reference) ?? row.source.flatMap(GitHubThreads.reference) ?? "GitHub"
         case .reminder: "Reminder"
         }
-        postBanner(id: row.id.uuidString, title: title, body: row.text)
+        postBanner(id: row.id.uuidString, title: title, body: MarkdownLine.plain(row.text))
     }
 
     /// A session started to wait on the user: a banner, unless they are already looking at its terminal.

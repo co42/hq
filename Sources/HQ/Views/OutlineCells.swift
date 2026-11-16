@@ -1525,19 +1525,20 @@ struct DescriptionBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            if editable, model.editingDescription == id {
-                InlineDescriptionEditor(id: id)
-            } else if let task = model.task(id) {
+            if let task = model.task(id) {
                 let lines = task.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false)
-                if task.body.isEmpty {
-                    Text("No description yet. Double-click to write one.").kitType(.callout).foregroundStyle(.secondary)
-                } else if lines.count > Self.maxLines {
-                    MarkdownView(lines.prefix(Self.maxLines).joined(separator: "\n"), selectable: false) { index in model.toggleCheckbox(id, at: index) }
+                let editing = editable && model.editingDescription == id
+                let cut = !editing && lines.count > Self.maxLines
+                // The outline catches its own double-click: it edits at the spot (T-368).
+                MarkdownSurface(text: cut ? lines.prefix(Self.maxLines).joined(separator: "\n") : task.body, selectable: false,
+                                placeholder: "No description yet. Double-click to write one.",
+                                toggle: { index in model.toggleCheckbox(id, at: index) },
+                                editing: editable ? editor(editing) : nil, catchesDoubleClick: false,
+                                anchors: MarkdownAnchors(editor: "description-editor:\(id)"))
+                if cut {
                     Text("\(lines.count - Self.maxLines) more lines: open the task to read them all.")
                         .kitType(.callout)
                         .foregroundStyle(.secondary)
-                } else {
-                    MarkdownView(task.body, selectable: false) { index in model.toggleCheckbox(id, at: index) }
                 }
             }
         }
@@ -1552,37 +1553,17 @@ struct DescriptionBlock: View {
         let controller = NSHostingController(rootView: DescriptionBlock(id: id).environment(model).frame(width: width))
         return ceil(controller.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height)
     }
-}
 
-/// The description's editor in the outline. Escape and ⌘Return save and select the row; Tab saves
-/// and edits the next task's title, ⇧Tab this one's; leaving saves.
-extension AppModel {
-    /// The outline's description editor: as tall as its text, then it scrolls.
-    var descriptionEditorBox: CGFloat { MarkdownEditor.box(descriptionEditorHeight) }
-}
-
-private struct InlineDescriptionEditor: View {
-    let id: Int
-    @Environment(AppModel.self) private var model
-
+    /// The description's editor in the outline, in place of its text with an accent outline as in the task's window.
+    /// Escape and ⌘Return save and select the row; Tab saves and edits the next task's title, ⇧Tab this one's; leaving saves.
     /// The model keeps the draft and the text it started from: a quit or another editor saves it (TextDraft).
-    private var draft: Binding<String> {
-        Binding(get: { model.outlineDraft?.text ?? "" }, set: { if model.outlineDraft?.id == id { model.outlineDraft?.text = $0 } })
-    }
-
-    var body: some View {
-        MarkdownEditor(text: draft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
-                       onHeight: { model.descriptionEditorHeight = $0 }, maxHeight: Metric.editorMaximum,
-                       onCommit: { save(then: .row(id)) },
-                       onCancel: { save(then: .row(id)) },
-                       onEnd: { save(then: .left(id)) },
-                       onTab: { backward in save(then: .title(id, by: backward ? 0 : 1)) })
-            .frame(height: model.descriptionEditorBox)
-            // The text stays where the rendered one was; the box is drawn around it.
-            .background { RoundedRectangle(cornerRadius: Radius.control, style: .continuous).fill(Ink.editor).padding(-Space.xs) }
-            .overlay { RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame).padding(-Space.xs) }
-            .onAppear { model.editorCaret = nil }
-            .uiTestAnchor("description-editor:\(id)")
+    private func editor(_ on: Bool) -> MarkdownEditing {
+        MarkdownEditing(isOn: on,
+                        draft: Binding(get: { model.outlineDraft?.text ?? "" }, set: { if model.outlineDraft?.id == id { model.outlineDraft?.text = $0 } }),
+                        label: "Description", begin: { _ in },
+                        commit: { save(then: .row(id)) }, cancel: { save(then: .row(id)) }, end: { save(then: .left(id)) },
+                        tab: { backward in save(then: .title(id, by: backward ? 0 : 1)) },
+                        box: Binding(get: { model.descriptionEditorHeight }, set: { model.descriptionEditorHeight = $0 }))
     }
 
     /// An empty description hides again.
@@ -1593,6 +1574,11 @@ private struct InlineDescriptionEditor: View {
         if model.task(id)?.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true { model.shownDescriptions.remove(id) }
         model.outlineFocus = focus
     }
+}
+
+extension AppModel {
+    /// The outline's description editor: as tall as its text, then it scrolls.
+    var descriptionEditorBox: CGFloat { MarkdownEditor.box(descriptionEditorHeight) }
 }
 
 /// Outputs as chips that wrap: kind or PR state, the maker's face, the title; blue while new.

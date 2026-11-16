@@ -330,16 +330,9 @@ struct ArchivedTaskView: View {
                     }
                 }
                 ModalGroup(title: "Description") {
-                    Group {
-                        if let note = model.archiveShown?.notes[id] {
-                            if note.body.isEmpty { Text("No description.").foregroundStyle(.secondary) } else { MarkdownView(note.body) }
-                        } else {
-                            LoadingLine(title: "Loading the task…")
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(Metric.cardPadding)
-                    .surface()
+                    // Read only, on the description's card (T-469 item 8).
+                    let note = model.archiveShown?.notes[id]
+                    MarkdownSurface(text: note?.body ?? "", look: .compact, loading: note == nil ? "Loading the task…" : nil, placeholder: "No description.")
                 }
                 if let links = model.archiveShown?.notes[id]?.links, !links.isEmpty {
                     ModalGroup(title: "Links") {

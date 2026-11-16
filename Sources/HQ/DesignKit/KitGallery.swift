@@ -108,15 +108,17 @@ struct KitGallery: View {
             section("Code") {
                 CodeBlock(text: "kubectl rollout restart deploy/registry-api", copies: true).frame(width: 480)
             }
-            section("Text cards: a note's, a description's, editing") {
+            section("Markdown surfaces: a note's, a description's, read only, a notification's line, a form's field") {
                 HStack(alignment: .top, spacing: Space.xxl) {
-                    TextCard(size: .page) {
-                        MarkdownView("# Retry budget plan\n\nBlob uploads retry with no budget.", title: true)
-                    }
-                    .frame(width: Metric.noteCard)
+                    MarkdownSurface(prepared: ViewerBlock.prepare(Markdown.blocks("# Retry budget plan\n\nBlob uploads retry with no budget."), style: .current),
+                                    look: .page, title: true)
+                        .frame(width: Metric.noteCard)
                     VStack(alignment: .leading, spacing: Space.lg) {
-                        TextCard { MarkdownView("At most **3 attempts** per part.") }
-                        TextCard(editing: true) { MarkdownView("At most **3 attempts** per part.") }
+                        MarkdownSurface(text: "At most **3 attempts** per part.", look: .compact)
+                        MarkdownSurface(text: "", look: .compact, placeholder: "No description yet. Double-click to write one.")
+                        MarkdownLine.text("Retry budget **ready**: see `T-13` and [the plan](https://example.com).").kitType(.title)
+                        MarkdownField(text: .constant(""), placeholder: "Optional, in markdown", label: "Description", minHeight: Metric.noteField,
+                                      submit: {}, cancel: {})
                     }
                     .frame(width: 360)
                 }

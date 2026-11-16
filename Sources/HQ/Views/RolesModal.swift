@@ -201,9 +201,6 @@ private struct RoleDetail: View {
     let role: RoleItem
     @Environment(AppModel.self) private var model
     @FocusState private var fieldFocused: Bool
-    /// The editor's text height, and the rendered text's: the editor opens as tall as what it replaces (T-368).
-    @State private var editorHeight: CGFloat = 0
-    @State private var renderedHeight: CGFloat = 0
 
     var body: some View {
         let edit = model.roleEdit?.role == role.name ? model.roleEdit : nil
@@ -303,34 +300,20 @@ private struct RoleDetail: View {
             .uiTestAnchor("role-field")
     }
 
-    /// The text rendered; a double-click or ⌘E turns it into the editor in place, Escape or ⌘Return saves.
-    @ViewBuilder
+    /// The text on its card; a double-click or ⌘E turns it into the editor in place, Escape or ⌘Return saves; its checkboxes
+    /// tick (T-469 item 8).
     private func text(_ edit: RoleEdit?) -> some View {
-        if edit?.field == .text {
-            MarkdownEditor(text: Binding(get: { model.roleEdit?.text ?? "" }, set: { model.roleEdit?.text = $0 }),
-                           focusOnAppear: true, caretPoint: model.editorCaret, label: "\(role.name)’s text",
-                           onHeight: { editorHeight = $0 },
-                           onCommit: { model.finishRoleEdit() }, onCancel: { model.finishRoleEdit() }, onEnd: {})
-                .frame(height: max(editorHeight > 0 ? editorHeight : renderedHeight, MarkdownStyle.lineHeight(.body)))
-                .onAppear { model.editorCaret = nil }
-                .onDisappear { editorHeight = 0 }
-                .uiTestAnchor("role-editor")
-        } else if role.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Text("What a session with this role should know and do. Double-click to write it.")
-                .kitType(.body)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(EditOnDoubleClick { _ in model.beginRoleEdit(.text) })
-                .uiTestAnchor("role-text")
-        } else {
-            MarkdownView(role.text)
-                .background(EditOnDoubleClick { point in
-                    model.editorCaret = point
-                    model.beginRoleEdit(.text)
-                })
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
-                .uiTestAnchor("role-text")
-        }
+        MarkdownSurface(text: role.text, look: .compact, placeholder: "What a session with this role should know and do. Double-click to write it.",
+                        toggle: { index in model.toggleRoleCheckbox(role.name, at: index) },
+                        editing: MarkdownEditing(isOn: edit?.field == .text,
+                                                 draft: Binding(get: { model.roleEdit?.text ?? "" }, set: { model.roleEdit?.text = $0 }),
+                                                 label: "\(role.name)’s text",
+                                                 begin: { point in
+                                                     model.editorCaret = point
+                                                     model.beginRoleEdit(.text)
+                                                 },
+                                                 commit: { model.finishRoleEdit() }, cancel: { model.finishRoleEdit() }),
+                        anchors: MarkdownAnchors(text: "role-text", editor: "role-editor"))
     }
 
     /// Near the editor's limit, a word says so; past it, in red: Claude Code takes so much from a hook, HQ's line included.
@@ -439,6 +422,12 @@ extension AppModel {
     }
 
     func cancelRoleEdit() { roleEdit = nil }
+
+    /// A checkbox in a role's text ticks in place, as a task's description's (T-469 item 8). One Undo.
+    func toggleRoleCheckbox(_ name: String, at index: Int) {
+        guard let text = role(named: name)?.text, let toggled = Markdown.toggleTask(text, at: index) else { return }
+        changeRole(name, "Tick Checkbox") { $0.text = toggled }
+    }
 
     /// New Role: at its place in the list, its name edited at once.
     func addRole() {

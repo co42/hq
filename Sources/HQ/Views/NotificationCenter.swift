@@ -276,7 +276,7 @@ private struct NoticeRow: View {
                 if expanded, !replaced.isEmpty {
                     VStack(alignment: .leading, spacing: Space.xs) {
                         ForEach(Array(replaced.enumerated()), id: \.offset) { _, text in
-                            Text(text).kitType(.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            MarkdownLine.text(text).kitType(.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding(.top, Space.xs)
@@ -297,7 +297,7 @@ private struct NoticeRow: View {
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { if reminder && notice.links.isEmpty { edit() } else { model.openNotice(notice) } } // lint: ok the center's rows keep their own selection
         .contextMenu { menu }
-        .help(notice.text)
+        .help(MarkdownLine.plain(notice.text))
         .uiTestAnchor("notice:\(notice.id.uuidString)")
     }
 
@@ -472,7 +472,7 @@ private struct NoticeBody: View {
     }
 
     private func styled(_ limit: Int?) -> some View {
-        Text(text)
+        MarkdownLine.text(text)
             .kitType(.title)
             .foregroundStyle(struck ? .secondary : .primary)
             .strikethrough(struck)

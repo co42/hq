@@ -4,6 +4,8 @@
 # - an `isFlipped` override is nonisolated: AppKit reads it off the main thread when a drag of several items starts;
 # - a double-click goes through SelectOpen, never onTapGesture(count: 2);
 # - no cursor rects: they go stale as the page scrolls, and AppKit gives a click's pointer to the view it hits (T-453).
+# - markdown shows and is edited through MarkdownSurface, MarkdownField and MarkdownLine only, so every place looks and edits
+#   alike (T-469 item 8, DESIGN.md §9).
 # Usage: tools/code-lint.sh       Silence one line with a reason: // lint: ok <why>
 set -euo pipefail
 src=${0:A:h:h}/Sources/HQ
@@ -11,10 +13,16 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
   BEGIN { $count = 0 }
   my $kit = $ARGV =~ m{/DesignKit/};
   my $tests = $ARGV =~ m{/(UITest|UITestChecks|SelfTest|Snapshot|SeedData)\.swift$};
+  my $markdown = $ARGV =~ m{/Views/Markdown(?:Surface|View|Editor)\.swift$|/(?:UITest|SelfTest)[^/]*\.swift$};
   if (!/lint: ok/ && !/^\s*\/\//) {
     my @bad;
     push @bad, "isFlipped must be nonisolated" if /override var isFlipped/ && !/nonisolated/;
     push @bad, "a cursor rect: use HandTrackingView or trackHandCursor()" if /\b(?:addCursorRect|resetCursorRects)\b/;
+    if (!$markdown) {
+      push @bad, "markdown outside MarkdownSurface" if /\b(?:MarkdownView|MarkdownEditor)\(/;
+      push @bad, "a multi-line field: use MarkdownField" if /axis:\s*\.vertical/;
+    }
+    push @bad, "a notification text: use MarkdownLine" if $ARGV =~ m{/NotificationCenter\.swift$} && /\bText\((?:text|notice\.text)\)/;
     if (!$kit && !$tests) {
       push @bad, "a raw color" if /\b(?:NS)?Color\((?:red|white|hue|srgbRed|calibratedRed):/;
       push @bad, "a raw font size" if /\.(?:system|monospacedSystemFont)\((?:size|ofSize):/;

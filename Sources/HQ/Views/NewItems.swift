@@ -159,9 +159,8 @@ struct NewTaskForm: View {
                 }
                 GridRow {
                     FormLabel("Description")
-                    TextField("Optional, in markdown", text: $notes, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(2...4)
+                    MarkdownField(text: $notes, placeholder: "Optional, in markdown", label: "Description",
+                                  minHeight: Metric.noteField, maxHeight: Metric.noteField, submit: add, cancel: { model.back() })
                         .uiTestAnchor("new-task-notes")
                 }
                 GridRow {

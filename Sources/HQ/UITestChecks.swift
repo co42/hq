@@ -1674,6 +1674,20 @@ extension UITest {
         }
         await ui.settle(0.4)
         model.deleteTasks([task.id])
+
+        // Every place markdown is written is the same editor (T-469 item 8): New Task's description continues a list.
+        model.beginTask(.todo)
+        await ui.until(2) { ui.window.attachedSheet.flatMap { ui.find(MarkdownEditor.EditorTextView.self, in: $0.contentView) } != nil }
+        if let sheet = ui.window.attachedSheet, let field = ui.find(MarkdownEditor.EditorTextView.self, in: sheet.contentView) {
+            sheet.makeFirstResponder(field)
+            field.insertText("- one", replacementRange: field.selectedRange())
+            field.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+            await check("New Task's description is the markdown editor: Return continues a list", field.string == "- one\n- ", field.string.debugDescription)
+        } else {
+            await check("New Task's description is the markdown editor", false)
+        }
+        model.closeModal()
+        await ui.settle(0.4)
     }
 
     /// T-348, T-359, T-358, T-343: the grip moves a task, the rest of its row carries it (onto a task or a card it links;

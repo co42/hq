@@ -344,7 +344,7 @@ nonisolated enum Metric {
     /// New Reminder…: what, its links, when, important, then its buttons.
     static var reminderSheet: CGSize { zoomed(560, 262) }
     /// New Task…: the title, a description, the list, the project and the links, then its buttons.
-    static var taskSheet: CGSize { zoomed(560, 328) }
+    static var taskSheet: CGSize { zoomed(560, 368) }
     /// New File…: its title, then its buttons.
     static var fileSheet: CGSize { zoomed(560, 160) }
     /// Import Artifact…: its link with a word on it, its title, then its buttons.
@@ -381,6 +381,8 @@ nonisolated enum Metric {
     /// A markdown editor in a row grows with its text up to this, then scrolls.
     static var editorMaximum: CGFloat { 480 * Zoom.factor }
     static var messageEditor: CGFloat { 200 * Zoom.factor }
+    /// New Task's description field: four lines, then it scrolls.
+    static var noteField: CGFloat { 84 * Zoom.factor }
     /// A Mermaid diagram while it's drawn the first time.
     static var diagramPlaceholder: CGFloat { 120 * Zoom.factor }
     /// The bar beside a quote.
