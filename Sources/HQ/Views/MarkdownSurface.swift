@@ -32,6 +32,8 @@ struct MarkdownSurface: View {
     /// The editor's text height, and the rendered text's: the editor opens as tall as what it replaces, then grows.
     @State private var editorHeight: CGFloat = 0
     @State private var renderedHeight: CGFloat = 0
+    /// The pointer is over a note's card: Widen or Narrow shows in its corner.
+    @State private var hovering = false
 
     private var isEditing: Bool { editing?.isOn == true }
     private var hasTitle: Bool { title && MarkdownView.hasTitle(prepared) }
@@ -47,7 +49,17 @@ struct MarkdownSurface: View {
                     }
                 }
         case .compact: TextCard(editing: isEditing) { content }
-        case .page: TextCard(size: .page, editing: isEditing) { content }
+        case .page:
+            TextCard(size: .page, editing: isEditing) { content }
+                .overlay(alignment: .topTrailing) {
+                    if hovering || model.showBlockControls {
+                        CornerButton(title: model.wideNotes ? "Narrow" : "Widen", icon: model.wideNotes ? .narrow : .widen,
+                                     help: model.wideNotes ? "Back to a readable width" : "Widen the note to the window",
+                                     anchor: "note-width") { model.wideNotes.toggle() }
+                            .padding(Space.sm)
+                    }
+                }
+                .onHover { hovering = $0 }
         }
     }
 

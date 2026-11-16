@@ -102,7 +102,7 @@ extension UITest {
         page?.scrollerStyle = .legacy
         defer { if let style { page?.scrollerStyle = style } }
         await check("with scroll bars shown always, the page's scroll bar takes room",
-                    page.map { $0.contentView.bounds.width < $0.bounds.width - 1 } == true && off().isEmpty, off().joined(separator: ", "))
+                    page.map { $0.contentView.bounds.width < $0.bounds.width - 1 } == true && off().isEmpty, (off() + ["clip \(page?.contentView.bounds.width ?? 0) of \(page?.bounds.width ?? 0), document \(page?.documentView?.frame.width ?? 0), scroller \(page?.verticalScroller?.isHidden == false)"]).joined(separator: ", "))
         // Quick Open made at 100%, as the first ⌘K makes it.
         _ = AppDelegate.shared?.quickOpenPanel.frame
         for (title, zoom) in [("Zoom In", 1.15), ("Zoom In", 1.3), ("Zoom In", 1.5), ("Zoom Out", 1.3), ("Zoom Out", 1.15), ("Zoom Out", 1), ("Zoom Out", 0.85), ("Actual Size", 1)] as [(String, CGFloat)] {
@@ -183,26 +183,31 @@ extension UITest {
         await check("Show Fewer folds the card back to five", !model.expandedCards.contains(.files))
         for file in made { model.setPinned(.file(file.id), true) }
         model.pinnedOnly = true
-        // Pinning rewrites each note and the vault reads it back newer: the order holds once every one is read.
+        // Pinning rewrites each note and the vault reads its time back from disk: the rows hold their order once every one is read.
         func listed() -> [String] { model.listedFiles.map { ModalRoute.file($0.id).selectionKey } }
-        var pinned = listed()
-        for _ in 0..<10 {
-            await ui.settle(0.3)
-            let now = listed()
-            if now == pinned && now.count == made.count { break }
-            pinned = now
+        func readBack() -> Bool {
+            made.allSatisfy { item in
+                guard let file = model.file(item.id), file.pinned, let path = file.path,
+                      let disk = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return false }
+                return abs(file.modified.timeIntervalSince(disk)) < 0.001
+            }
         }
-        guard !pinned.isEmpty else { return await check("pinned files to walk", false) }
+        await ui.until(5) { readBack() }
+        await ui.settle(0.3)
+        let pinned = listed()
+        guard readBack(), pinned.count == made.count else { return await check("the pinned notes are read back from disk", false, "\(pinned)") }
         await ui.click(await ui.steadyAnchor("item:\(pinned[0])"))
         await check("with Pinned Only, a click selects the first pinned file", model.selectedItem == pinned.first, model.selectedItem ?? "none")
         var unshown: [String] = []
+        var walk: [String] = []
         for _ in 0..<6 {
             await ui.key(.down)
+            walk.append(String((model.selectedItem ?? "none").suffix(10)))
             if let key = model.selectedItem, ui.anchorFrame("item:\(key)") == nil { unshown.append(key) }
         }
         await check("with Pinned Only, the card shows every pinned file and ↓ selects only rows it shows",
               unshown.isEmpty && model.selectedItem == pinned.last,
-              "not shown: \(unshown), at \(model.selectedItem ?? "none"), \(model.listedFiles.count) listed of \(pinned.count) pinned, \(model.files.filter(\.pinned).count) pinned now")
+              "not shown: \(unshown), at \(model.selectedItem ?? "none"), \(model.listedFiles.count) listed of \(pinned.count) pinned, \(model.files.filter(\.pinned).count) pinned now, walk \(walk), pinned \(pinned.map { String($0.suffix(10)) }), listed now \(listed().map { String($0.suffix(10)) })")
     }
 
     /// A row clicked in the modal selects there: the page's selection is still the one thing selected once it closes.

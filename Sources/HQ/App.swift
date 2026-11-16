@@ -24,7 +24,6 @@ struct HQApp: App {
             .overlay { if GridOverlay.enabled { GridOverlay() } }
             .frame(minWidth: Metric.windowMin.width, minHeight: Metric.windowMin.height)
             .noInitialFocus()
-            .canvasWindow()
             .background(WindowAccessor { delegate.adopt($0) })
         }
         .defaultWindowPlacement { _, context in

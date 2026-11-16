@@ -173,30 +173,6 @@ struct CardToggle: View {
     }
 }
 
-/// The ground under the page's and the modal's cards, with the sky on top: Liquid Glass over what's behind the window, or the canvas gray.
-struct CanvasView: View {
-    /// Glass behind the cards (2026-11-16, T-522); false brings back the gray canvas.
-    static let glass = true
-    let mood: SkyMood
-    var sky: Double = 1
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            if Self.glass { Color.clear.glassEffect(.regular, in: .rect) } else { Ink.content }
-            SkyView(mood: mood).opacity(sky)
-        }
-    }
-}
-
-extension View {
-    /// The window or sheet whose ground is a `CanvasView`: clear while the canvas is glass, so the glass sees what's behind it.
-    @ViewBuilder func canvasWindow(sheet: Bool = false) -> some View {
-        if !CanvasView.glass { self }
-        else if sheet { presentationBackground(.clear) }
-        else { containerBackground(.clear, for: .window) }
-    }
-}
-
 /// The soft sky over the top of the page: a mesh of three colors that fades into the canvas.
 /// Its colors follow the day's state and change slowly; it never loops. The toolbar's and the
 /// section bar's glass refract it. Drawn once per mood on the CPU and stretched: SwiftUI's own rendering

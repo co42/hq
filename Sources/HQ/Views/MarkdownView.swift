@@ -328,15 +328,8 @@ struct ExpandCorner: View {
     let expand: () -> Void
 
     var body: some View {
-        Button("Expand", icon: .expand, action: expand)
-            .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .controlSize(.small)
-            .clickable()
-            .help("Expand to the whole sheet")
+        CornerButton(title: "Expand", icon: .expand, help: "Expand to the whole sheet", anchor: "expand-block", action: expand)
             .padding(Space.xs)
-            .uiTestAnchor("expand-block")
     }
 }
 

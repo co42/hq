@@ -53,9 +53,8 @@ struct CockpitView: View {
                 .padding(.top, Metric.pageTitleTop)
                 .padding(.bottom, Space.section + end.overflow)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                    if abs(width - visible) >= 1 { visible = width }
-                }
+                // The clip view's width, from AppKit: a scroll bar shown always takes its room even when SwiftUI keeps the content wider.
+                .background(ClipWidth { width in if abs(width - visible) >= 1 { visible = width } })
                 .contentShape(Rectangle())
                 .onTapGesture { model.selectSection(nil) }
                 .gridArea("page", inset: 0)
@@ -97,7 +96,10 @@ struct CockpitView: View {
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
         .background(alignment: .top) {
-            CanvasView(mood: model.skyMood)
+            ZStack(alignment: .top) {
+                Ink.content
+                SkyView(mood: model.skyMood)
+            }
             .id(zoom)
             .ignoresSafeArea()
         }
@@ -150,6 +152,43 @@ struct CockpitView: View {
 }
 
 /// Reports a section's top as the page scrolls; the section bar follows the section in view.
+/// The width of the scroll view's clip around it, as it changes: what a scroll bar shown always leaves the page (T-436).
+private struct ClipWidth: NSViewRepresentable {
+    let changed: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> Probe { Probe() }
+
+    func updateNSView(_ probe: Probe, context: Context) { probe.changed = changed }
+
+    final class Probe: NSView {
+        var changed: ((CGFloat) -> Void)?
+        private var observer: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard window != nil, let clip = enclosingScrollView?.contentView else { return }
+            clip.postsFrameChangedNotifications = true
+            observer = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.report() }
+            }
+            report()
+        }
+
+        override func layout() {
+            super.layout()
+            report()
+        }
+
+        private func report() {
+            guard let width = enclosingScrollView?.contentView.bounds.width, width > 0 else { return }
+            // Out of the layout pass that told it.
+            DispatchQueue.main.async { [weak self] in self?.changed?(width) }
+        }
+    }
+}
+
 struct SectionTop: ViewModifier {
     let section: PageSection
     let tops: SectionTops

@@ -329,7 +329,7 @@ enum Snapshot {
                 reset(model)
                 if let file = model.files.first { model.open(.file(file.id)); model.beginFileEdit(file.id) }
             },
-            Page(name: "modal-file-full", capture: .sheet) { model in reset(model); model.wideNotes = true; if let file = model.files.first { model.open(.file(file.id)) } },
+            Page(name: "modal-file-full", capture: .sheet) { model in reset(model); model.wideNotes = true; model.showBlockControls = true; if let file = model.files.first { model.open(.file(file.id)) } },
             // T-490: a wide table in place, cut and fading, Expand in its corner as under the pointer.
             Page(name: "modal-file-wide", capture: .sheet) { model in
                 reset(model)

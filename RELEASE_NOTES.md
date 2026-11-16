@@ -1,5 +1,34 @@
 # Release notes
 
+## v16 · 2026-11-16 · One list, the Archive, markdown
+
+**Tasks** (plugin 0.13.0)
+- One list: the Backlog is a status, at any level, no longer a list of its own. The Tasks header's Backlog and Done toggles show those tasks in place, remembered. A task moved to doing takes the backlog tasks above it to todo. Your vault moved to one list once, with a backup.
+- The Archive (⇧⌘A, the Tasks header, Quick Open): a search over archived stories and their tasks, by week and month. Done stories go there after the delay set in Settings › General. Archive with ⌃⌘A, Unarchive from a card, its menu or an archived task's window; Undo puts a story back in place.
+- `hq task archive`, `hq task unarchive`, `hq ls tasks --archived` and `--search`; `hq task move` and `add` take backlog.
+
+**Markdown, everywhere the same**
+- Every description, note, role, archived task, last message and plan shows and edits markdown the same way: a double-click edits at the spot, the editor in the rendered text's place.
+- A note sits on a card, 760 pt wide, its `# Title` in Title 1. Widen in the card's corner, under the pointer, takes it to the window's width; HQ remembers it.
+- An editor grows with its text and has no scroll bar of its own: the window's is the only one.
+- ⌘B, ⌘I and ⌘K mark the selection in every editor (Format menu); typing a mark over a selection wraps it.
+- `[[` completes HQ's files and `T-` tasks; T-12 and `[[links]]` in rendered text open over what's open, with Back.
+- Wide tables and diagrams expand to the window: a table sorts, holds its header and copies its rows; a diagram zooms and pans. Diagrams draw in HQ's colors.
+- Callouts, images, `![[Note]]` embeds, `==highlight==` and H4 to H6 in the viewer. Notifications show bold, italic, code and links.
+
+**Sessions**
+- Restart Session, on a card and in the Session menu, at its prompt: it exits and resumes the session in its terminal with a newer Claude Code, model and effort kept. A notification says when a newer one is installed, with Restart Idle Sessions.
+- Reopen All: at launch, the sessions open when HQ quit and gone since are offered at the top of Closed Sessions, back in their places and teams.
+- A session started from another session's `hq` opens behind, the front app kept. One that doesn't report in 30 s says Didn't start or Not reporting, with Start Again.
+
+**Fixes**
+- ⇧↑ and ⇧↓ pressed quickly land each move at once; a task's text no longer vanishes while rows slide.
+- A big note opens and scrolls fast: tables draw only the rows in view, notes are read off the main thread.
+- A deleted task's key is never given to a new task.
+- With scroll bars shown always, the page's column moves out from under a scroll bar that appears as the page grows.
+- One unread notification per session keeps the texts it replaced and says so.
+- Logs write in the background, fold repeated lines and stay under 1 MB.
+
 ## v15.3.1 · 2026-11-16
 
 - In a task's window, the New Subtask card keeps its gap under a last subtask shown open with its own subtasks: it touched that card.

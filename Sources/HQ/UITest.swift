@@ -132,12 +132,13 @@ enum UITest {
         model.showDone = false
         model.folded = []
         model.pinnedOnly = false
+        model.expandedCards = []
         model.allDescriptions = false
         model.shownDescriptions = []
         model.hiddenDescriptions = []
         model.selectSection(nil)
-        if let tasks = model.vault?.tasksDirectory, let notes = try? FileManager.default.contentsOfDirectory(at: tasks, includingPropertiesForKeys: nil) {
-            notes.forEach { try? FileManager.default.removeItem(at: $0) }
+        for folder in [model.vault?.tasksDirectory, model.vault?.filesDirectory].compactMap(\.self) {
+            (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?.forEach { try? FileManager.default.removeItem(at: $0) }
         }
         SeedData.fill(model, now: .now)
         model.tasks = []

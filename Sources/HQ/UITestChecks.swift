@@ -1706,15 +1706,22 @@ extension UITest {
                 model.editingFile = nil
                 await ui.settle(0.5)
                 let narrow = frame("file-card")?.width ?? 0
+                model.showBlockControls = true
+                await check("Widen sits in the note card's top-right corner, as Expand in a block's (T-523)",
+                            frame("note-width").map { button in frame("file-card").map { $0.contains(button) && $0.maxX - button.maxX <= Space.sm + 0.5 } ?? false } ?? false,
+                            "card \(String(describing: frame("file-card"))), button \(String(describing: frame("note-width")))")
                 await ui.click(ui.anchor("note-width"), inSheet: true)
                 // In a sheet narrower than the card, the card already takes the column: Widen keeps it there.
-                let wide = frame("file-card")?.width ?? 0
-                await check("Widen takes a note's card past its readable width, remembered (T-523)",
-                            model.wideNotes && (wide > Metric.noteCard + 0.5 || (narrow < Metric.noteCard - 0.5 && abs(wide - narrow) <= 0.5)),
-                            "\(narrow) → \(wide)")
+                func widened() -> Bool {
+                    let wide = frame("file-card")?.width ?? 0
+                    return wide > Metric.noteCard + 0.5 || (narrow < Metric.noteCard - 0.5 && abs(wide - narrow) <= 0.5)
+                }
+                await check("Widen takes a note's card past its readable width, remembered (T-523)", model.wideNotes && widened(),
+                            "\(narrow) → \(String(describing: frame("file-card")))")
                 await ui.click(ui.anchor("note-width"), inSheet: true)
                 await check("and Narrow brings it back", !model.wideNotes && abs((frame("file-card")?.width ?? 0) - narrow) <= 0.5,
                             "\(narrow) → \(String(describing: frame("file-card")))")
+                model.showBlockControls = false
             } else {
                 await check("a note's window shows its text", false)
             }
@@ -1788,6 +1795,7 @@ extension UITest {
         if let session = model.gridSessions.first {
             await check("a task carried onto a card proposes a link onto it", validate(cards, collection, drag, item: 0, operation: .before).0 == .link)
             _ = cards.collectionView(collection, acceptDrop: drag, indexPath: IndexPath(item: 0, section: 0), dropOperation: .on)
+            cards.dragEnded()
             await endUndoGroup(model)
             await check("dropped, the task is linked to that session", model.task(carried.id)?.sessions.contains(session.id) == true)
             model.undoManager?.undo()
