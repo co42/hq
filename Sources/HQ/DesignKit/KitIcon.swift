@@ -35,7 +35,6 @@ enum KitIcon: String, CaseIterable {
     case sessions = "sparkles"
     case files = "doc.on.doc.fill"
     case tasks = "checklist"
-    case backlog = "tray.full.fill"
     // Rows
     case startSession = "apple.terminal"
     case description = "text.alignleft"
@@ -73,7 +72,6 @@ enum KitIcon: String, CaseIterable {
     case copied = "checkmark"
     case filter = "line.3.horizontal.decrease"
     case importItem = "square.and.arrow.down"
-    case hideDone = "checklist.checked"
     // Health and Settings
     case problem = "exclamationmark.triangle.fill"
     case pending = "circle.dashed"
@@ -106,6 +104,10 @@ enum KitIcon: String, CaseIterable {
     }
 
     private static var rowImages: [String: NSImage?] = [:]
+
+    /// Tasks' toggles (T-471): the backlog glyph's dashed ring, the done glyph's check.
+    static let showBacklog = KitIcon.pending
+    static let showDone = KitIcon.markRead
 
     static func github(_ item: GitHubItem) -> KitIcon {
         if item.kind == .issue { return .issue }

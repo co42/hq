@@ -127,7 +127,8 @@ enum SeedData {
 
         struct Row {
             var id: Int, title: String, status: TaskStatus = .todo, type: TaskType = .feature, project: String? = nil
-            var tags: [String] = [], parent: Int? = nil, list: TaskList = .overview, order: Double, body = ""
+            /// In what was the Backlog: a todo one is a backlog task, after the others (one list since v16, T-471).
+            var tags: [String] = [], parent: Int? = nil, later = false, order: Double, body = ""
             var sessions: [String] = [], links: [String] = [], review: String? = nil, reviewBy: String? = nil
         }
         let gh = "https://github.com/acme/"
@@ -166,20 +167,20 @@ enum SeedData {
             Row(id: 8, title: "Dedup layers on push before the manifest commit", type: .story, project: "Registry", tags: ["perf", "chunks"], order: 8),
             Row(id: 23, title: "Analyse the hourly CDN pull cron by time of day", status: .done, type: .research, project: "CDN", order: 9,
                 body: "Does the hourly pull cron line up with traffic peaks? **Yes**: it peaks two hours before US traffic.", sessions: [e1]),
-            Row(id: 39, title: "Colors for tags and folders", project: "HQ", tags: ["ui"], list: .backlog, order: 1),
-            Row(id: 36, title: "Capture typed artifacts: dashboards, docs, decks", type: .bug, project: "HQ", list: .backlog, order: 2),
-            Row(id: 35, title: "Add an existing artifact to HQ by its URL", type: .story, project: "HQ", list: .backlog, order: 3),
-            Row(id: 33, title: "Retry stalled chunk ranges sooner in image-sync", type: .bug, project: "Registry", tags: ["chunks"], list: .backlog, order: 4),
-            Row(id: 29, title: "Unread clears when the user focuses a session's terminal", type: .bug, project: "HQ", list: .backlog, order: 5),
-            Row(id: 27, title: "Commit bench Terraform and clean up bench hosts", type: .chore, project: "Registry", tags: ["infra"], list: .backlog, order: 6),
-            Row(id: 26, title: "Flag the cdn-us autoscaler to its owners", type: .chore, project: "CDN", list: .backlog, order: 7),
-            Row(id: 24, title: "Write up the CDN cache key normalisation", type: .docs, project: "CDN", list: .backlog, order: 8),
-            Row(id: 3, title: "Registry GC dry run on staging", status: .done, project: "Registry", list: .backlog, order: 9,
+            Row(id: 39, title: "Colors for tags and folders", project: "HQ", tags: ["ui"], later: true, order: 1),
+            Row(id: 36, title: "Capture typed artifacts: dashboards, docs, decks", type: .bug, project: "HQ", later: true, order: 2),
+            Row(id: 35, title: "Add an existing artifact to HQ by its URL", type: .story, project: "HQ", later: true, order: 3),
+            Row(id: 33, title: "Retry stalled chunk ranges sooner in image-sync", type: .bug, project: "Registry", tags: ["chunks"], later: true, order: 4),
+            Row(id: 29, title: "Unread clears when the user focuses a session's terminal", type: .bug, project: "HQ", later: true, order: 5),
+            Row(id: 27, title: "Commit bench Terraform and clean up bench hosts", type: .chore, project: "Registry", tags: ["infra"], later: true, order: 6),
+            Row(id: 26, title: "Flag the cdn-us autoscaler to its owners", type: .chore, project: "CDN", later: true, order: 7),
+            Row(id: 24, title: "Write up the CDN cache key normalisation", type: .docs, project: "CDN", later: true, order: 8),
+            Row(id: 3, title: "Registry GC dry run on staging", status: .done, project: "Registry", later: true, order: 9,
                 links: [gh + "registry/pull/405"]),
         ]
         model.tasks = rows.map { row in
-            TaskItem(id: row.id, title: row.title, status: row.status, type: row.type, project: row.project, tags: row.tags,
-                     parent: row.parent, list: row.list, order: row.order, review: row.review, reviewBy: row.reviewBy,
+            TaskItem(id: row.id, title: row.title, status: row.later && row.status == .todo ? .backlog : row.status, type: row.type,
+                     project: row.project, tags: row.tags, parent: row.parent, order: row.later ? 100 + row.order : row.order, review: row.review, reviewBy: row.reviewBy,
                      reviewAt: row.review == nil ? nil : ago(row.id == 13 ? 25 : 3), done: row.status == .done ? ago(90) : nil,
                      links: row.links.compactMap(URL.init(string:)), related: row.id == 14 ? [33] : [],
                      // Each kind of hold: a reason, a task blocked by another, one after another.
@@ -268,7 +269,7 @@ enum SeedData {
             let title = (0..<4).map { words[(index * 7 + $0 * 3) % words.count] }.joined(separator: " ").capitalized
             tasks.append(TaskItem(id: id, title: title, status: TaskStatus.allCases[index % TaskStatus.allCases.count], type: TaskType.allCases[index % 5],
                                   project: ["Registry", "CDN", "HQ", nil][index % 4], tags: index % 3 == 0 ? ["perf"] : [],
-                                  parent: parent, list: index % 10 < 3 ? .overview : .backlog, order: Double(index),
+                                  parent: parent, order: Double(index),
                                   created: now, modified: now, body: index % 25 == 0 ? "A description with a list:\n\n- [ ] one\n- [x] two" : ""))
         }
         model.tasks = tasks

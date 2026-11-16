@@ -23,7 +23,7 @@ extension SelfTest {
 
     /// A Blocked reason with a line break stays on its key's line and reads back whole.
     private static func frontMatterChecks(_ model: AppModel) {
-        guard let task = model.addTask(to: .backlog, title: "Two-line reason") else { return check("a task to block", false) }
+        guard let task = model.addTask(status: .todo, title: "Two-line reason") else { return check("a task to block", false) }
         let reason = "Waiting on X\nsee Slack"
         agent("task block", ["task": task.key, "reason": reason])
         model.flushNoteWrites()
@@ -87,7 +87,7 @@ extension SelfTest {
 
     /// A Blocked task holds what's under it: its subtasks aren't ready, and say what holds them.
     private static func heldChecks(_ model: AppModel) {
-        guard let parent = model.addTask(to: .backlog, title: "Waits on a decision"),
+        guard let parent = model.addTask(status: .todo, title: "Waits on a decision"),
               let sub = model.addSubtask(to: parent.id, title: "Its first part") else { return check("a task and a subtask to hold", false) }
         model.block(parent.id, reason: "Waiting on infra")
         let shown = agent("task show", ["task": parent.key])
@@ -104,8 +104,8 @@ extension SelfTest {
     /// The poll asks first about the links that need a fresh state, then the done tasks' ones, newest first.
     private static func linkOrderChecks(_ model: AppModel) {
         let urls = (1...3).map { "https://github.com/acme/selftest/pull/\($0)" }
-        guard let older = model.addTask(to: .backlog, title: "Shipped first"), let newer = model.addTask(to: .backlog, title: "Shipped next"),
-              let open = model.addTask(to: .backlog, title: "Still open") else { return check("tasks to link", false) }
+        guard let older = model.addTask(status: .todo, title: "Shipped first"), let newer = model.addTask(status: .todo, title: "Shipped next"),
+              let open = model.addTask(status: .todo, title: "Still open") else { return check("tasks to link", false) }
         model.link(task: older.id, url: URL(string: urls[0])!)
         model.setStatus(older.id, .done)
         model.link(task: newer.id, url: URL(string: urls[1])!)

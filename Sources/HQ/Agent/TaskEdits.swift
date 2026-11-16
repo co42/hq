@@ -30,7 +30,6 @@ nonisolated struct TaskEdit: Codable, Sendable {
         add("project", text(before.project), text(after.project))
         add("tags", before.tags.joined(separator: ","), after.tags.joined(separator: ","))
         add("parent", before.parent.map { "T-\($0)" } ?? "none", after.parent.map { "T-\($0)" } ?? "none")
-        add("list", before.list.rawValue, after.list.rawValue)
         add("order", text(before.order), text(after.order))
         add("review", text(before.review), text(after.review))
         if before.body != after.body { lines.append("description") }

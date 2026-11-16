@@ -136,14 +136,14 @@ struct NewTaskForm: View {
     @Environment(AppModel.self) private var model
     @State private var title = ""
     @State private var notes = ""
-    @State private var list: TaskList
+    @State private var status: TaskStatus
     @State private var project: String?
     @State private var links: [ModalRoute] = []
     @State private var words = DraftWords()
     @FocusState private var typing: Bool
 
-    init(list: TaskList) {
-        _list = State(initialValue: list)
+    init(status: TaskStatus) {
+        _status = State(initialValue: status)
     }
 
     var body: some View {
@@ -165,15 +165,15 @@ struct NewTaskForm: View {
                         .uiTestAnchor("new-task-notes")
                 }
                 GridRow {
-                    FormLabel("In")
-                    Picker("In", selection: $list) {
-                        Text("Tasks").tag(TaskList.overview)
-                        Text("Backlog").tag(TaskList.backlog)
+                    FormLabel("Status")
+                    Picker("Status", selection: $status) {
+                        Text("Todo").tag(TaskStatus.todo)
+                        Text("Backlog").tag(TaskStatus.backlog)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .fixedSize()
-                    .uiTestAnchor("new-task-list")
+                    .uiTestAnchor("new-task-status")
                 }
                 GridRow {
                     FormLabel("Project")
@@ -205,11 +205,11 @@ struct NewTaskForm: View {
         let name = DraftWords.words(title, links: links, in: model)
         guard !name.isEmpty else { return }
         // Addresses go in the task's note with it; tasks, files and artifacts link once it exists. One Undo either way.
-        guard let task = model.addTask(to: list, title: name, body: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let task = model.addTask(status: status, title: name, body: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                                        project: project, links: links.compactMap(\.address).compactMap(URL.init(string:))) else { return }
         for route in links where route.address == nil { model.link(route, to: task.id) }
         model.back()
-        model.show(newTask: task.id, in: list)
+        model.show(newTask: task.id)
     }
 }
 

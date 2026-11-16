@@ -237,10 +237,12 @@ enum AgentCLI {
         ("type", ["task add", "task edit", "ls"], true, "--type is gone: tasks have no type; ignored"),
         ("now", ["task add"], false, "--now is gone: a new task goes to the end of Tasks anyway; ignored"),
         ("reason", ["task move"], true, "--reason is gone: tell the user what to check with hq notify; ignored"),
+        ("overview", ["ls"], false, "--overview is gone: one list, and hq ls tasks lists its todo and doing tasks; ignored"),
     ]
 
     static func retired(_ words: [String], for command: AgentCommand) -> [String] {
         var kept: [String] = []
+        let words = oneList(words, for: command)
         var index = 0
         while index < words.count {
             let word = words[index]
@@ -255,6 +257,30 @@ enum AgentCLI {
             index += 1
         }
         return kept
+    }
+
+    /// The Backlog is a status since one list (v16, T-471): `task add --backlog` runs as `--status backlog`, and
+    /// `task move T-12 todo --list backlog` as `task move T-12 backlog`; `--list tasks` is dropped. One line on stderr.
+    private static func oneList(_ words: [String], for command: AgentCommand) -> [String] {
+        var words = words
+        if command.name == "task add", let index = words.firstIndex(of: "--backlog") {
+            note("--backlog is gone: the backlog is a status; this ran --status backlog")
+            words.replaceSubrange(index...index, with: ["--status", "backlog"])
+        }
+        if command.name == "task move", let index = words.firstIndex(where: { $0 == "--list" || $0.hasPrefix("--list=") }) {
+            let inline = words[index].hasPrefix("--list=")
+            let value = inline ? String(words[index].dropFirst(7)) : (index + 1 < words.count ? words[index + 1] : "")
+            words.removeSubrange(index...(inline ? index : min(index + 1, words.count - 1)))
+            if value.lowercased() == "backlog" {
+                // The status is the second word that isn't a flag: the task's key comes first.
+                let positional = words.indices.filter { !words[$0].hasPrefix("-") }
+                if positional.count >= 2 { words[positional[1]] = "backlog" }
+                note("--list is gone: the backlog is a status; this ran hq task move \(positional.first.map { words[$0] } ?? "T-n") backlog")
+            } else {
+                note("--list is gone: one list; the status alone says where it stands")
+            }
+        }
+        return words
     }
 
     // MARK: The running build
@@ -456,10 +482,9 @@ enum AgentCLI {
         let tags = (object["tags"] as? [String]).flatMap { $0.isEmpty ? nil : " " + $0.map { "#\($0)" }.joined(separator: " ") } ?? ""
         let title = object["title"] as? String ?? object["name"] as? String ?? ""
         if let id = object["id"] as? String, id.hasPrefix("T-"), let status = object["status"] as? String {
-            let list = (object["list"] as? String) == "backlog" ? " · Backlog" : ""
             let project = (object["project"] as? String).map { " · \($0)" } ?? ""
             let flow = (object["flow"] as? String).map { " · \($0)" } ?? ""
-            return "\(id) [\(status)] \(title)\(tags)\(project)\(flow)\(list)"
+            return "\(id) [\(status)] \(title)\(tags)\(project)\(flow)"
         }
         if let id = object["id"] as? String, let state = object["state"] as? String {
             // A session: its state, name, role, why it waits, and its folder; in a tree, indented under its parent.

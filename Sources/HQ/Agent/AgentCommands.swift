@@ -23,16 +23,16 @@ enum AgentCommands {
                      params: [.init(name: "kind", positional: true, help: "sessions (default), tasks, prs (Reviews, then Yours, as on the page), files, artifacts, projects, notifications (--all: with what was read today), reminders or roles"),
                               .init(name: "here", kind: .boolean, help: "sessions: only the ones in this repository (or this folder)"),
                               .init(name: "tree", kind: .boolean, help: "sessions: the top-level ones, each with the sessions it started under it, indented; with --all, closed ones in their teams"),
-                              .init(name: "overview", kind: .boolean, help: "tasks: only the overview's Tasks"),
-                              .init(name: "backlog", kind: .boolean, help: "tasks: only the Backlog"),
+                              .init(name: "backlog", kind: .boolean, help: "tasks: backlog ones too, as the page's Backlog toggle shows them"),
+                              .init(name: "search", help: "tasks: only those whose title, key, project or #tags have every word, whatever their status"),
                               .init(name: "parent", help: "tasks: T-12's subtasks, the whole tree under it"),
                               .init(name: "project", help: "tasks: only this project"),
                               .init(name: "tag", help: "tasks: only with this tag"),
-                              .init(name: "all", kind: .boolean, help: "sessions: closed ones too; tasks: done ones too; prs: merged and closed too; notifications: read today too"),
-                              .init(name: "limit", kind: .integer, help: "at most this many (default 50; tasks with --overview, --project or --parent: all)"),
+                              .init(name: "all", kind: .boolean, help: "sessions: closed ones too; tasks: every status, backlog and done too; prs: merged and closed too; notifications: read today too"),
+                              .init(name: "limit", kind: .integer, help: "at most this many (default 50; tasks with --project, --parent or --search: all)"),
                               .init(name: "offset", kind: .integer, help: "skip this many, for the next page")],
                      example: "hq ls tasks --parent T-12",
-                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, list, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, role, parent, model, effort, context, thisSession, depth (--tree)}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}, a role {name, color, line, builtin, changed, sessions}",
+                     output: "{<kind>: [item], total, nextOffset (when cut)}; a task {id, title, status, project, parent, tags, links, sessions, state, flow, blocked, blockedBy, after}, a session {id, name, state, since, cwd, branch, tasks, role, parent, model, effort, context, thisSession, depth (--tree)}, a file {name, title, path, modified, tasks}, a notification {id, section, level, kind, text, at, due, when, links}, a role {name, color, line, builtin, changed, sessions}",
                      readOnly: true) { args, model in try listCommand(args, model) },
         AgentCommand(name: "task show", summary: "Show tasks: the tasks each is part of, its reminders, its description, the tree under it and what's linked to it.",
                      params: [.init(name: "task", required: true, positional: true, list: true, help: "T-12, or several: T-12 T-13"),
@@ -40,7 +40,7 @@ enum AgentCommands {
                               .init(name: "brief", kind: .boolean, help: "no description: its line, the tree and the links"),
                               .init(name: "body", kind: .boolean, help: "the description only")],
                      example: "hq task show T-12 --deep",
-                     output: "{id, title, status, list, project, parent, tags, links, state, flow, body, parents: [{id, status, title}], reminders: [notification], subtasks: [{id, status, title, depth, parent, flow, progress, body (--deep)}], progress, ready, blockedTasks: [{id, why}], linked: [{kind, title, id | name | url, state}]}; several tasks: {shown: [that]}",
+                     output: "{id, title, status, project, parent, tags, links, state, flow, body, parents: [{id, status, title}], reminders: [notification], subtasks: [{id, status, title, depth, parent, flow, progress, body (--deep)}], progress, ready, blockedTasks: [{id, why}], linked: [{kind, title, id | name | url, state}]}; several tasks: {shown: [that]}",
                      readOnly: true) { args, model in try showCommand(args, model) },
         AgentCommand(name: "task block", summary: "Mark a task Blocked: you or the user can't do it now. The reason is optional; it holds until task unblock.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
@@ -58,25 +58,23 @@ enum AgentCommands {
             model.unblock(task.id)
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
-        AgentCommand(name: "task add", summary: "Create a task, at the end of Tasks; at the top of the Backlog with --backlog, only when the user asks for the Backlog; "
+        AgentCommand(name: "task add", summary: "Create a task, at the end of the list; in the backlog with --status backlog, only when the user asks for the Backlog or later; "
                         + "under a task with --parent, in its project. Its line starts with its key; -q prints the key alone.",
                      params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status or a project they name, else become tags; a title starting with -- goes after a bare --"),
                               .init(name: "project", help: "the project it belongs to (default: the parent's, for a subtask)"),
                               .init(name: "tag", list: true, help: "tags, comma separated"),
                               .init(name: "parent", help: "T-12: a subtask of that task"),
-                              .init(name: "backlog", kind: .boolean, help: "at the top of the Backlog: only when the user says Backlog"),
-                              .init(name: "status", help: "todo (default), doing (also puts it on Tasks) or done"),
+                              .init(name: "status", help: "todo (default), doing, done, or backlog: only when the user says Backlog or later"),
                               .init(name: "link", list: true, help: "what to link to it, comma separated: a PR or issue URL, any web page, T-34, a file, an artifact URL"),
                               .init(name: "body", help: "the description in markdown; - reads stdin"), notMine],
                      example: "hq task add \"Dedup layers on push\" --project Registry --link https://github.com/acme/registry/pull/418 -q",
                      output: taskOutput) { args, model in try addCommand(args, model) },
-        AgentCommand(name: "task move", summary: "Set a task's status: todo, doing or done; --list moves it to Tasks or the Backlog too. "
+        AgentCommand(name: "task move", summary: "Set a task's status: backlog, todo, doing or done, at any level; nothing moves in the list. "
                         + "When the user must check something, keep it doing and tell them with hq notify.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
-                              .init(name: "status", required: true, positional: true, help: "todo, doing (also brings it to Tasks) or done (backlog: todo, in the Backlog)"),
-                              .init(name: "list", help: "tasks or backlog: also move it there, as a top-level task"),
+                              .init(name: "status", required: true, positional: true, help: "todo, doing (also takes the backlog tasks above it to todo), done, or backlog (later: hidden until the user shows the backlog)"),
                               notMine],
-                     example: "hq task move T-12 todo --list tasks", output: taskOutput) { args, model in try moveCommand(args, model) },
+                     example: "hq task move T-12 backlog", output: taskOutput) { args, model in try moveCommand(args, model) },
         AgentCommand(name: "task edit", summary: "Change a task's title, description, project, tags or parent. Everything else stays. "
                         + "--section and --replace change one part of the description; --body alone replaces it all, and is refused when it changed since this session read it.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
@@ -414,8 +412,7 @@ enum AgentCommands {
         let tree = model.taskTree
         if ref.isEmpty || ref.lowercased() == "none" {
             guard tree.parent(of: id) != nil else { return }
-            let list = model.list(of: id)
-            model.drop([id], into: .list(list), at: tree.top(list).count)
+            model.drop([id], into: .top, at: tree.top().count)
             return
         }
         guard let parent = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
@@ -574,7 +571,7 @@ enum AgentCommands {
     // MARK: Reading and writing descriptions
 
     /// The shapes `hq help` prints after JSON:, shared by the commands that return them.
-    static let taskOutput = "{id, title, status, list, project, parent, tags, links, related, sessions, state, flow, blocked, blockedReason, blockedBy, after, modified}"
+    static let taskOutput = "{id, title, status, project, parent, tags, links, related, sessions, state, flow, blocked, blockedReason, blockedBy, after, modified}"
     static let fileOutput = "{name, title, path, modified, tasks}"
     static let noticeOutput = "{id, section, level, kind, text, at, due, when, read, source, links: [{kind, title, id | name | url}]}"
     static let sessionOutput = "{id, name, state, since, cwd, branch, tasks, reason, closed, closedAt, role, parent, model, effort, context, thisSession}"
@@ -731,7 +728,7 @@ extension SessionItem {
 extension TaskItem {
     func agentJSON(_ model: AppModel) -> JSONObject {
         var json: JSONObject = ["id": key, "title": title, "status": status.rawValue,
-                                "list": model.list(of: id).rawValue, "tags": tags, "sessions": sessions,
+                                "tags": tags, "sessions": sessions,
                                 "modified": JSON.date(modified)]
         if let project { json["project"] = project }
         if let parent { json["parent"] = "T-\(parent)" }
@@ -861,7 +858,7 @@ extension AgentCommands {
             throw AgentError.notFound("no session \(id ?? "here"). Run it inside a Claude session, or pass --session <id>")
         }
         let mine = model.tasks(of: session.id)
-        let doing = model.taskTree.outline(.overview).compactMap { model.task($0) }
+        let doing = model.taskTree.outline().compactMap { model.task($0) }
             .filter { $0.status == .doing && !mine.contains($0) }
         // This session's projects first: its tasks', else the ones whose folder it runs in. The rest only counted.
         let projects = model.projects(of: session, tasks: mine)
@@ -882,7 +879,7 @@ extension AgentCommands {
         // Open tasks in full; done ones only counted, the latest few named, so a long session's list stays short.
         let open = mine.filter { $0.status != .done }
         let done = mine.filter { $0.status == .done }.sorted { $0.modified > $1.modified }
-        text += open.map { "  \($0.key) [\($0.status.rawValue)] \($0.title)\(model.flowText($0.id).map { " · " + $0 } ?? "") (\(model.list(of: $0.id) == .backlog ? "Backlog" : "Tasks"))" }
+        text += open.map { "  \($0.key) [\($0.status.rawValue)] \($0.title)\(model.flowText($0.id).map { " · " + $0 } ?? "")" }
         if !done.isEmpty {
             text.append("  \(done.count) done" + (done.count > 3 ? ", latest " : ": ") + done.prefix(3).map(\.key).joined(separator: ", "))
         }
@@ -919,9 +916,9 @@ extension AgentCommands {
     static func listCommand(_ args: Args, _ model: AppModel) throws -> Any {
         let kind = args.string("kind") ?? "sessions"
         // Each filter applies to some kinds only: given to another, it's a mistake, not a no-op.
-        let takes: [String: Set<String>] = ["sessions": ["all", "here", "tree"], "tasks": ["overview", "backlog", "parent", "project", "tag", "all"],
+        let takes: [String: Set<String>] = ["sessions": ["all", "here", "tree"], "tasks": ["backlog", "search", "parent", "project", "tag", "all"],
                                             "prs": ["all"], "notifications": ["all"], "reminders": ["all"]]
-        for flag in ["here", "tree", "overview", "backlog", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
+        for flag in ["here", "tree", "backlog", "search", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
             let kinds = takes.filter { $0.value.contains(flag) }.keys.sorted().joined(separator: ", ")
             guard ["sessions", "tasks", "prs", "files", "artifacts", "projects", "notifications", "reminders", "roles"].contains(kind) else { break }
             throw AgentError.usage("--\(flag) is for \(kinds), not \(kind)")
@@ -949,20 +946,19 @@ extension AgentCommands {
                 return json
             }
         case "tasks":
+            // As the page shows them at rest: todo and doing; --backlog adds the backlog, --all every status (T-471).
             let tree = model.taskTree
-            let overview = try args.bool("overview") ?? false
             let backlog = try args.bool("backlog") ?? false
-            var ids: [Int] = []
+            let words = (args.string("search") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            var ids: [Int] = tree.outline()
             if let ref = args.string("parent") {
                 guard let parent = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
                 ids = Array(tree.subtree(of: parent.id).dropFirst())
-            } else {
-                if !backlog { ids += tree.outline(.overview) }
-                if !overview { ids += tree.outline(.backlog) }
             }
-            narrowed = overview || args.string("parent") != nil || args.string("project") != nil
+            narrowed = !words.isEmpty || args.string("parent") != nil || args.string("project") != nil
             items = ids.compactMap { model.task($0) }.filter { task in
-                (all || task.status != .done)
+                (all || !words.isEmpty || task.status.isOpen || (backlog && task.status == .backlog))
+                    && words.allSatisfy { task.searchText.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
                     && (args.string("project").map { $0.caseInsensitiveCompare(model.project(ofTask: task.id) ?? "") == .orderedSame } ?? true)
                     && (args.string("tag").map { tag in task.tags.contains(tag.replacingOccurrences(of: "#", with: "")) } ?? true)
             }.map { $0.agentJSON(model) }
@@ -1029,7 +1025,7 @@ extension AgentCommands {
             if case .status(let status) = model.titleWord(word) { status } else { nil }
         }.last
         let status = try args.string("status").map { raw in
-            guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage("no status \"\(raw)\". Statuses: todo, doing, done") }
+            guard let status = TaskStatus(parsing: raw) else { throw AgentError.usage("no status \"\(raw)\". Statuses: backlog, todo, doing, done") }
             return status
         } ?? titled ?? .todo
         // Every link resolves before the task exists: a wrong one creates nothing.
@@ -1044,10 +1040,8 @@ extension AgentCommands {
             placed = tree.placeNew(in: .task(parent.id))
             // As in HQ: a subtask is written in the project in effect there.
             project = project ?? model.project(ofTask: parent.id)
-        } else if try args.bool("backlog") == true, status != .doing {
-            placed = tree.placeNew(in: .list(.backlog), at: 0)
         } else {
-            placed = tree.placeNew(in: .list(.overview))
+            placed = tree.placeNew(in: .top)
         }
         guard let (placement, renumber) = placed,
               let task = model.addTask(title: try args.required("title"), placement: placement, status: status,
@@ -1066,33 +1060,14 @@ extension AgentCommands {
             throw AgentError.usage("there is no review status. Keep the task doing and tell the user what to check: "
                                    + "hq notify \"PR #418 is ready to merge\" --task \(args.string("task") ?? "T-12")")
         }
-        var list: TaskList?
-        if let name = args.string("list") {
-            switch name.lowercased() {
-            case "tasks", "overview": list = .overview
-            case "backlog": list = .backlog
-            default: throw AgentError.usage("--list takes tasks or backlog, not \"\(name)\"")
-            }
-        }
         let task = try ownTask(args, model)
-        if raw == "backlog" {
-            guard list == nil || list == .backlog else { throw AgentError.usage("backlog already says the list: hq task move \(task.key) todo --list tasks") }
-            model.setStatus(task.id, .todo)
-            model.move(task.id, to: .backlog)
-        } else {
-            guard let status = TaskStatus(rawValue: raw) else {
-                throw AgentError.usage("no status \"\(raw)\". Statuses: todo, doing, done")
-            }
-            model.setStatus(task.id, status)
-            if let list {
-                model.move(task.id, to: list)
-            } else if status == .doing, task.parent == nil, model.list(of: task.id) == .backlog {
-                // Work started: a top-level task in the Backlog comes to Tasks.
-                model.move(task.id, to: .overview)
-            }
-            // The session works on it.
-            if status == .doing { link(task.id, args, model) }
+        guard let status = TaskStatus(rawValue: raw) else {
+            throw AgentError.usage("no status \"\(raw)\". Statuses: backlog, todo, doing, done")
         }
+        // Doing takes the backlog tasks above it to todo; nothing moves in the list.
+        model.setStatus(task.id, status)
+        // The session works on it.
+        if status == .doing { link(task.id, args, model) }
         var result = model.task(task.id)?.agentJSON(model) ?? [:]
         // The parent in doing doesn't move its subtasks: say which still read todo.
         let todo = model.taskTree.subtree(of: task.id).dropFirst().compactMap { model.task($0) }.filter { $0.status == .todo }

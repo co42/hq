@@ -16,7 +16,7 @@ struct MenuBarMenu: View {
         Divider()
         Button("New Task…") {
             model.bringForward()
-            model.beginTask(.overview)
+            model.beginTask(.todo)
         }
         Button("New Reminder…") {
             model.bringForward()

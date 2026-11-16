@@ -67,7 +67,7 @@ extension UITest {
         await check("Undo Move Session puts it back", model.gridRoots.map(\.id) == order)
 
         // A task dropped on a card links to that session.
-        guard let task = model.addTask(to: .overview, title: "Link me") else { return await check("a task to drop", false) }
+        guard let task = model.addTask(status: .todo, title: "Link me") else { return await check("a task to drop", false) }
         await endUndoGroup(model)
         await ui.settle(0.3)
         let taskDrag = FakeDrag(tasks: [task.id], source: nil)
@@ -99,7 +99,7 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
               let collection = ui.find(SessionGrid.CardCollection.self), let grid = collection.delegate as? SessionGrid.Coordinator,
               let pr = model.reviewRequests.first ?? model.ownPullRequests.first,
-              let task = model.addTask(to: .overview, title: "Select me") else { return await check("a task, a card and a PR to select", false) }
+              let task = model.addTask(status: .todo, title: "Select me") else { return await check("a task, a card and a PR to select", false) }
         await endUndoGroup(model)
         await ui.settle(0.4)
         coordinator.select(task.id)
@@ -198,7 +198,7 @@ extension UITest {
     /// A file or a PR dragged onto a task's row links it there.
     static func linkDrops(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
-              let target = model.addTask(to: .overview, title: "Drop a link here"),
+              let target = model.addTask(status: .todo, title: "Drop a link here"),
               let file = model.addFile(title: "Dragged note", body: "# Dragged note\n", session: nil, task: nil) else {
             return await check("a task and a file to drop on it", false)
         }
@@ -317,15 +317,15 @@ extension UITest {
         }
         model.folded = [.tasks]
         await ui.settle(0.5)
-        let header = coordinator.node(.header(.overview))
+        let header = coordinator.node(.header)
         await check("folded, Tasks shows its header and no rows", outline.row(forItem: header) >= 0 && outline.numberOfChildren(ofItem: header) == 0)
-        model.focusQuickAdd(.overview)
+        model.focusQuickAdd()
         await ui.settle(0.5)
         await check("New Task unfolds Tasks", !model.folded.contains(.tasks) && outline.numberOfChildren(ofItem: header) > 0)
-        model.quickAddFocus = nil
+        model.quickAddFocus = false
         model.selectSection(nil)
         await ui.settle(0.3)
-        if let parent = model.addTask(to: .overview, title: "Parent of one"), let child = model.addSubtask(to: parent.id, title: "Only child") {
+        if let parent = model.addTask(status: .todo, title: "Parent of one"), let child = model.addSubtask(to: parent.id, title: "Only child") {
             await endUndoGroup(model)
             await ui.settle(0.5)
             let had = outline.isExpandable(coordinator.node(.task(parent.id)))
@@ -385,7 +385,7 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        guard let above = model.addTask(to: .overview, title: "Caret above"), let parent = model.addTask(to: .overview, title: "Caret parent") else {
+        guard let above = model.addTask(status: .todo, title: "Caret above"), let parent = model.addTask(status: .todo, title: "Caret parent") else {
             return await check("tasks for the carets", false)
         }
         await endUndoGroup(model)
@@ -472,18 +472,18 @@ extension UITest {
         await ui.settle(0.6)
         result = await caret(parent.id)
         await check("outdented, its chevron stays on its line", result.ok, result.detail)
-        model.toggleList(parent.id)
+        model.toggleBacklog([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
-        model.backlogOpen = true
+        model.showBacklog = true
         await ui.settle(0.4)
         result = await caret(parent.id)
-        await check("moved to the Backlog, it keeps its chevron on its line", result.ok, result.detail)
-        model.toggleList(parent.id)
+        await check("moved to the backlog and shown, it keeps its chevron on its line", result.ok, result.detail)
+        model.toggleBacklog([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
         result = await caret(parent.id)
-        await check("and back in Tasks too", result.ok, result.detail)
+        await check("and out of the backlog too", result.ok, result.detail)
         // Shut in the outline while the model has it open: the outline opens it again, its subtask back.
         let repairs = OutlineCoordinator.repairs
         AppLog.expected.append("T-\(parent.id) open in the model, shut in the outline")
@@ -642,7 +642,7 @@ extension UITest {
         }
 
         // A due reminder: what it links opens over the center and it stays to be done, with its actions.
-        let task = model.addTask(to: .overview, title: "Reminder's task")
+        let task = model.addTask(status: .todo, title: "Reminder's task")
         let due = model.remind("Check the canary", at: .now.addingTimeInterval(-1), level: .important, links: task.map { ["task:\($0.id)"] } ?? [])
         model.fireDue()
         await ui.settle(0.4)
@@ -774,9 +774,9 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        model.allDescriptions = []
-        guard let plain = model.addTask(to: .overview, title: "No description"),
-              let noted = model.addTask(to: .overview, title: "With a description", body: "Some words.") else { return await check("tasks for the toggle", false) }
+        model.allDescriptions = false
+        guard let plain = model.addTask(status: .todo, title: "No description"),
+              let noted = model.addTask(status: .todo, title: "With a description", body: "Some words.") else { return await check("tasks for the toggle", false) }
         await endUndoGroup(model)
         await ui.settle(0.5)
         func row(_ id: Int) async -> (row: OutlineRowView, cell: TaskCell, faces: FacesCell)? {
@@ -818,14 +818,14 @@ extension UITest {
         await ui.settle(0.4)
         await check("and hides it", !model.descriptionShownInOutline(noted.id))
         // Shown by the list's Descriptions, Hide Description hides that one.
-        model.allDescriptions = [.overview]
+        model.allDescriptions = true
         await ui.settle(0.4)
         model.toggleDescription(noted.id)
         await ui.settle(0.4)
         await check("with Descriptions on, Hide Description hides that one", !model.descriptionShownInOutline(noted.id))
         model.toggleDescription(noted.id)
         await check("and shows it again", model.descriptionShownInOutline(noted.id))
-        model.allDescriptions = []
+        model.allDescriptions = false
         // One face per row, the same open or folded: the task's own session, never a subtask's (T-346).
         let ranked = model.byImportance(model.gridSessions)
         if let top = ranked.first, let low = ranked.last, top.id != low.id, let sub = model.addSubtask(to: plain.id, title: "Under it") {
@@ -863,7 +863,7 @@ extension UITest {
         OutlineCoordinator.buttonDown = { false }
         let rowsBefore = outline.numberOfRows
         coordinator.dragBegan([plain.id])
-        let added = model.addTask(to: .overview, title: "Added mid-drag")
+        let added = model.addTask(status: .todo, title: "Added mid-drag")
         await ui.settle(0.8)
         await check("rows hold still while a drag ends, the button up", outline.numberOfRows == rowsBefore && coordinator.dragged == [plain.id],
               "\(rowsBefore) → \(outline.numberOfRows) rows, dragged \(coordinator.dragged)")
@@ -873,7 +873,7 @@ extension UITest {
         // A drag whose end never comes lets the rows go 3 s after the button is up.
         coordinator.dragBegan([plain.id])
         AppLog.expected.append("a drag of [\(plain.id)] never ended")
-        if let late = model.addTask(to: .overview, title: "Added after a lost drag") {
+        if let late = model.addTask(status: .todo, title: "Added after a lost drag") {
             await ui.wait(1)
             let held = !coordinator.dragged.isEmpty
             await ui.until(4) { coordinator.dragged.isEmpty }
@@ -939,7 +939,7 @@ extension UITest {
               let container = outline.superview as? OutlineContainer else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        guard let above = model.addTask(to: .overview, title: "Fold above"), let parent = model.addTask(to: .overview, title: "Fold parent") else {
+        guard let above = model.addTask(status: .todo, title: "Fold above"), let parent = model.addTask(status: .todo, title: "Fold parent") else {
             return await check("tasks to fold", false)
         }
         for index in 0..<3 { _ = model.addSubtask(to: above.id, title: "Above \(index)") }
@@ -947,7 +947,7 @@ extension UITest {
         for index in 0..<16 { if let task = model.addSubtask(to: parent.id, title: "Subtask \(index)") { subtasks.append(task.id) } }
         if subtasks.count > 4 { _ = model.addSubtask(to: subtasks[4], title: "Deep") }
         var below: [Int] = []
-        for index in 0..<4 { if let task = model.addTask(to: .overview, title: "Below \(index)") { below.append(task.id) } }
+        for index in 0..<4 { if let task = model.addTask(status: .todo, title: "Below \(index)") { below.append(task.id) } }
         await endUndoGroup(model)
         await ui.settle(0.6)
         // As at launch: the rows load again with both parents folded.
@@ -1070,9 +1070,8 @@ extension UITest {
         } else {
             await check("a story with over 15 subtasks, one of them with its own", false)
         }
-        // The Backlog folded, the last tasks of Tasks opened one after the other: its header stays on the page.
+        // The last tasks opened one after the other: the New Task line under them stays on the page, and takes its clicks.
         problems = []
-        model.backlogOpen = false
         for id in below.suffix(2) { for index in 0..<6 { _ = model.addSubtask(to: id, title: "Late \(index)") } }
         await endUndoGroup(model)
         await ui.settle(0.6)
@@ -1087,29 +1086,29 @@ extension UITest {
         }
         await ui.settle(0.8)
         await fits("bottom tasks opened")
-        let header = outline.row(forItem: coordinator.node(.header(.backlog)))
-        if header >= 0, let scroll = outline.enclosingScrollView, let page = scroll.documentView {
-            let rect = outline.rect(ofRow: header)
+        let line = outline.row(forItem: coordinator.node(.quickAdd))
+        if line >= 0, let scroll = outline.enclosingScrollView, let page = scroll.documentView {
+            let rect = outline.rect(ofRow: line)
             let inPage = outline.convert(rect, to: page)
             if inPage.maxY > page.bounds.maxY + 0.5 || inPage.minY < page.bounds.minY - 0.5 {
-                problems.append("the Backlog header at \(Int(inPage.minY))–\(Int(inPage.maxY)) is off the page (\(Int(page.bounds.height)))")
+                problems.append("the New Task line at \(Int(inPage.minY))–\(Int(inPage.maxY)) is off the page (\(Int(page.bounds.height)))")
             }
             outline.scrollToVisible(rect)
             await ui.settle(0.3)
             let frame = outline.convert(rect, to: nil)
-            let cell = outline.view(atColumn: 0, row: header, makeIfNecessary: false)
-            let row = outline.rowView(atRow: header, makeIfNecessary: false)
+            let cell = outline.view(atColumn: 1, row: line, makeIfNecessary: false) as? QuickAddCell
+            let row = outline.rowView(atRow: line, makeIfNecessary: false)
             if cell == nil || cell?.window == nil || row == nil || cell?.superview !== row {
-                problems.append("the Backlog header's row shows no header: cell \(cell.map { String(describing: type(of: $0)) } ?? "none"), in its row \(cell?.superview === row)")
+                problems.append("the New Task row shows no line: in its row \(cell?.superview === row)")
             }
-            if let hit = ui.hitView(NSPoint(x: frame.minX + 200, y: frame.midY)), !(cell.map { hit.isDescendant(of: $0) } ?? false) {
-                problems.append("a click on the Backlog header lands on \(type(of: hit))")
+            if let cell, let hit = ui.hitView(cell.field.convert(NSPoint(x: cell.field.bounds.midX, y: cell.field.bounds.midY), to: nil)), !hit.isDescendant(of: cell) {
+                problems.append("a click on the New Task line lands on \(type(of: hit))")
             }
+            _ = frame
         } else {
-            problems.append("no Backlog header")
+            problems.append("no New Task line")
         }
-        await check("with the Backlog folded, opening the last tasks keeps its header on the page", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
-        model.backlogOpen = true
+        await check("opening the last tasks keeps the New Task line on the page", problems.isEmpty, problems.prefix(6).joined(separator: "; "))
         model.deleteTasks([above.id, parent.id] + below)
         await endUndoGroup(model)
         await ui.settle(0.4)
@@ -1136,8 +1135,8 @@ extension UITest {
               let container = outline.superview as? OutlineContainer else { return await check("the outline is on the page", false) }
         var short: [String] = []
         func holds() -> Bool {
-            let backlog = outline.row(forItem: coordinator.node(.header(.backlog)))
-            let bottom = backlog >= 0 ? outline.rect(ofRow: backlog).maxY : 0
+            let last = outline.row(forItem: coordinator.node(.quickAdd))
+            let bottom = last >= 0 ? outline.rect(ofRow: last).maxY : 0
             return container.frame.height + 0.5 >= container.contentHeight && container.frame.height + 0.5 >= bottom && outline.frame.height + 0.5 >= bottom
         }
         // The page takes the rows' new height on its next layout, which a settle at its limit can come before: judged once it did.
@@ -1145,10 +1144,10 @@ extension UITest {
             await ui.until(2) { holds() }
             if !holds() { short.append("\(step): frame \(Int(container.frame.height)) outline \(Int(outline.frame.height)) rows \(Int(container.contentHeight)), 2 s on") }
         }
-        model.backlogOpen = true
+        model.showBacklog = true
         await ui.settle(0.6)
         await fits("open")
-        guard let parent = model.addTask(to: .overview, title: "Typing parent"), let child = model.addSubtask(to: parent.id, title: "First child") else {
+        guard let parent = model.addTask(status: .todo, title: "Typing parent"), let child = model.addSubtask(to: parent.id, title: "First child") else {
             return await check("tasks to type in", false)
         }
         await endUndoGroup(model)
@@ -1184,7 +1183,7 @@ extension UITest {
         await fits("description saved")
         // The lists' searches and the toolbar's.
         for (index, text) in ["T", "Ty", "Typ", "Typi", "Typ", "", "zz", ""].enumerated() {
-            model.listSearch[.overview] = text.isEmpty ? nil : text
+            model.taskSearch = text
             await ui.settle(0.15)
             await fits("list search \(index)")
         }
@@ -1198,7 +1197,7 @@ extension UITest {
         await check("typing never leaves the outline shorter than its rows", short.isEmpty, short.prefix(6).joined(separator: "; "))
         await check("the outline's rows always matched its snapshot", OutlineCoordinator.repairs == 0, "\(OutlineCoordinator.repairs) repairs")
         model.deleteTasks([parent.id])
-        model.backlogOpen = false
+        model.showBacklog = false
         await endUndoGroup(model)
         await ui.settle(0.4)
     }
@@ -1216,7 +1215,7 @@ extension UITest {
         await check("Help has Keyboard Shortcuts", titles("Help").contains("Keyboard Shortcuts"), titles("Help").joined(separator: ", "))
         // ⌘W closes the modal, not the window.
         if let close = menu("File")?.items.first(where: { $0.keyEquivalent == "w" && $0.keyEquivalentModifierMask == .command }),
-           let file = close.menu, let task = model.addTask(to: .overview, title: "Close me") {
+           let file = close.menu, let task = model.addTask(status: .todo, title: "Close me") {
             model.open(.task(task.id))
             await ui.settle(0.6)
             ui.window.makeKey()
@@ -1228,14 +1227,14 @@ extension UITest {
         } else {
             await check("File has Close ⌘W", false, titles("File").joined(separator: ", "))
         }
-        // Several Backlog rows: Move to Tasks, and it moves them.
-        if let a = model.addTask(to: .backlog, title: "Back one"), let b = model.addTask(to: .backlog, title: "Back two") {
+        // Several backlog rows: Move Out of the Backlog, and it takes them out.
+        if let a = model.addTask(status: .backlog, title: "Back one"), let b = model.addTask(status: .backlog, title: "Back two") {
             await endUndoGroup(model)
             model.selectedTasks = [a.id, b.id]
             model.syncMenu()
-            await check("with several Backlog rows selected the Task menu moves them to Tasks", !MenuState.shared.tasksToBacklog)
-            model.moveTasks([a.id, b.id], toBacklog: MenuState.shared.tasksToBacklog)
-            await check("and they go", model.list(of: a.id) == .overview && model.list(of: b.id) == .overview)
+            await check("with several backlog rows selected the Task menu takes them out of the backlog", !MenuState.shared.tasksToBacklog)
+            model.toggleBacklog([a.id, b.id])
+            await check("and they go to todo", model.task(a.id)?.status == .todo && model.task(b.id)?.status == .todo)
             model.selectedTasks = []
             model.deleteTasks([a.id, b.id])
             await endUndoGroup(model)
@@ -1288,8 +1287,8 @@ extension UITest {
 
         // New Task… with a Slack link copied: its own sheet, the link, the message's words.
         copy("look: \(url)")
-        await open(.newTask(.overview))
-        await check("New Task… opens its own sheet with the keyboard in the title", model.modal == .newTask(.overview)
+        await open(.newTask(.todo))
+        await check("New Task… opens its own sheet with the keyboard in the title", model.modal == .newTask(.todo)
               && ui.anchor("new-task-title") != nil && editor() != nil, ui.responder)
         await check("a Slack link copied comes as a link, and names the task", ui.anchor("new-task-link:\(route.selectionKey)") != nil
               && editor()?.string == line, editor()?.string ?? ui.responder)
@@ -1299,7 +1298,8 @@ extension UITest {
         await ui.settle(0.6)
         func addedTask() -> TaskItem? { model.tasks.first { !before.contains($0.id) } }
         await check("Add Task puts it at the end of Tasks with the link, and selects its row", addedTask()?.title == line
-              && addedTask()?.links == [URL(string: url)!] && model.list(of: addedTask()?.id ?? 0) == .overview && model.selectedTasks == [addedTask()?.id ?? 0],
+              && addedTask()?.links == [URL(string: url)!] && model.taskTree.top().last == addedTask()?.id && addedTask()?.status == .todo
+              && model.selectedTasks == [addedTask()?.id ?? 0],
               "\(addedTask()?.title ?? "none") \(addedTask()?.links ?? []) selected \(model.selectedTasks)")
         let added = addedTask()
 
@@ -1321,7 +1321,7 @@ extension UITest {
         }
 
         // A link added from the CLI shows under the task's row at once, every kind (T-352): through the socket, as `hq` does it.
-        if let parent = model.addTask(to: .overview, title: "Parent of linked ones"), let other = model.addTask(to: .overview, title: "Related"),
+        if let parent = model.addTask(status: .todo, title: "Parent of linked ones"), let other = model.addTask(status: .todo, title: "Related"),
            let target = model.addSubtask(to: parent.id, title: "Linked from the CLI"),
            let shut = model.addSubtask(to: parent.id, title: "Linked while folded") {
             model.setFold(parent.id, .all)
@@ -1383,7 +1383,7 @@ extension UITest {
         await check("a copy dropped with × comes no more", ui.anchor("new-reminder-link:\(route.selectionKey)") == nil)
 
         // Link… finds anything: typed words, ↓ to the next match, Return links it; the chip shows in the sheet.
-        guard let target = model.addTask(to: .backlog, title: "Slack link target"), let second = model.addTask(to: .backlog, title: "Slack link second") else {
+        guard let target = model.addTask(status: .todo, title: "Slack link target"), let second = model.addTask(status: .todo, title: "Slack link second") else {
             return await check("tasks to link", false)
         }
         await endUndoGroup(model)
@@ -1413,7 +1413,7 @@ extension UITest {
                    && model.notices.last?.links == [ModalRoute.task(target.id).selectionKey], "\(model.notices.last?.text ?? "none") \(model.notices.last?.links ?? [])")
         if let reminder = model.notices.last, model.notices.count == count + 1 { model.removeNotice(reminder.id) }
 
-        // A Slack link pasted in the words of New Task… becomes its link; the Backlog's New Task… lands there.
+        // A Slack link pasted in the words of New Task… becomes its link; New Backlog Task… makes a backlog task.
         copy(nil)
         await open(.newTask(.backlog))
         editor()?.insertText("Ping Julien \(url)", replacementRange: NSRange(location: 0, length: 0))
@@ -1425,11 +1425,11 @@ extension UITest {
         await ui.until(2) { model.modal == nil }
         await ui.settle(0.4)
         func pinged() -> TaskItem? { model.tasks.first { !beforeBacklog.contains($0.id) } }
-        await check("New Backlog Task… adds it to the Backlog", pinged()?.title == "Ping Julien" && pinged().map { model.list(of: $0.id) } == .backlog
+        await check("New Backlog Task… adds a backlog task", pinged()?.title == "Ping Julien" && pinged()?.status == .backlog
               && pinged()?.links == [URL(string: url)!], "\(pinged()?.title ?? "none")")
 
         // The lists' own New Task lines stay: a Slack link pasted there becomes the task's link; Escape drops it.
-        model.focusQuickAdd(.overview)
+        model.focusQuickAdd()
         await ui.settle(0.6)
         if let field = editor() {
             field.string = ""
@@ -1457,7 +1457,7 @@ extension UITest {
         model.folded = []
         model.search = ""
         let body = "# Plan\n\nFirst line.\n\nSecond line.\n\n- one\n- [ ] two\n\n```\ncode\n```\n\nLast line."
-        guard let task = model.addTask(to: .overview, title: "Write it down", body: body) else { return await check("a task to describe", false) }
+        guard let task = model.addTask(status: .todo, title: "Write it down", body: body) else { return await check("a task to describe", false) }
         await endUndoGroup(model)
         model.shownDescriptions.insert(task.id)
         await ui.settle(0.6)
@@ -1643,8 +1643,8 @@ extension UITest {
               let cards = collection.delegate as? SessionGrid.Coordinator else { return await check("the outline and the grid are on the page", false) }
         model.folded = []
         model.search = ""
-        guard let carried = model.addTask(to: .overview, title: "Carry me"),
-              let target = model.addTask(to: .overview, title: "Link it here") else { return await check("tasks to drag", false) }
+        guard let carried = model.addTask(status: .todo, title: "Carry me"),
+              let target = model.addTask(status: .todo, title: "Link it here") else { return await check("tasks to drag", false) }
         await endUndoGroup(model)
         await ui.settle(0.5)
         let index = outline.row(forItem: coordinator.node(.task(carried.id)))
@@ -1789,13 +1789,18 @@ extension UITest {
 
     // MARK: Outline keys
 
-    /// Tasks: A (A1, A2), B, C. Backlog: D, E. The test vault's earlier notes go first, so a rescan can't bring them back.
+    /// The top-level tasks out of the backlog, in order: what makeTree's checks compare.
+    static func tops(_ model: AppModel) -> [Int] {
+        model.taskTree.top().filter { model.task($0)?.status != .backlog }
+    }
+
+    /// Tasks: A (A1, A2), B, C; then E, D in the backlog. The test vault's earlier notes go first, so a rescan can't bring them back.
     static func makeTree(_ model: AppModel) async -> [String: Int] {
         for task in model.tasks { if let path = task.path { try? FileManager.default.removeItem(atPath: path) } }
         model.tasks = []
         var ids: [String: Int] = [:]
-        for title in ["A", "B", "C"] { ids[title] = model.addTask(to: .overview, title: title)?.id }
-        for title in ["E", "D"] { ids[title] = model.addTask(to: .backlog, title: title)?.id }
+        for title in ["A", "B", "C"] { ids[title] = model.addTask(status: .todo, title: title)?.id }
+        for title in ["E", "D"] { ids[title] = model.addTask(status: .backlog, title: title)?.id }
         if let a = ids["A"] {
             ids["A1"] = model.addSubtask(to: a, title: "A1")?.id
             ids["A2"] = model.addSubtask(to: a, title: "A2")?.id
@@ -1812,7 +1817,7 @@ extension UITest {
         let tree = { model.taskTree }
         let rows = { ui.window.firstResponder === outline }
         let state = { "selected \(model.selectedTasks) focused \(String(describing: model.focusedTask)) responder \(ui.responder)" }
-        await check("the outline shows Tasks with their subtasks", tree().top(.overview) == [a, b, c] && tree().children(of: a).count == 2)
+        await check("the outline shows Tasks with their subtasks", tops(model) == [a, b, c] && tree().children(of: a).count == 2)
 
         // A click selects, a double-click edits.
         await ui.click(ui.titlePoint(b))
@@ -1833,7 +1838,7 @@ extension UITest {
         // In a title: Return adds below; Tab goes to the description, Shift-Tab back and to the previous title.
         await ui.key(.return)
         await ui.settle(0.5)
-        let added = tree().top(.overview)
+        let added = tops(model)
         await check("Return in a title adds a task below and edits it", added.count == 4 && added[2] != c && model.focusedTask == added[2] && ui.isTyping,
               "\(added) \(state())")
         let new = added[2]
@@ -1939,65 +1944,64 @@ extension UITest {
               tree().parent(of: new) == b && model.selectedTasks == [new] && rows(), "parent \(String(describing: tree().parent(of: new))) \(state())")
         await ui.key(.left, .shift)
         await ui.settle(0.5)
-        await check("Shift-Left outdents it", tree().parent(of: new) == nil && tree().top(.overview) == [a, b, new, c] && model.selectedTasks == [new] && rows(),
-              "\(tree().top(.overview)) \(state())")
+        await check("Shift-Left outdents it", tree().parent(of: new) == nil && tops(model) == [a, b, new, c] && model.selectedTasks == [new] && rows(),
+              "\(tops(model)) \(state())")
         model.undoManager?.undo()
         await ui.settle(0.4)
         await check("Undo Outdent nests it again", tree().parent(of: new) == b)
         model.undoManager?.undo()
         await ui.settle(0.4)
-        await check("Undo Indent puts it back, still selected", tree().parent(of: new) == nil && model.selectedTasks == [new], "parent \(String(describing: tree().parent(of: new))) list \(String(describing: model.task(new)?.list)) \(state())")
+        await check("Undo Indent puts it back, still selected", tree().parent(of: new) == nil && model.selectedTasks == [new], "parent \(String(describing: tree().parent(of: new))) \(state())")
         await ui.key(.up, .shift)
         await ui.settle(0.5)
-        await check("Shift-Up moves the row up among its siblings, still selected", tree().top(.overview) == [a, new, b, c] && model.selectedTasks == [new] && rows(),
-              "\(tree().top(.overview)) \(state())")
+        await check("Shift-Up moves the row up among its siblings, still selected", tops(model) == [a, new, b, c] && model.selectedTasks == [new] && rows(),
+              "\(tops(model)) \(state())")
         await ui.key(.down, .shift)
         await ui.settle(0.5)
-        await check("Shift-Down moves it back", tree().top(.overview) == [a, b, new, c] && model.selectedTasks == [new], "\(tree().top(.overview))")
+        await check("Shift-Down moves it back", tops(model) == [a, b, new, c] && model.selectedTasks == [new], "\(tops(model))")
         let a1 = tree().children(of: a)[0]
         coordinator.select(a1)
         await ui.key(.up, .shift)
         await ui.settle(0.5)
-        await check("Shift-Up on a first subtask moves it out, above its parent", tree().top(.overview) == [a1, a, b, new, c] && model.selectedTasks == [a1],
-              "\(tree().top(.overview)) \(state())")
+        await check("Shift-Up on a first subtask moves it out, above its parent", tops(model) == [a1, a, b, new, c] && model.selectedTasks == [a1],
+              "\(tops(model)) \(state())")
         await ui.key(.down, .shift)
         await ui.settle(0.5)
-        await check("Shift-Down then moves it below the task under it, as a sibling", tree().top(.overview) == [a, a1, b, new, c], "\(tree().top(.overview))")
+        await check("Shift-Down then moves it below the task under it, as a sibling", tops(model) == [a, a1, b, new, c], "\(tops(model))")
         coordinator.select(a2)
         await ui.key(.down, .shift)
         await ui.settle(0.5)
-        await check("Shift-Down on a last subtask moves it out, below its parent", tree().parent(of: a2) == nil && tree().top(.overview) == [a, a2, a1, b, new, c],
-              "\(tree().top(.overview))")
+        await check("Shift-Down on a last subtask moves it out, below its parent", tree().parent(of: a2) == nil && tops(model) == [a, a2, a1, b, new, c],
+              "\(tops(model))")
         model.undoManager?.undo()
         await ui.settle(0.3)
         model.undoManager?.undo()
         await ui.settle(0.3)
         model.undoManager?.undo()
         await ui.settle(0.3)
-        await check("Undo puts the subtasks back", tree().children(of: a) == [a1, a2] && tree().top(.overview) == [a, b, new, c],
-              "\(tree().children(of: a)) \(tree().top(.overview))")
-        // A task Hide Done hides is stepped over: ⇧→ goes under the shown task above, ⇧↑ past it (T-479).
+        await check("Undo puts the subtasks back", tree().children(of: a) == [a1, a2] && tops(model) == [a, b, new, c],
+              "\(tree().children(of: a)) \(tops(model))")
+        // A task the Done toggle hides is stepped over: ⇧→ goes under the shown task above, ⇧↑ past it (T-479).
         let bStatus = model.task(b)?.status ?? .todo
         model.setStatus(b, .done)
-        model.hideDone = [.overview]
+        model.showDone = false
         await endUndoGroup(model)
         coordinator.select(new)
         await ui.settle(0.4)
         await ui.key(.right, .shift)
         await ui.until(2) { tree().parent(of: new) == a }
-        await check("with the task above hidden by Hide Done, Shift-Right indents under the shown one", tree().parent(of: new) == a && model.selectedTasks == [new],
+        await check("with the task above hidden by the Done toggle, Shift-Right indents under the shown one", tree().parent(of: new) == a && model.selectedTasks == [new],
               "parent \(String(describing: tree().parent(of: new))) \(state())")
         model.undoManager?.undo()
         await ui.until(2) { tree().parent(of: new) == nil }
         coordinator.select(new)
         await ui.settle(0.3)
         await ui.key(.up, .shift)
-        await ui.until(2) { tree().top(.overview).first == new }
-        await check("and Shift-Up moves it past the shown task above, not only the hidden one", tree().top(.overview) == [new, a, b, c] && model.selectedTasks == [new],
-              "\(tree().top(.overview)) \(state())")
+        await ui.until(2) { tops(model).first == new }
+        await check("and Shift-Up moves it past the shown task above, not only the hidden one", tops(model) == [new, a, b, c] && model.selectedTasks == [new],
+              "\(tops(model)) \(state())")
         model.undoManager?.undo()
-        await ui.until(2) { tree().top(.overview) == [a, b, new, c] }
-        model.hideDone = []
+        await ui.until(2) { tops(model) == [a, b, new, c] }
         model.setStatus(b, bStatus)
         await ui.settle(0.3)
         await endUndoGroup(model)
@@ -2011,10 +2015,10 @@ extension UITest {
             ("a task", new, .right, .right, .shift, false), ("a subtask", a2, .left, .left, .shift, false),
             ("a task, the key then held", new, .up, .up, .shift, true), ("an open task, then folded", a, .down, .left, [], false),
         ]
-        let shape = { "\(tree().top(.overview)) \(tree().children(of: a)) \(tree().children(of: b))" }
+        let shape = { "\(tops(model)) \(tree().children(of: a)) \(tree().children(of: b))" }
         let base = shape()
         for (kind, id, key, then, flags, held) in twice {
-            let before = tree().top(.overview)
+            let before = tops(model)
             coordinator.select(id)
             await ui.settle(0.3)
             await ui.key(key, .shift)
@@ -2022,7 +2026,7 @@ extension UITest {
             await ui.settle(0.8)
             let broken = outline.brokenRows()
             await check("\(kind) moved twice quickly (⇧\(key)) keeps its card and every other on its row", broken.isEmpty && model.selectedTasks == [id],
-                        "\(broken) \(before) → \(tree().top(.overview)) \(state())")
+                        "\(broken) \(before) → \(tops(model)) \(state())")
             await endUndoGroup(model)
             for _ in 0..<4 where shape() != base {
                 model.undoManager?.undo()
@@ -2044,11 +2048,11 @@ extension UITest {
         (ui.window.firstResponder as? NSTextView)?.setSelectedRange(NSRange(location: 0, length: 0))
         await ui.key(.left, .shift)
         await ui.settle(0.6)
-        await check("Shift-Left at the start of a title outdents it, still editing", tree().parent(of: new) == nil && tree().top(.overview) == [a, b, new, c] && ui.isTyping,
-              "\(tree().top(.overview)) \(state())")
+        await check("Shift-Left at the start of a title outdents it, still editing", tree().parent(of: new) == nil && tops(model) == [a, b, new, c] && ui.isTyping,
+              "\(tops(model)) \(state())")
         await ui.key(.left, .shift)
         await ui.settle(0.3)
-        await check("a top-level task stays where it is", tree().top(.overview) == [a, b, new, c] && ui.isTyping)
+        await check("a top-level task stays where it is", tops(model) == [a, b, new, c] && ui.isTyping)
         await ui.key(.escape)
         await ui.settle(0.3)
         // An empty task moved from its title stays, still edited, until the edit ends.
@@ -2062,7 +2066,7 @@ extension UITest {
               "\(String(describing: blank)) parent \(String(describing: blank.flatMap { tree().parent(of: $0) })) \(state())")
         await ui.key(.escape)
         await ui.settle(0.5)
-        await check("and Escape drops it, empty", blank.map { model.task($0) == nil } == true && tree().top(.overview) == [a, b, new, c])
+        await check("and Escape drops it, empty", blank.map { model.task($0) == nil } == true && tops(model) == [a, b, new, c])
         // The same keys at once, no pause for the rows to settle: an empty task moved and left while its rows still move
         // (T-372, a crash placing the cards).
         for leave in [Driver.Key.escape, .down, .up] {
@@ -2076,7 +2080,7 @@ extension UITest {
             await ui.key(leave)
             await ui.settle(0.6)
             await check("an empty task moved by keys and left at once (\(leave)) goes, the outline whole",
-                  quick.map { model.task($0) == nil } == true && tree().top(.overview) == [a, b, new, c] && rows(), "\(tree().top(.overview)) \(state())")
+                  quick.map { model.task($0) == nil } == true && tops(model) == [a, b, new, c] && rows(), "\(tops(model)) \(state())")
         }
 
         // Return edits, Escape gives the rows back the keyboard; the Task menu's keys work on rows.
@@ -2090,9 +2094,13 @@ extension UITest {
         await ui.key(.return, .command)
         await ui.settle(0.3)
         await check("Command-Return on a row moves it to the next status", model.task(new)?.status == .doing && rows())
+        // With done tasks shown, the row stays through Done.
+        model.showDone = true
+        await ui.settle(0.3)
         for _ in 0..<2 { await ui.key(.return, .command) }
         await ui.settle(0.3)
         await check("through Done, then back to Todo, the row still selected", model.task(new)?.status == .todo && model.selectedTasks == [new] && rows(), state())
+        model.showDone = false
         model.setStatus(new, .todo)
         let shown = model.descriptionShownInOutline(new)
         await ui.key(.return, .shift)
@@ -2102,13 +2110,19 @@ extension UITest {
         await ui.key(.return, .shift)
         await ui.settle(0.4)
         await check("and again", model.descriptionShownInOutline(new) == shown)
-        model.hideDone = [.overview]
+        // Marked done while done tasks are hidden, it leaves at once; ⌘Z brings it back, selected (2026-11-16, T-471).
+        model.showDone = false
         model.setStatus(new, .doing)
+        await endUndoGroup(model)
         await ui.key(.return, .command)
         await ui.settle(0.5)
-        await check("a row that Hide Done hides gives the selection and the keyboard to the row above", model.selectedTasks == [b] && rows(), state())
-        model.hideDone = []
-        model.toggleDone(new)
+        await check("a row marked done while Done is off leaves at once, the row above takes the selection and the keyboard",
+                    model.task(new)?.status == .done && outline.row(forItem: coordinator.node(.task(new))) < 0 && model.selectedTasks == [b] && rows(), state())
+        model.undoManager?.undo()
+        await ui.until(2) { model.task(new)?.status == .doing && model.selectedTasks == [new] }
+        await check("⌘Z brings it back where it was, selected", model.task(new)?.status == .doing && outline.row(forItem: coordinator.node(.task(new))) >= 0
+                    && model.selectedTasks == [new], "\(String(describing: model.task(new)?.status)) row \(outline.row(forItem: coordinator.node(.task(new)))) \(state()) undo \(model.undoManager?.redoActionName ?? "-")")
+        model.setStatus(new, .todo)
         await ui.settle(0.4)
 
         // N and Shift-N add; a task left empty goes; Delete selects the row above.
@@ -2116,7 +2130,7 @@ extension UITest {
         let count = model.tasks.count
         await ui.key("n", code: 45)
         await ui.settle(0.5)
-        let order = tree().top(.overview)
+        let order = tops(model)
         await check("N on a row adds a task below and edits its title", model.tasks.count == count + 1 && ui.isTyping
               && order.firstIndex(of: model.focusedTask ?? 0) == (order.firstIndex(of: new) ?? 0) + 1, "\(order) \(state())")
         await ui.key(.escape)
@@ -2219,15 +2233,17 @@ extension UITest {
         model.changeTask(b, "Edit Task") { $0.body = body }
         await ui.settle(0.3)
 
-        // To the Backlog and back: the task above takes the selection.
+        // To the backlog and back: it leaves the list while the backlog is hidden, the task above takes the selection; nothing moves.
+        let place = model.taskTree.top()
         await ui.editTitle(b)
         await ui.chord("b", [.command, .shift], code: 11)
         await ui.settle(0.5)
-        await check("Shift-Command-B moves a task to the top of the Backlog", tree().top(.backlog).first == b, "list \(model.list(of: b))")
-        await check("and the task above it in Tasks takes the selection and the keyboard", model.selectedTasks == [a2] && rows(), state())
-        model.toggleList(b)
+        await check("Shift-Command-B moves a task to the backlog, in its place, and hides it", model.task(b)?.status == .backlog
+                    && model.taskTree.top() == place && outline.row(forItem: coordinator.node(.task(b))) < 0, "\(String(describing: model.task(b)?.status))")
+        await check("and the task above it takes the selection and the keyboard", model.selectedTasks == [a2] && rows(), state())
+        model.toggleBacklog([b])
         await ui.settle(0.4)
-        await check("and back to the end of Tasks", tree().top(.overview).last == b)
+        await check("and out of the backlog, back in its place", model.task(b)?.status == .todo && model.taskTree.top() == place)
 
         // Folding a task whose subtask is selected selects the task.
         coordinator.select(a2)
@@ -2252,29 +2268,28 @@ extension UITest {
         await check("← on a subtask without subtasks selects its parent", model.selectedTasks == [a] && model.fold[a] == .all, state())
 
         // Quick add: Return keeps the field; Option-Return sends to the Backlog; Escape goes back to the rows.
-        model.focusQuickAdd(.overview)
+        model.focusQuickAdd()
         await ui.settle(0.6)
         await check("New Task gives the quick-add line the keyboard", ui.isTyping, ui.responder)
         await ui.type("Quick one")
         await ui.key(.return)
         await ui.settle(0.4)
-        let quick = tree().top(.overview).last
+        let quick = tops(model).last
         await check("the quick-add line adds at the end of Tasks and keeps the keyboard", model.task(quick)?.title == "Quick one" && ui.isTyping)
         await ui.type("Later one")
         await ui.key(.return, .option)
         await ui.settle(0.4)
-        await check("Option-Return sends it to the Backlog", model.task(tree().top(.backlog).first)?.title == "Later one")
+        await check("Option-Return adds a backlog task at the end", model.task(model.taskTree.top().last)?.title == "Later one"
+                    && model.task(model.taskTree.top().last)?.status == .backlog)
         await ui.key(.escape)
         await ui.settle(0.3)
         await check("Escape in the quick-add line selects the task above it", model.selectedTasks == [quick ?? 0] && rows(), state())
-        // The Backlog's filter.
-        model.backlogOpen = true
-        model.listSearch[.backlog] = "Later"
+        // The search finds a hidden backlog task.
+        model.taskSearch = "Later one"
         await ui.settle(0.5)
-        await check("the Backlog's search shows the tasks that match", OutlineSnapshot.make(model).children(of: .header(.backlog)).filter { if case .task = $0 { true } else { false } }.count == 1)
-        model.listSearch = [:]
-        model.backlogFilter = BacklogFilter()
-        model.backlogOpen = false
+        await check("Search Tasks finds a backlog task while the backlog is hidden",
+                    OutlineSnapshot.make(model).children(of: .header).filter { if case .task = $0 { true } else { false } }.count == 1)
+        model.taskSearch = ""
     }
 
     // MARK: Outline drops
@@ -2282,14 +2297,14 @@ extension UITest {
     static func outlineDrops(_ model: AppModel, _ ui: Driver) async {
         await linkDrops(model, ui)
         let ids = await makeTree(model)
-        model.backlogOpen = true
+        model.showBacklog = true
         await ui.settle(0.8)
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
-              let a = ids["A"], let a1 = ids["A1"], let b = ids["B"], let c = ids["C"], let d = ids["D"] else {
+              let a = ids["A"], let a1 = ids["A1"], let b = ids["B"], let c = ids["C"], let d = ids["D"], let e = ids["E"] else {
             return await check("the outline for drops", false)
         }
         let tree = { model.taskTree }
-        // One row at a time (2026-11-10): the Task menu acts on it; a task goes to the Backlog with its subtasks, still nested.
+        // One row at a time (2026-11-10): the Task menu acts on it; a task goes to the backlog in its place, its subtasks still nested.
         outline.selectRowIndexes(IndexSet([outline.row(forItem: coordinator.node(.task(b))), outline.row(forItem: coordinator.node(.task(c)))]),
                                  byExtendingSelection: false)
         await ui.settle(0.3)
@@ -2298,13 +2313,13 @@ extension UITest {
         await ui.settle(0.3)
         await check("the Task menu targets the selected row", MenuState.shared.tasks == [a], "\(MenuState.shared.tasks)")
         let family = tree().children(of: a)
-        model.moveTasks(MenuState.shared.tasks, toBacklog: true)
+        model.toggleBacklog(MenuState.shared.tasks)
         await endUndoGroup(model)
-        await check("a task goes to the Backlog with its subtasks, still nested", tree().top(.backlog).first == a && tree().children(of: a) == family,
-              "\(tree().top(.backlog)) \(tree().children(of: a))")
+        await check("a task goes to the backlog in its place, its subtasks still nested", model.task(a)?.status == .backlog && tree().top().first == a
+                    && tree().children(of: a) == family, "\(tree().top()) \(tree().children(of: a))")
         model.undoManager?.undo()
         await ui.settle(0.3)
-        await check("one Undo brings it back", tree().top(.overview) == [a, b, c], "\(tree().top(.overview))")
+        await check("one Undo brings it back", tops(model) == [a, b, c], "\(tops(model))")
         outline.deselectAll(nil)
         func drop(_ moving: [Int], on item: OutlineNode.Kind?, index: Int) async -> (NSDragOperation, Bool) {
             let info = FakeDrag(tasks: moving, source: outline)
@@ -2316,27 +2331,38 @@ extension UITest {
             await endUndoGroup(model)
             return (operation, accepted)
         }
-        _ = await drop([c], on: .header(.overview), index: 0)
+        _ = await drop([c], on: .header, index: 0)
         await ui.settle(0.3)
-        await check("a drop between rows lands there", tree().top(.overview) == [c, a, b])
+        await check("a drop between rows lands there", tops(model) == [c, a, b])
         let name = model.undoManager?.undoActionName ?? "-"
         let orders = model.tasks.map { "\($0.id):\($0.order)" }
         model.undoManager?.undo()
         await ui.settle(0.3)
-        await check("Undo puts it back", tree().top(.overview) == [a, b, c], "undid \(name), \(orders) → \(model.tasks.map { "\($0.id):\($0.order)" }) redo \(model.undoManager?.redoActionName ?? "-")")
+        await check("Undo puts it back", tops(model) == [a, b, c], "undid \(name), \(orders) → \(model.tasks.map { "\($0.id):\($0.order)" }) redo \(model.undoManager?.redoActionName ?? "-")")
         _ = await drop([b], on: .task(a), index: NSOutlineViewDropOnItemIndex)
         await ui.settle(0.3)
         await check("a drop on a row makes it the last child", tree().children(of: a).last == b)
         model.undoManager?.undo()
         await ui.settle(0.3)
-        _ = await drop([a], on: .header(.backlog), index: NSOutlineViewDropOnItemIndex)
+        _ = await drop([a], on: .header, index: NSOutlineViewDropOnItemIndex)
         await ui.settle(0.3)
-        await check("a drop on the Backlog's header goes to its end, with its subtasks", tree().top(.backlog).last == a && tree().list(of: a1) == .backlog)
+        await check("a drop on the list's header goes to its end, with its subtasks", tree().top().last == a && tree().parent(of: a1) == a)
         model.undoManager?.undo()
         await ui.settle(0.3)
-        _ = await drop([d], on: .header(.overview), index: 1)
+        _ = await drop([d], on: .header, index: 1)
         await ui.settle(0.3)
-        await check("a drop from the Backlog onto Tasks lands between rows", tree().top(.overview) == [a, d, b, c])
+        await check("a backlog task dropped among the others lands between rows, still in the backlog", tree().top() == [a, d, b, c, e]
+                    && model.task(d)?.status == .backlog, "\(tree().top())")
+        model.undoManager?.undo()
+        await ui.settle(0.3)
+        // With the backlog hidden, a drop between two cards lands right before the card under the line, wherever hidden ones sit.
+        model.showBacklog = false
+        model.toggleBacklog([b])
+        await endUndoGroup(model)
+        await ui.settle(0.4)
+        _ = await drop([e], on: .header, index: 1)
+        await ui.settle(0.3)
+        await check("over hidden tasks, a drop lands right before the card under the line", tree().top() == [a, b, e, c, d], "\(tree().top())")
         model.undoManager?.undo()
         await ui.settle(0.3)
         let refused = await drop([a], on: .task(a1), index: NSOutlineViewDropOnItemIndex)
@@ -2344,7 +2370,7 @@ extension UITest {
         // A drag that ends outside the window leaves no drop target behind.
         coordinator.dragEnded()
         await check("a cancelled drag leaves no row marked as a drop target", (0..<outline.numberOfRows).allSatisfy { !(outline.rowView(atRow: $0, makeIfNecessary: false)?.isTargetForDropOperation ?? false) })
-        model.backlogOpen = false
+        model.showBacklog = false
     }
 
     // MARK: Modal
@@ -2353,15 +2379,17 @@ extension UITest {
     static func outlineLooks(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.shownDescriptions = []
-        model.allDescriptions = []
+        model.allDescriptions = false
+        // Its checks step a card through Done and keep reading it: done tasks show.
+        model.showDone = true
         // Run alone, the overview has none of the earlier groups' tasks.
-        if !model.taskTree.top(.overview).contains(where: { !model.taskTree.children(of: $0).isEmpty }),
-           let parent = model.addTask(to: .overview, title: "Looks parent") {
+        if !tops(model).contains(where: { !model.taskTree.children(of: $0).isEmpty }),
+           let parent = model.addTask(status: .todo, title: "Looks parent") {
             _ = model.addSubtask(to: parent.id, title: "Looks child")
-            _ = model.addTask(to: .overview, title: "Looks after")
+            _ = model.addTask(status: .todo, title: "Looks after")
             await ui.settle(0.5)
         }
-        let top = model.taskTree.top(.overview)
+        let top = tops(model)
         guard top.count >= 2, let parent = top.first(where: { !model.taskTree.children(of: $0).isEmpty }),
               let child = model.taskTree.children(of: parent).first else { return await check("tasks with subtasks on the overview", false) }
         await ui.settle(0.4)
@@ -2598,7 +2626,7 @@ extension UITest {
         await ui.settle(0.6)
         // A ring with nothing started is only a grey track: hidden until something under it starts (2026-11-07).
         // On a block's header: a top-level task shows its progress line instead.
-        if let holder = model.addTask(to: .overview, title: "Holds a block"), let fresh = model.addSubtask(to: holder.id, title: "Nothing started yet"),
+        if let holder = model.addTask(status: .todo, title: "Holds a block"), let fresh = model.addSubtask(to: holder.id, title: "Nothing started yet"),
            let first = model.addSubtask(to: fresh.id, title: "First part"),
            model.addSubtask(to: fresh.id, title: "Second part") != nil {
             await ui.settle(0.4)
@@ -2626,7 +2654,7 @@ extension UITest {
     }
 
     static func modal(_ model: AppModel, _ ui: Driver) async {
-        guard let task = model.addTask(to: .overview, title: "Open me") else { return await check("a task for the modal", false) }
+        guard let task = model.addTask(status: .todo, title: "Open me") else { return await check("a task for the modal", false) }
         model.open(.task(task.id))
         await ui.settle(0.8)
         await check("the task's modal opens as a sheet", ui.window.attachedSheet != nil)
@@ -2697,7 +2725,7 @@ extension UITest {
             scroll.contentView.scroll(to: .zero)
         }
         seedLarge(model)
-        model.backlogOpen = false
+        model.showBacklog = false
         await ui.settle(3)
         guard let outline = ui.find(TaskOutlineView.self), let scroll = outline.enclosingScrollView else {
             return await check("the outline with the large seed", false)
@@ -2717,14 +2745,15 @@ extension UITest {
             }
         }
 
-        // The Backlog opened below the fold, then scrolled to.
+        // The backlog and done tasks shown below the fold, then scrolled to.
         scrollPage(to: bottom)
         await ui.settle(0.3)
-        model.backlogOpen = true
+        model.showBacklog = true
+        model.showDone = true
         await ui.settle(0.1)
         scrollPage(to: bottom)
         await ui.settle(1.2)
-        await check("the Backlog opened below the fold draws its rows when scrolled to", visibleRowsDrawn(), "\(outline.visibleRect)")
+        await check("backlog and done tasks shown below the fold draw their rows when scrolled to", visibleRowsDrawn(), "\(outline.visibleRect)")
         scrollPage(to: 6000)
         await ui.settle(0.5)
         var built = 0
@@ -2733,10 +2762,10 @@ extension UITest {
         scrollPage(to: 0)
 
         // Descriptions on, scrolled, off, back to the top: no row keeps a description it no longer shows.
-        let descriptions = await Stall.measure([{ model.allDescriptions = [.overview, .backlog] }], gap: 1)
+        let descriptions = await Stall.measure([{ model.allDescriptions = true }], gap: 1)
         scrollPage(to: 3000)
         await ui.settle(0.5)
-        model.allDescriptions = []
+        model.allDescriptions = false
         await ui.settle(0.8)
         scrollPage(to: 0)
         await ui.settle(0.5)
@@ -2747,9 +2776,9 @@ extension UITest {
         await check("rows out of view drop the descriptions that were hidden", stale == 0, "\(stale) rows")
 
         let search = await Stall.measure(["r", "re", "reg", "regi", "reg", "re", "r", ""].map { text in { model.search = text } })
-        let folded = model.taskTree.top(.overview).filter { !model.taskTree.children(of: $0).isEmpty }.prefix(8)
+        let folded = tops(model).filter { !model.taskTree.children(of: $0).isEmpty }.prefix(8)
         let fold = await Stall.measure(folded.map { id in { model.setFold(id, .hidden) } } + folded.map { id in { model.setFold(id, .all) } })
-        let move = await Stall.measure(model.taskTree.top(.overview).prefix(8).map { id in {
+        let move = await Stall.measure(tops(model).prefix(8).map { id in {
             if let index = model.tasks.firstIndex(where: { $0.id == id }) { model.tasks[index].order += 2.5 }
         } })
         print("  perf: scrolling")
@@ -3003,8 +3032,8 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        model.allDescriptions = []
-        guard let goal = model.addTask(to: .overview, title: "Ship the story"),
+        model.allDescriptions = false
+        guard let goal = model.addTask(status: .todo, title: "Ship the story"),
               let first = model.addSubtask(to: goal.id, title: "First step"),
               let second = model.addSubtask(to: goal.id, title: "Second step"),
               let third = model.addSubtask(to: goal.id, title: "Third step"),
@@ -3199,21 +3228,21 @@ extension UITest {
         model.closeModal()
         await ui.settle(0.5)
         // ↓ on the list's last task: the new task's card, solid with its ring; ↑ goes back to the task.
-        let quickRow = outline.row(forItem: coordinator.node(.quickAdd(.overview)))
+        let quickRow = outline.row(forItem: coordinator.node(.quickAdd))
         if quickRow > 0, let lastTask = (outline.item(atRow: quickRow - 1) as? OutlineNode)?.task {
             coordinator.select(lastTask)
             await ui.settle(0.3)
             await ui.key(.down)
             await ui.settle(0.4)
             func typing() -> Bool { (ui.window.firstResponder as? NSTextView)?.delegate is QuickAddField }
-            func newCard() -> CardShape? { outline.cardsView.shapes.first { $0.key == "new:\(TaskList.overview)" } }
+            func newCard() -> CardShape? { outline.cardsView.shapes.first { $0.key == "new" } }
             await check("↓ on the last task goes to the new task's card, solid with its ring", typing() && outline.selectedRowIndexes.isEmpty
                   && newCard()?.kind == .card && newCard()?.ring == .selected,
                   "typing \(typing()), selected \(outline.selectedRowIndexes.count), card \(String(describing: newCard()))")
             await ui.key(.up)
             await ui.settle(0.4)
             await check("↑ from it selects the last task again, its card dashed again", model.selectedTasks == [lastTask]
-                  && outline.cardsView.shapes.first { $0.key == "new:\(TaskList.overview)" }?.kind == .newTask, "\(model.selectedTasks)")
+                  && outline.cardsView.shapes.first { $0.key == "new" }?.kind == .newTask, "\(model.selectedTasks)")
         } else {
             await check("the list's new task card under its last task", false, "row \(quickRow)")
         }

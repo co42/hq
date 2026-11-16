@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func dockNewTask() {
         model.bringForward()
-        model.beginTask(.overview)
+        model.beginTask(.todo)
     }
 
     @objc private func dockNewReminder() {
@@ -325,6 +325,9 @@ enum Store {
 
     /// The tasks' backup before the vault migration.
     static var backups: URL { directory.appending(path: "Backups", directoryHint: .isDirectory) }
+
+    /// The one-list move's plan while it runs (v16, T-471): a quit mid-run finishes it at the next launch.
+    static var oneListJournal: URL { directory.appending(path: "onelist-plan.json") }
 
     /// A file HQ can't read, renamed beside itself (`notifications.unreadable-20261111-0930.json`) so nothing writes
     /// over it; with its SQLite companions for the store. Nil when it couldn't be moved.

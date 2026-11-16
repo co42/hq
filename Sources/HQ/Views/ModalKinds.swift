@@ -73,11 +73,11 @@ struct TaskModal: View {
         }
     }
 
-    /// Its key and where it is: a subtask's parent is a link to it, over this window (Back returns).
+    /// Its key, and a subtask's parent as a link to it, over this window (Back returns); the glyph says the rest.
     @ViewBuilder
     private func placeLine(_ task: TaskItem) -> some View {
         HStack(spacing: Space.xs) {
-            Text("\(task.key) ·")
+            Text(model.task(task.parent) == nil ? task.key : "\(task.key) ·")
             if let parent = model.task(task.parent) {
                 Text("Subtask of")
                 Button("\(parent.key) \(parent.title)") { model.open(.task(parent.id), push: true) }
@@ -85,8 +85,6 @@ struct TaskModal: View {
                     .lineLimit(1)
                     .help("Open \(parent.key)")
                     .uiTestAnchor("modal-parent")
-            } else {
-                Text(task.list == .overview ? "On the overview" : "In the Backlog")
             }
         }
         .kitType(.key)
@@ -1163,7 +1161,7 @@ struct GitHubModal: View {
             }
             Menu {
                 Menu("Link to Task") {
-                    ForEach(model.taskTree.outline(.overview).compactMap { model.task($0) }) { task in
+                    ForEach(model.taskTree.outline().filter { model.task($0)?.status.isOpen == true }.compactMap { model.task($0) }) { task in
                         Button("\(task.key) \(task.title)") { if let url = URL(string: item.url) { model.link(task: task.id, url: url) } }
                     }
                 }

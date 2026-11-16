@@ -43,12 +43,12 @@ enum Snapshot {
             model.search = ""
             model.problem = nil
             model.showSetup = false
-            model.backlogOpen = false
+            model.showBacklog = false
+            model.showDone = false
+            model.taskSearch = ""
             model.folded = []
-            model.backlogFilter = BacklogFilter()
-            model.hideDone = []
             model.pinnedOnly = false
-            model.allDescriptions = []
+            model.allDescriptions = false
             model.editingDescription = nil
             model.shownDescriptions = [44]
             (mainWindow?.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
@@ -70,12 +70,20 @@ enum Snapshot {
                 reset(model)
                 model.zoom = 1.3
             },
+            // Tasks with the Backlog toggle on: backlog tasks where they sit, flat, the dashed glyph (T-471).
             Page(name: "cockpit-backlog") { model in
                 reset(model)
-                model.backlogOpen = true
+                model.showBacklog = true
                 await ready()
                 scrollToBottom()
                 select(task: 36)
+            },
+            // Tasks with the Done toggle on: done tasks where they sit.
+            Page(name: "cockpit-done") { model in
+                reset(model)
+                model.showDone = true
+                await ready()
+                scrollToBottom()
             },
             // A selected task with every kind of link, one a Slack message too long for a line (T-377, T-429).
             Page(name: "cockpit-links") { model in
@@ -89,13 +97,13 @@ enum Snapshot {
             },
             Page(name: "cockpit-descriptions") { model in
                 reset(model)
-                model.allDescriptions = [.overview, .backlog]
+                model.allDescriptions = true
                 await ready()
                 scroll(to: 0.45)
             },
             Page(name: "cockpit-description-edit") { model in
                 reset(model)
-                model.allDescriptions = [.overview, .backlog]
+                model.allDescriptions = true
                 model.editDescription(13)
                 await ready()
                 scroll(to: 0.45)
@@ -201,7 +209,7 @@ enum Snapshot {
                 reset(model)
                 SlackClipboard.testText = nil
                 SlackClipboard.testChange += 1
-                model.beginTask(.overview)
+                model.beginTask(.todo)
             },
             Page(name: "modal-new-file", capture: .sheet) { reset($0); $0.beginNewFile() },
             Page(name: "modal-import-artifact", capture: .sheet) { reset($0); $0.beginImport() },
@@ -220,7 +228,7 @@ enum Snapshot {
             Page(name: "modal-new-task-slack", capture: .sheet) { model in
                 reset(model)
                 copySlackLink()
-                model.beginTask(.overview)
+                model.beginTask(.todo)
             },
             Page(name: "modal-caught-up", capture: .sheet) { model in
                 reset(model)

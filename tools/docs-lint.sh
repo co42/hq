@@ -57,6 +57,12 @@ retired=(
   'Only Blocking and Doing' 'Only Blocked and Doing (T-442)'
   'chevron.compact.down' 'a chevron that shows or hides, a story filter button (T-442)'
   'Show Subtasks ›' 'Hide Subtasks or Show Subtasks (T-442)'
+  'Hide Done in Tasks' 'View › Show Done or Hide Done: the Done toggle (T-471)'
+  'On the overview' 'nothing: one list, the glyph says the status (T-471)'
+  'In the Backlog' 'the backlog status (T-471)'
+  'top of the Backlog' 'the end of the list, the backlog a status (T-471)'
+  'Search Backlog' 'Search Tasks: one list (T-471)'
+  'Move to Tasks' 'Move Out of the Backlog (T-471)'
 )
 
 lint='
@@ -68,7 +74,7 @@ lint='
     %moves = map { $_ => 1 } qw(todo doing done backlog);
     %skill = map { $_ => 1 } split / /, $ENV{SKILLS};
     # The filters each kind of hq ls takes; --limit and --offset go with any.
-    %filters = (sessions => "all here tree", tasks => "overview backlog parent project tag all", prs => "all", notifications => "all", reminders => "all");
+    %filters = (sessions => "all here tree", tasks => "backlog search parent project tag all", prs => "all", notifications => "all", reminders => "all");
     @retired = split /\t/, $ENV{RETIRED};
     $count = 0;
   }

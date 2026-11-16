@@ -140,11 +140,18 @@ extension SelfTest {
         let back = agent("task edit", ["task": key(other), "parent": key(story)])["note"] as? String ?? ""
         check("and back", back.hasPrefix("Changed: parent \(key(child)) → \(key(story))"), back)
 
-        // Moves between lists; notifications about a task.
-        let later = agent("task add", ["title": "CLI later", "backlog": "true"])
-        let brought = agent("task move", ["task": key(later), "status": "todo", "list": "tasks"])
-        check("task move todo --list tasks brings a Backlog task to Tasks, todo", brought["list"] as? String == "overview" && brought["status"] as? String == "todo", "\(brought)")
-        check("--list takes tasks or backlog only", failure(agent("task move", ["task": key(later), "status": "todo", "list": "inbox"]))?.code == "usage")
+        // The backlog is a status (v16, T-471): task move takes it at any level, and the flags it replaced still run.
+        let later = agent("task add", ["title": "CLI later", "status": "backlog"])
+        let brought = agent("task move", ["task": key(later), "status": "todo"])
+        check("task move todo takes a backlog task out of the backlog, in its place", brought["status"] as? String == "todo" && brought["list"] == nil, "\(brought)")
+        let step = agent("task add", ["title": "CLI later step", "parent": key(later)])
+        check("task move backlog works on a subtask", agent("task move", ["task": key(step), "status": "backlog"])["status"] as? String == "backlog")
+        check("an unknown status names the four", failure(agent("task move", ["task": key(later), "status": "inbox"]))?.message.contains("backlog, todo, doing, done") == true)
+        if let move = command("task move"), let add = command("task add") {
+            check("--list backlog still runs, as task move T-n backlog", AgentCLI.retired(["T-9", "todo", "--list", "backlog"], for: move) == ["T-9", "backlog"])
+            check("--list tasks is dropped", AgentCLI.retired(["T-9", "todo", "--list=tasks"], for: move) == ["T-9", "todo"])
+            check("task add --backlog still runs, as --status backlog", AgentCLI.retired(["Later", "--backlog"], for: add) == ["Later", "--status", "backlog"])
+        }
         let told = agent("notify", ["text": "CLI story ready", "task": key(story)])
         let set = agent("remind", ["text": "CLI story again", "at": "in 2h", "task": key(story)])
         check("notify and remind take --task", (told["links"] as? [JSONObject])?.first?["id"] as? String == key(story)
@@ -222,7 +229,7 @@ extension SelfTest {
                               started: .now, tty: "/dev/ttys077", order: model.nextGridOrder, role: "Leader"))
         model.put(SessionItem(id: other, customName: "CLI other lead", status: SessionStatus(state: .idle, since: .now), cwd: "/tmp", repo: "cli", branch: "other",
                               started: .now, order: model.nextGridOrder))
-        guard let task = model.addTask(to: .overview, title: "CLI team piece", session: lead) else { return check("a task for the team", false) }
+        guard let task = model.addTask(status: .todo, title: "CLI team piece", session: lead) else { return check("a task for the team", false) }
 
         // session new: under its caller, in its Ghostty window, with a role.
         var log = model.ghosttyLog.count

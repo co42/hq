@@ -166,7 +166,7 @@ extension SelfTest {
         let full = String(repeating: "x", count: AppModel.roleTextLimit)
         model.changeRole("Long") { $0.text = full }
         let keys = (0..<5).compactMap { index in
-            model.addTask(to: .overview, title: "A long task title, as the user writes them sometimes, for step \(index) of the story", session: "7e1e0000-0000-4000-8000-0000000000b4")?.id
+            model.addTask(status: .todo, title: "A long task title, as the user writes them sometimes, for step \(index) of the story", session: "7e1e0000-0000-4000-8000-0000000000b4")?.id
         }
         let reminders = keys.prefix(3).map { model.remind(String(repeating: "Look at the canary in eu-west again before merging. ", count: 3), at: .now.addingTimeInterval(-60),
                                                            level: .update, links: [ModalRoute.task($0).selectionKey]) }

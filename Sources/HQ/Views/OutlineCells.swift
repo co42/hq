@@ -791,7 +791,7 @@ final class TaskCell: NSTableCellView {
             ("Show or Hide Description", { model.toggleDescription(id) }),
             ("Add Subtask", { [weak self] in self?.addSubtask() }),
             ("Remind Me…", { model.beginReminder(about: .task(id)) }),
-            (model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog", { model.toggleList(id) }),
+            (model.task(id)?.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog", { model.toggleBacklog([id]) }),
             ("Start Session…", { model.beginStart(task: id) }),
             ("Delete", { model.deleteTasks([id]) }),
         ]
@@ -1276,12 +1276,10 @@ class FocusField: NSTextField {
     }
 }
 
-/// A quick-add field knows its list.
-final class QuickAddField: FocusField {
-    var list = TaskList.overview
-}
+/// The list's quick-add field.
+final class QuickAddField: FocusField {}
 
-/// "New task" under a list: Return adds it and keeps the field for the next. A Slack link copied before New Task shows at
+/// "New Task" under the list: Return adds it and keeps the field for the next. A Slack link copied before New Task shows at
 /// its end and names it after the message (T-313).
 final class QuickAddCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("quick-cell")
@@ -1314,18 +1312,18 @@ final class QuickAddCell: NSTableCellView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(list: TaskList, coordinator: OutlineCoordinator) {
-        field.list = list
+    func configure(coordinator: OutlineCoordinator) {
         field.delegate = coordinator
         // Its card turns solid with the keyboard.
         field.onFocus = { [weak coordinator] in coordinator?.keyboardChanged() }
-        let placeholder = list == .overview ? "New Task" : "New Backlog Task"
+        let placeholder = "New Task"
+        field.toolTip = "Return adds a task; Option-Return adds it to the backlog"
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .font: KitType.title.nsFont, .foregroundColor: Ink.secondaryTextNS,
         ])
         field.setAccessibilityLabel(placeholder)
         let model = coordinator.model
-        let pending = model.pendingTaskLink.flatMap { $0.list == list ? $0.url : nil }
+        let pending = model.pendingTaskLink?.url
         if pending != chipURL {
             chipURL = pending
             chip?.removeFromSuperview()
@@ -1424,102 +1422,57 @@ final class HostCell: NSTableCellView {
 
 /// "Tasks · 14 open" with Descriptions and Hide Done; "Backlog · 8 open" with its disclosure.
 struct OutlineHeader: View {
-    let list: TaskList
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        @Bindable var model = model
-        let tree = model.taskTree
-        let open = tree.top(list).filter { model.task($0)?.status != .done }.count
-        let shownCount = OutlineSnapshot.matches(model, in: list).count
-        let searching = !OutlineSnapshot.searchWords(model, list).isEmpty
-        let filtered = list == .backlog ? model.backlogFilter.isActive || searching : searching
-        let count = filtered ? "\(shownCount) of \(tree.top(list).count)" : "\(open) open"
-        Group {
-            if list == .overview {
-                SectionHeader(title: PageSection.tasks.title, count: count, open: model.sectionOpen(.tasks), tile: (PageSection.tasks.icon, Ink.section(.tasks))) {
-                    ListSearch(list: list)
-                    ListToggles(list: list)
-                }
-            } else {
-                SectionHeader(title: "Backlog", count: count, open: $model.backlogOpen, key: "⌃⌘B", tile: (.backlog, Ink.backlogTile)) {
-                    ListSearch(list: list)
-                    BacklogFilterMenu()
-                    ListToggles(list: list)
-                }
-            }
+        let tops = model.taskTree.top()
+        let open = tops.filter { model.task($0)?.status.isOpen == true }.count
+        let searching = !OutlineSnapshot.searchWords(model).isEmpty
+        let count = searching ? "\(OutlineSnapshot.matches(model).count) of \(tops.count)" : "\(open) open"
+        SectionHeader(title: PageSection.tasks.title, count: count, open: model.sectionOpen(.tasks), tile: (PageSection.tasks.icon, Ink.section(.tasks))) {
+            TaskSearch()
+            TaskToggles()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         .padding(.bottom, Space.md)
     }
 }
 
-/// A list's own Descriptions and Hide Done, as icons; Tasks' Hide Done counts its done tasks.
-private struct ListToggles: View {
-    let list: TaskList
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let place = list == .overview ? "in Tasks" : "in the Backlog"
-        let tree = model.taskTree
-        let done = list == .overview ? tree.top(.overview).flatMap { tree.subtree(of: $0) }.filter { model.task($0)?.status == .done }.count : nil
-        Toggle(isOn: model.toggle(\.allDescriptions, list)) { HeaderIcon(icon: .description) }
-            .clickable()
-            .help("Descriptions: show every description \(place)")
-            .accessibilityLabel("Descriptions")
-        // The Backlog's Status filter does what Hide Done does.
-        if list == .overview {
-            Toggle(isOn: model.toggle(\.hideDone, list)) { HeaderIcon(icon: .hideDone, count: done) }
-                .clickable()
-                .help("Hide Done: hide done tasks and subtasks \(place)")
-                .accessibilityLabel("Hide Done")
-        }
-    }
-}
-
-/// A list's own search: the tasks whose title has it, and their parents.
-private struct ListSearch: View {
-    let list: TaskList
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        HeaderSearch(prompt: "Search \(list.title)", text: Binding(get: { model.listSearch[list] ?? "" },
-                                                                  set: { model.listSearch[list] = $0.isEmpty ? nil : $0 }))
-            .help("Show the tasks whose title has this, and their parents (Escape clears)")
-            .uiTestAnchor("search:\(list.rawValue)")
-    }
-}
-
-/// The Backlog's filters in its header: Status, Type, Project and Tag, each its icon and its value; Clear while one applies.
-private struct BacklogFilterMenu: View {
+/// Tasks' toggles, as icons (2026-11-16, T-471): Backlog and Done show those tasks where they sit, each with its count at
+/// every level; Descriptions shows every description.
+private struct TaskToggles: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
-        let filter = model.backlogFilter
-        FilterPicker(icon: .pending, name: "Status", value: filter.status.title, active: filter.status != .open) {
-            Picker("Status", selection: $model.backlogFilter.status) {
-                ForEach(BacklogFilter.Status.allCases) { Text($0.title).tag($0) }
-            }
-        }
-        FilterPicker(icon: .project, name: "Project", value: filter.project ?? "Any", active: filter.project != nil) {
-            Picker("Project", selection: $model.backlogFilter.project) {
-                Text("Any").tag(String?.none)
-                ForEach(model.projects, id: \.self) { Text($0).tag(String?.some($0)) }
-            }
-        }
-        FilterPicker(icon: .tag, name: "Tag", value: filter.tag ?? "Any", active: filter.tag != nil) {
-            Picker("Tag", selection: $model.backlogFilter.tag) {
-                Text("Any").tag(String?.none)
-                ForEach(model.allTags, id: \.self) { Text($0).tag(String?.some($0)) }
-            }
-        }
-        // Always there; off while nothing narrows the Backlog.
-        let searching = !(model.listSearch[.backlog] ?? "").isEmpty
-        Button { model.backlogFilter = BacklogFilter(); model.listSearch[.backlog] = nil } label: { HeaderIcon(icon: .close) }
-            .disabled(!filter.isActive && !searching)
-            .help("Clear the filters and the search: every open task")
-            .accessibilityLabel("Clear Filters and Search")
+        let backlog = model.tasks.filter { $0.status == .backlog }.count
+        let done = model.tasks.filter { $0.status == .done }.count
+        Toggle(isOn: $model.showBacklog) { HeaderIcon(icon: .showBacklog, count: backlog) }
+            .clickable()
+            .help("Backlog: show the \(backlog) backlog tasks where they sit (⌃⌘B)")
+            .accessibilityLabel("Show Backlog")
+            .uiTestAnchor("toggle:backlog")
+        Toggle(isOn: $model.showDone) { HeaderIcon(icon: .showDone, count: done) }
+            .clickable()
+            .help("Done: show the \(done) done tasks where they sit")
+            .accessibilityLabel("Show Done")
+            .uiTestAnchor("toggle:done")
+        Toggle(isOn: $model.allDescriptions) { HeaderIcon(icon: .description) }
+            .clickable()
+            .help("Descriptions: show every description in Tasks")
+            .accessibilityLabel("Descriptions")
+    }
+}
+
+/// The list's own search: the tasks whose title, key, project or #tags have it, whatever their status, and their parents.
+private struct TaskSearch: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        HeaderSearch(prompt: "Search Tasks", text: $model.taskSearch)
+            .help("Show the tasks whose title, key, project or tag has this, backlog and done ones too, and their parents (Escape clears)")
+            .uiTestAnchor("search:tasks")
     }
 }
 

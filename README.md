@@ -1,6 +1,6 @@
 # HQ
 
-A native macOS cockpit for a day of work with [Claude Code](https://claude.com/claude-code). One page shows your Claude sessions and what they're doing, the pull requests that wait on you, the files and artifacts your sessions wrote, and your tasks with their Backlog as one outline. Anything bigger opens in a sheet over it.
+A native macOS cockpit for a day of work with [Claude Code](https://claude.com/claude-code). One page shows your Claude sessions and what they're doing, the pull requests that wait on you, the files and artifacts your sessions wrote, and your tasks as one outline, their backlog behind a toggle. Anything bigger opens in a sheet over it.
 
 HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsidian vault holds tasks and notes as plain markdown, GitHub holds pull requests, claude.ai hosts artifacts. HQ never owns a terminal and never locks your data in: delete it and your notes are still notes.
 
@@ -13,7 +13,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 | **Pull Requests** | Two cards: *Reviews* (not approved yet, by default) and *Yours*, with review state and checks. HQ asks GitHub every two minutes while its window is on screen, and again as you leave a PR's page |
 | **Sessions** | A card per Claude Code session, with a generated face and its live state: working, asks a question, plan ready, wants permission, done, failed. Opening one focuses its Ghostty terminal; an ended one resumes in a new tab. A session another one started sits in that one's team, inside its card: their faces with their state, and a toggle that opens the card to a row per session. Cards and a team's rows drag as tasks do: between them a line shows where one lands; dropped on another session, a menu asks to move it under, above or below it; ⇧ with the arrows moves the selected one. New Session… takes a role, a parent session (the new one opens in its Ghostty window) and a history to start from (another session's conversation so far); the masks on the section's header open Roles, where each role's line and text are edited |
 | **Files and Artifacts** | The notes your sessions wrote in the vault, and the claude.ai pages they published, shown live in the app. A note or a description edits in place, looking as it reads: a double-click puts the caret where you clicked, lists continue on Return, ⌘B, ⌘I and ⌘K mark words, checkboxes tick on a click |
-| **Tasks** and **Backlog** | One outline, edited like a markdown todo list: Return adds a task, Tab nests it, a drag moves it. Each task is a card with its session's face first, its key and its links (a PR with its status: Draft, Approved, Merged); each top-level task is a story on its big card, with its progress; a task with subtasks is a block, its subtasks indented, and its chevron shows or hides them; a story's filter button shows only its Blocked and doing tasks. A task's window shows its subtasks the same way. A task can be Blocked (with a reason or not), blocked by another task (a red chip on its card, a click shows that task) or come after one (selecting a task lights what it waits on): B, ⇧B, A. A button in a card's corner shows its description; Space opens the task. Under each list, a new task's card takes the next one. Dropped on another task, a task asks where it goes or how it links; dragged out it types its line in Ghostty ("Task T-12: Title", as Copy and ⌘C give for any item). Each task is a note in the vault, linked to its sessions, PRs, files, artifacts and Slack messages. New Task… (⌘N) adds one from a small sheet, with the Slack link you just copied |
+| **Tasks** | One outline, edited like a markdown todo list. At rest it shows what's open now, todo and doing; its Backlog and Done toggles show backlog and done tasks where they sit, and ⇧⌘B moves a task to the backlog or out of it: Return adds a task, Tab nests it, a drag moves it. Each task is a card with its session's face first, its key and its links (a PR with its status: Draft, Approved, Merged); each top-level task is a story on its big card, with its progress; a task with subtasks is a block, its subtasks indented, and its chevron shows or hides them; a story's filter button shows only its Blocked and doing tasks. A task's window shows its subtasks the same way. A task can be Blocked (with a reason or not), blocked by another task (a red chip on its card, a click shows that task) or come after one (selecting a task lights what it waits on): B, ⇧B, A. A button in a card's corner shows its description; Space opens the task. Under the list, a new task's card takes the next one (⌥Return for a backlog one). Dropped on another task, a task asks where it goes or how it links; dragged out it types its line in Ghostty ("Task T-12: Title", as Copy and ⌘C give for any item). Each task is a note in the vault, linked to its sessions, PRs, files, artifacts and Slack messages. New Task… (⌘N) adds one from a small sheet, with the Slack link you just copied |
 
 Attention is earned: only what needs you is orange (a session that asks, a ping, a due reminder), and the page shows state, never "new". What happened goes to the **notification center** (⌘J, the toolbar's bell, or the menu bar), read once: Needs You, Updates, Later. Sessions tell you there when work is ready (`hq notify`), GitHub reviews and comments on your PRs land there, and reminders, yours or a session's, come back there at their time: Remind Me… on a task, a PR, a file or an artifact sets one about it. ⌘K opens Quick Open.
 
@@ -47,7 +47,6 @@ status: doing           # todo | doing | done
 project: Registry
 tags: [perf]
 parent: T-9             # subtasks are their own notes
-list: overview          # overview | backlog
 links: [https://github.com/acme/registry/pull/418]
 sessions: [2f1c9e0a-…]
 ---
@@ -89,7 +88,7 @@ hq ls tasks | sessions | prs | files | artifacts | projects | notifications | re
 hq ls sessions --here                     # the sessions in this repository
 hq ls sessions --tree                     # each team under its top session
 hq task add "Dedup layers on push" --project Registry -q    # prints the new key
-hq task move T-12 doing                   # todo | doing | done | backlog
+hq task move T-12 doing                   # backlog | todo | doing | done
 hq task show T-12 --deep                  # with each open subtask's description
 hq task tick T-12 "At most 3 attempts"    # one checklist item
 hq task edit T-12 --section Status --body -   # one section of the description

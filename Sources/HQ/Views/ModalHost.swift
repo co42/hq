@@ -40,7 +40,7 @@ struct ModalHost: View {
                 case .github(let url): if let page { GitHubModal(item: page).id(url) } else { gone }
                 // A web page or a Slack link opens outside HQ, never here.
                 case .web, .slack: gone
-                case .newTask(let list): NewTaskForm(list: list)
+                case .newTask(let status): NewTaskForm(status: status)
                 case .newReminder: NewReminderForm(about: model.reminderAbout)
                 case .newFile: NewFileForm()
                 case .importArtifact: ImportArtifactForm()
@@ -196,7 +196,7 @@ private struct ModalActions: View {
                 RemindMeButton(route: .task(id))
                 // The rare ones in More, with their keys; the main action last and prominent, as a session's and a PR's (2026-11-11).
                 Menu {
-                    Button(model.list(of: id) == .backlog ? "Move to Tasks" : "Move to Backlog") { model.toggleList(id) }
+                    Button(task.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
                     Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
                     Divider()
                     Button("Delete") { model.deleteTasks([id]) }

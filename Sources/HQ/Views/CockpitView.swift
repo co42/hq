@@ -275,7 +275,7 @@ struct CockpitToolbar: ToolbarContent {
         // Right of the bell at every width, the section bar there or not.
         ToolbarItem(id: "new", placement: .navigation) {
             Menu {
-                Button("New Task…") { model.beginTask(.overview) }
+                Button("New Task…") { model.beginTask(.todo) }
                 Button("New File…") { model.beginNewFile() }
                 Button("New Session…") { model.beginStart() }
                 Button("New Reminder…") { model.beginReminder() }
@@ -300,7 +300,7 @@ extension AppModel {
         let needYou = gridSessions.filter { $0.isRunning && $0.status.needsYou }.count
         let working = gridSessions.filter { $0.isRunning && ($0.status.state == .working || $0.status.state == .compacting) }.count
         let waiting = reviewRequests.filter(waitsForReview).count
-        let open = taskTree.top(.overview).filter { task($0)?.status != .done }.count
+        let open = taskTree.top().filter { task($0)?.status.isOpen == true }.count
         var parts: [String] = []
         if needYou > 0 { parts.append("\(needYou) session\(needYou == 1 ? " needs" : "s need") you") }
         if waiting > 0 { parts.append("\(waiting) review\(waiting == 1 ? " waits" : "s wait")") }
@@ -381,24 +381,25 @@ extension AppModel {
         return gridSessions.filter { $0.searchText.localizedStandardContains(search) }
     }
 
-    /// A list's quick-add line takes the keyboard (its list unfolds first).
-    func focusQuickAdd(_ list: TaskList) {
+    /// The list's quick-add line takes the keyboard (Tasks unfolds first).
+    func focusQuickAdd() {
         closeModal()
         showWindow()
-        if list == .backlog { backlogOpen = true } else { folded.remove(.tasks) }
-        quickAddFocus = list
+        folded.remove(.tasks)
+        quickAddFocus = true
     }
 
-    /// File › New Task… (⌘N, ⌥⌘N for the Backlog): its own small sheet, over what's open (T-332).
-    func beginTask(_ list: TaskList) {
+    /// File › New Task… (⌘N, ⌥⌘N for a backlog task): its own small sheet, over what's open (T-332).
+    func beginTask(_ status: TaskStatus) {
         if case .newTask = modal { return }
         showWindow()
-        open(.newTask(list), push: modal != nil)
+        open(.newTask(status), push: modal != nil)
     }
 
-    /// A task New Task… added: its list unfolds and its row is selected, so the user sees where it went.
-    func show(newTask id: Int, in list: TaskList) {
-        if list == .backlog { backlogOpen = true } else { folded.remove(.tasks) }
-        outlineFocus = .row(id)
+    /// A task New Task… added: Tasks unfolds and its row is selected, so the user sees where it went; a backlog task while
+    /// the backlog is hidden only rolls the Backlog toggle's count.
+    func show(newTask id: Int) {
+        folded.remove(.tasks)
+        if task(id).map({ !taskShow.hides($0.status, openBelow: false) }) ?? false { outlineFocus = .row(id) }
     }
 }

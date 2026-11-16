@@ -115,7 +115,6 @@ enum Ink {
         }
     }
 
-    static let backlogTile = Color(nsColor: .systemGray)
     /// Kind tiles: files, artifacts, and a draft PR.
     static let fileTile = Color(nsColor: .systemTeal)
     static let artifactTile = Color(nsColor: .systemIndigo)
@@ -293,7 +292,6 @@ nonisolated enum Metric {
     /// A list's header row: its title line and 12 pt to its card.
     static var outlineHeader: CGFloat { 44 * Zoom.factor }
     /// Above the Backlog's header: the space between sections.
-    static var backlogHeaderGap: CGFloat { 28 * Zoom.factor }
     static var outlineQuick: CGFloat { 36 * Zoom.factor }
     /// The dashes of the new task's card edge.
     static var newCardDash: [CGFloat] { [4 * Zoom.factor, 3 * Zoom.factor] }

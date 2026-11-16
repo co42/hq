@@ -22,12 +22,10 @@ nonisolated struct Vault: Sendable {
         var roles: [String: (Date, RoleItem)] = [:]
         /// Evicted notes already asked of iCloud.
         var asked: Set<String> = []
-        /// Board notes already migrated, or tried: each once a launch.
-        var migrated: Set<String> = []
     }
 
     /// What a scan read. `unreadable`: notes caught empty or mid-write; `evicted`: notes still in iCloud, downloading.
-    /// Both keep their last read. `migrate`: task notes still on the board's statuses.
+    /// Both keep their last read.
     struct Scan: Sendable {
         var tasks: [TaskItem] = []
         var files: [FileItem] = []
@@ -35,7 +33,8 @@ nonisolated struct Vault: Sendable {
         var cache = Cache()
         var unreadable: [String] = []
         var evicted: [String] = []
-        var migrate: [URL] = []
+        /// What a migration did, for vault.log.
+        var log: [String] = []
     }
 
     // MARK: Reading
@@ -66,7 +65,6 @@ nonisolated struct Vault: Sendable {
         }
         var scan = Scan()
         scan.cache.asked = cache.asked
-        scan.cache.migrated = cache.migrated
         var evicted: Set<String> = []
         /// The note's text. Nil while iCloud has it (asked for once) or it can't be read, named in `evicted` or `unreadable`.
         func text(_ url: URL) -> String? {
@@ -89,7 +87,6 @@ nonisolated struct Vault: Sendable {
             if entry == nil, let text = text(url) {
                 if let item = Self.task(text, at: url, modified: modified) {
                     entry = (modified, item)
-                    if !cache.migrated.contains(url.path), !TaskMigration.plan(FrontMatter(text), modified: modified).isEmpty { scan.migrate.append(url) }
                 } else {
                     scan.unreadable.append(url.lastPathComponent)
                 }
@@ -122,19 +119,56 @@ nonisolated struct Vault: Sendable {
         return scan
     }
 
-    /// A scan that first moves the board's notes to the cockpit's lists (PLAN.md §5), after a backup: each note once.
-    func scanMigrating(_ cache: Cache, backups: URL) throws -> Scan {
-        let first = try scan(cache)
-        guard !first.migrate.isEmpty else { return first }
-        var cache = first.cache
-        cache.migrated.formUnion(first.migrate.map(\.path))
-        do {
-            let count = try migrate(first.migrate, backups: backups)
-            FileHandle.standardError.write(Data("HQ: moved \(count) task notes to the cockpit's lists\n".utf8))
-        } catch {
-            FileHandle.standardError.write(Data("HQ: \(error.localizedDescription)\n".utf8))
+    /// A scan that first moves the two lists' notes to one list (v16, T-471; PLAN.md §5), after a backup.
+    func scanMigrating(_ cache: Cache, backups: URL, journal: URL) throws -> Scan {
+        let current = try scan(cache)
+        guard let moved = try moveToOneList(current, backups: backups, journal: journal) else { return current }
+        var after = try scan(current.cache)
+        after.log.append(moved)
+        return after
+    }
+
+    /// The one-list move (v16, T-471): `list` goes from every note, the Backlog's todo top-level tasks become backlog, and
+    /// the top-level tasks take one order, Tasks' first. Planned only once every task note was read (none in iCloud or
+    /// mid-write), backed up, then the plan is written to `journal` before any note: a quit mid-run finishes the same plan
+    /// at the next scan, and a note it can't write yet stays in it. What it did when it wrote notes, for vault.log.
+    func moveToOneList(_ scan: Scan, backups: URL, journal: URL) throws -> String? {
+        var plan: [Int: TaskMigration.OneList]
+        if let data = try? Data(contentsOf: journal), let pending = try? JSONDecoder().decode([Int: TaskMigration.OneList].self, from: data) {
+            plan = pending
+        } else {
+            guard scan.evicted.isEmpty, scan.unreadable.isEmpty else { return nil }
+            plan = TaskMigration.oneList(scan.tasks.map {
+                TaskMigration.ListedNote(id: $0.id, topLevel: $0.parent == nil, list: $0.listKey, status: $0.status.rawValue, order: $0.order)
+            })
+            guard !plan.isEmpty else { return nil }
+            try backup(to: backups)
+            try FileManager.default.createDirectory(at: journal.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(plan).write(to: journal, options: .atomic)
         }
-        return try scan(cache)
+        let total = plan.count
+        for (id, change) in plan.sorted(by: { $0.key < $1.key }) {
+            let url = tasksDirectory.appending(path: "T-\(id).md")
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                plan[id] = nil
+                continue
+            }
+            guard !Self.isEvicted(url), let text = Self.read(url), !text.isEmpty else { continue }
+            var note = FrontMatter(text)
+            if let status = change.status { note.set("status", status.rawValue) }
+            if let order = change.order { note.set("order", Self.number(order)) }
+            if note.has("list") { note.set("list", nil) }
+            try write(note, to: url)
+            plan[id] = nil
+        }
+        if plan.isEmpty {
+            try? FileManager.default.removeItem(at: journal)
+        } else {
+            try JSONEncoder().encode(plan).write(to: journal, options: .atomic)
+        }
+        let line = "one list: moved \(total - plan.count) of \(total) task notes" + (plan.isEmpty ? "" : ", \(plan.count) wait for iCloud")
+        FileHandle.standardError.write(Data("HQ: \(line)\n".utf8))
+        return total > plan.count ? line : nil
     }
 
     /// A role note: its name is the note's, `color` and `line` in the front matter, the text in the body. Nil while it
@@ -176,7 +210,6 @@ nonisolated struct Vault: Sendable {
                         type: note.string("type").flatMap(TaskType.init(parsing:)) ?? (story ? .story : nil),
                         project: note.string("project").flatMap { $0.isEmpty ? nil : $0 },
                         tags: tags(note), parent: parent == number ? nil : parent,
-                        list: note.string("list").flatMap(TaskList.init(rawValue:)) ?? .backlog,
                         order: note.string("order").flatMap(Double.init) ?? Double(number),
                         // Review was a status: such a note reads as doing, its reason kept until the center has it.
                         review: note.string("status")?.trimmingCharacters(in: .whitespaces).lowercased() == "review" ? note.string("review") ?? "" : nil,
@@ -188,7 +221,8 @@ nonisolated struct Vault: Sendable {
                         blockedBy: note.list("blocked_by").compactMap(TaskItem.key).filter { $0 != number },
                         after: note.list("after").compactMap(TaskItem.key).filter { $0 != number }, sessions: note.list("sessions"),
                         created: note.string("created").flatMap(NoteDate.parse) ?? modified, modified: modified,
-                        body: note.body.trimmingCharacters(in: .newlines), path: url.path)
+                        body: note.body.trimmingCharacters(in: .newlines), path: url.path,
+                        listKey: note.string("list").flatMap { $0.isEmpty ? nil : $0 })
     }
 
     static func file(_ text: String, at url: URL, in directory: URL, modified: Date) -> FileItem {
@@ -242,8 +276,8 @@ nonisolated struct Vault: Sendable {
         optional(&note, "project", task.project)
         if !task.tags.isEmpty || note.has("tags") { note.set("tags", list: task.tags) }
         optional(&note, "parent", task.parent.map { "T-\($0)" })
-        // The list belongs to top-level tasks; a subtask shows in its root's.
-        optional(&note, "list", task.parent == nil ? task.list.rawValue : nil)
+        // One list since v16: the old `list` key goes once the task is written again.
+        optional(&note, "list", nil)
         note.set("order", Self.number(task.order))
         // Review was a status: its keys go once the task is written again.
         optional(&note, "review", nil)
@@ -376,10 +410,8 @@ nonisolated struct Vault: Sendable {
 
     // MARK: Migration
 
-    /// Zips `hq/tasks` into `backups`, then writes the migrated keys of these notes. Nothing is written unless the
-    /// backup exists, nor over a note that can't be read.
-    func migrate(_ notes: [URL], backups: URL) throws -> Int {
-        guard !notes.isEmpty else { return 0 }
+    /// Zips `hq/tasks` into `backups`, as `tasks-<date>.zip`; throws unless the zip is there.
+    func backup(to backups: URL) throws {
         try FileManager.default.createDirectory(at: backups, withIntermediateDirectories: true)
         var zip = backups.appending(path: "tasks-\(NoteDate.minute(.now).replacingOccurrences(of: ":", with: "")).zip")
         var n = 2
@@ -395,13 +427,6 @@ nonisolated struct Vault: Sendable {
         guard ditto.terminationStatus == 0, FileManager.default.fileExists(atPath: zip.path) else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "the tasks backup failed; nothing was migrated"])
         }
-        var count = 0
-        for url in notes {
-            guard let text = Self.read(url), !text.isEmpty, let migrated = TaskMigration.apply(text, modified: Self.modified(url)) else { continue }
-            try Data(migrated.utf8).write(to: url, options: .atomic)
-            count += 1
-        }
-        return count
     }
 
     private func write(_ note: FrontMatter, to url: URL) throws {

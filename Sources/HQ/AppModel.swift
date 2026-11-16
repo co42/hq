@@ -16,8 +16,8 @@ enum ModalRoute: Hashable {
     case web(String)
     /// A Slack message, thread or channel linked to a task or a reminder (T-312): it opens in Slack.
     case slack(String)
-    /// New Task…: a small sheet of its own (T-332), for Tasks or the Backlog.
-    case newTask(TaskList)
+    /// New Task…: a small sheet of its own (T-332), a todo or a backlog task.
+    case newTask(TaskStatus)
     /// New Reminder…: a small sheet of its own.
     case newReminder
     /// New File… and Import Artifact…: small sheets of their own.
@@ -71,45 +71,6 @@ enum ReviewFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct BacklogFilter: Hashable {
-    enum Status: String, CaseIterable, Identifiable {
-        case open, todo, doing, done, any
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .open: "Open"
-            case .todo: "Todo"
-            case .doing: "Doing"
-            case .done: "Done"
-            case .any: "Any"
-            }
-        }
-    }
-
-    var status = Status.open
-    var project: String?
-    var tag: String?
-
-    var isActive: Bool { status != .open || project != nil || tag != nil }
-
-    /// "Status Done, Project Registry": what applies, for the menu's tooltip.
-    var summary: String {
-        [status != .open ? "Status \(status.title)" : nil, project.map { "Project \($0)" },
-         tag.map { "Tag #\($0)" }].compactMap { $0 }.joined(separator: ", ")
-    }
-
-    func matches(_ task: TaskItem) -> Bool {
-        let statusOK: Bool = switch status {
-        case .open: task.status != .done
-        case .todo: task.status == .todo
-        case .doing: task.status == .doing
-        case .done: task.status == .done
-        case .any: true
-        }
-        return statusOK && (project == nil || task.project == project)
-            && (tag == nil || task.tags.contains(tag!))
-    }
-}
 
 /// An editor's text: the task it edits, the text it started from, and what's typed (TextMerge decides what's written).
 struct TextDraft: Equatable {
@@ -255,12 +216,17 @@ final class AppModel {
 
     var search = ""
     /// The Backlog's disclosure, remembered.
-    var backlogOpen = Prefs.defaults.bool(forKey: "backlog.open") {
-        didSet { remember(backlogOpen, as: "backlog.open"); syncMenu() }
+    /// Tasks' Backlog toggle: backlog tasks show, in place (2026-11-16, T-471); remembered, off by default.
+    var showBacklog = Prefs.defaults.bool(forKey: "tasks.showBacklog") {
+        didSet { remember(showBacklog, as: "tasks.showBacklog"); syncMenu() }
     }
-    var backlogFilter = BacklogFilter()
+    /// Tasks' Done toggle: done tasks show, in place; remembered, off by default.
+    var showDone = Prefs.defaults.bool(forKey: "tasks.showDone") {
+        didSet { remember(showDone, as: "tasks.showDone"); syncMenu() }
+    }
+    var taskShow: TaskShow { TaskShow(backlog: showBacklog, done: showDone) }
     /// Each list's own search, in its header.
-    var listSearch: [TaskList: String] = [:]
+    var taskSearch = ""
     /// Files and Artifacts' own search, by title.
     var filesSearch = ""
     /// The lists whose Descriptions toggle shows every description, remembered.
@@ -274,8 +240,8 @@ final class AppModel {
     var earlierOpen = Prefs.defaults.bool(forKey: "notifications.earlierOpen") {
         didSet { remember(earlierOpen, as: "notifications.earlierOpen") }
     }
-    var allDescriptions: Set<TaskList> = AppModel.storedLists("outline.descriptions") {
-        didSet { remember(allDescriptions.map(\.rawValue).sorted(), as: "outline.descriptions"); hiddenDescriptions = []; syncMenu() }
+    var allDescriptions = Prefs.defaults.bool(forKey: "tasks.descriptions") {
+        didSet { remember(allDescriptions, as: "tasks.descriptions"); hiddenDescriptions = []; syncMenu() }
     }
     /// View › Zoom, remembered: every size scales with it.
     var zoom: CGFloat = {
@@ -316,10 +282,6 @@ final class AppModel {
     /// Files and Artifacts shows pinned items only, remembered.
     var pinnedOnly = Prefs.defaults.bool(forKey: "files.pinnedOnly") {
         didSet { remember(pinnedOnly, as: "files.pinnedOnly") }
-    }
-    /// The lists whose Hide Done is on, remembered.
-    var hideDone: Set<TaskList> = AppModel.storedLists("outline.hideDone").subtracting([.backlog]) {
-        didSet { remember(hideDone.map(\.rawValue).sorted(), as: "outline.hideDone"); syncMenu() }
     }
     /// Descriptions shown one by one.
     var shownDescriptions: Set<Int> = []
@@ -384,8 +346,8 @@ final class AppModel {
     }
     /// The outline's rows or a title have the keyboard: the Task menu's keys follow.
     var outlineKeyboard = OutlineKeyboard.none { didSet { syncMenu() } }
-    /// New Task: the quick-add line of this list takes the keyboard.
-    var quickAddFocus: TaskList?
+    /// New Task: the list's quick-add line takes the keyboard.
+    var quickAddFocus = false
     /// ↓ on a task window's last subtask: that task's new subtask card takes the keyboard.
     var newSubtaskFocus: Int?
     /// Where the outline puts the keyboard after its next update.
@@ -510,8 +472,8 @@ final class AppModel {
     /// Notes' and plans' text read in the background, by path, with the date it was read for.
     var diskTexts: [String: DiskText] = [:]
     @ObservationIgnored var tasksVersion = 0
-    /// The last search's tasks and their parents, by list, tasks' version and words.
-    @ObservationIgnored var foundCache: [TaskList: (key: String, found: Set<Int>)] = [:]
+    /// The last search's tasks and their parents, by tasks' version and words.
+    @ObservationIgnored var foundCache: (key: String, found: Set<Int>)?
     @ObservationIgnored var treeCache: (version: Int, tree: TaskTree)?
     @ObservationIgnored var flowCache: (version: Int, flow: TaskFlow)?
     @ObservationIgnored var taskIndex: [Int: Int] = [:]
@@ -593,22 +555,12 @@ final class AppModel {
         Prefs.defaults.set(value, forKey: key)
     }
 
-    private static func storedLists(_ key: String) -> Set<TaskList> {
-        Set(((Prefs.defaults.array(forKey: key) as? [String]) ?? []).compactMap(TaskList.init(rawValue:)))
-    }
-
     /// Zoom In and Zoom Out: the next step of View › Zoom, if there is one.
     func zoom(by step: Int) {
         let steps = Zoom.steps
         let index = steps.firstIndex(of: zoom) ?? steps.firstIndex(of: 1) ?? 0
         let next = min(max(index + step, 0), steps.count - 1)
         if steps[next] != zoom { zoom = steps[next] }
-    }
-
-    /// One list's switch in a per-list setting: Descriptions, Hide Done.
-    func toggle(_ setting: ReferenceWritableKeyPath<AppModel, Set<TaskList>>, _ list: TaskList) -> Binding<Bool> {
-        Binding(get: { self[keyPath: setting].contains(list) },
-                set: { on in if on { self[keyPath: setting].insert(list) } else { self[keyPath: setting].remove(list) } })
     }
 
     // MARK: Toolbar
@@ -767,7 +719,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
     @Published private(set) var canGoBack = false
     @Published private(set) var inCenter = false
-    @Published private(set) var backlogOpen = false
+    @Published private(set) var showBacklog = false
+    @Published private(set) var showDone = false
     @Published private(set) var folded: Set<PageSection> = []
     /// A task's modal is open: the Task menu acts on it, not on the outline behind it.
     @Published private(set) var inModal = false
@@ -782,9 +735,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
     @Published private(set) var pinnedOnly = false
     @Published private(set) var reviewDrafts = false
-    @Published private(set) var descriptions: Set<TaskList> = []
+    @Published private(set) var descriptions = false
     @Published private(set) var zoom: CGFloat = 1
-    @Published private(set) var hideDone: Set<TaskList> = []
     @Published private(set) var canEditFile = false
     @Published private(set) var canEditRole = false
     /// The Session menu's team items: its team shown open, has one, sits under a session, its open sessions as a top card,
@@ -829,7 +781,7 @@ final class MenuState: ObservableObject {
         let task = model.modal == nil ? model.focusedTask.flatMap { model.task($0) } : model.task(modalTask)
         set(\.task, task?.id)
         set(\.taskIsDone, task?.status == .done)
-        set(\.taskInBacklog, task.map { model.list(of: $0.id) == .backlog } ?? false)
+        set(\.taskInBacklog, task?.status == .backlog)
         let session = model.modal == nil ? model.session(model.selectedSession) : model.session(modalSession)
         set(\.session, session?.id)
         set(\.sessionRunning, session?.isRunning ?? false)
@@ -854,7 +806,8 @@ final class MenuState: ObservableObject {
         set(\.outlineKeyboard, model.modal == nil ? model.outlineKeyboard : .none)
         set(\.canGoBack, !model.modalStack.isEmpty)
         set(\.inCenter, model.modal == .notifications)
-        set(\.backlogOpen, model.backlogOpen)
+        set(\.showBacklog, model.showBacklog)
+        set(\.showDone, model.showDone)
         set(\.folded, model.folded)
         set(\.inModal, modalTask != nil)
         set(\.github, model.github != nil)
@@ -864,7 +817,6 @@ final class MenuState: ObservableObject {
         set(\.hasClosed, !model.closedSessions.isEmpty)
         set(\.descriptions, model.allDescriptions)
         set(\.zoom, model.zoom)
-        set(\.hideDone, model.hideDone)
         let file: Bool = if case .file = model.modal { model.editingFile == nil } else { false }
         set(\.canEditFile, file)
         set(\.canEditRole, model.modal == .roles && model.roleEdit == nil && model.role(named: model.selectedRole) != nil)
@@ -872,7 +824,7 @@ final class MenuState: ObservableObject {
         set(\.taskBlocked, task?.blocked ?? false)
         let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []
         set(\.tasks, targets)
-        set(\.tasksToBacklog, targets.contains { model.list(of: $0) != .backlog })
+        set(\.tasksToBacklog, targets.contains { model.task($0)?.status != .backlog })
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })
         set(\.taskStatus, targets.count == 1 ? task?.status : nil)
         set(\.editorFind, model.findEditor() != nil)

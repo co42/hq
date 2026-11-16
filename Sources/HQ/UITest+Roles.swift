@@ -145,7 +145,7 @@ extension UITest {
         await ui.until { ui.window.attachedSheet == nil }
 
         // From a task: its name and first message, at the top level.
-        guard let task = model.addTask(to: .overview, title: "Form task") else { return await check("a task", false) }
+        guard let task = model.addTask(status: .todo, title: "Form task") else { return await check("a task", false) }
         model.beginStart(task: task.id)
         await ui.until { shown(ui, "Role") != nil }
         await check("from a task: its name and first message, Parent None", model.startDraft?.name == "\(task.key) Form task"

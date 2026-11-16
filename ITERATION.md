@@ -41,4 +41,4 @@ When the user says the iteration is over (they did at v7 and v9):
 
 1. What isn't done moves under the next iteration's story: `hq task edit T-n --parent T-m`.
 2. The rest of its subtasks to done: `hq task move T-n done`.
-3. The story to the Backlog, done: `hq task move T-n done --list backlog`.
+3. The story done: `hq task move T-n done`.

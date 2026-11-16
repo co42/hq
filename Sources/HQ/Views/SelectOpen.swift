@@ -82,7 +82,7 @@ extension ModalRoute {
         case .github(let url): "github:\(url)"
         case .web(let url): "web:\(url)"
         case .slack(let url): "slack:\(url)"
-        case .newTask(let list): "newTask:\(list.rawValue)"
+        case .newTask(let status): "newTask:\(status.rawValue)"
         case .newReminder: "newReminder"
         case .newFile: "newFile"
         case .importArtifact: "importArtifact"

@@ -121,16 +121,15 @@ enum UITest {
         model.showSetup = false
         model.pendingTaskLink = nil
         model.search = ""
-        model.listSearch = [:]
+        model.taskSearch = ""
         model.filesSearch = ""
         model.problem = nil
         model.zoom = 1
-        model.backlogOpen = false
-        model.backlogFilter = BacklogFilter()
+        model.showBacklog = false
+        model.showDone = false
         model.folded = []
-        model.hideDone = []
         model.pinnedOnly = false
-        model.allDescriptions = []
+        model.allDescriptions = false
         model.shownDescriptions = []
         model.hiddenDescriptions = []
         model.selectSection(nil)

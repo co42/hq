@@ -252,7 +252,7 @@ enum SelfTest {
         let route = ModalRoute.slack(url)
         check("a Slack link is its own kind of link, by its keys too", ModalRoute(itemKey: route.selectionKey) == route
               && ModalRoute(noticeKey: route.selectionKey) == route && ModalRoute(selectionKey: route.selectionKey) == route)
-        guard let task = model.addTask(to: .backlog, title: "Slack target") else { return check("a task for a Slack link", false) }
+        guard let task = model.addTask(status: .todo, title: "Slack target") else { return check("a task for a Slack link", false) }
         check("Link… takes a pasted Slack link as one", LinkPicker.matches(model, task: task.id, query: url).first == route)
         let linked = agent("task link", ["task": task.key, "item": url])
         check("hq task link links a Slack message, named after it: who, where, its first line", linked["error"] == nil
@@ -305,10 +305,10 @@ enum SelfTest {
               && !LinkPicker.matches(model, query: task.key, leaving: [.task(task.id)]).contains(.task(task.id))
               && LinkPicker.matches(model, query: url, leaving: []).first == route)
         model.beginTask(.backlog)
-        check("New Backlog Task… opens its sheet for the Backlog", model.modal == .newTask(.backlog) && model.title(of: .newTask(.backlog)) == "New Task"
+        check("New Backlog Task… opens its sheet for a backlog task", model.modal == .newTask(.backlog) && model.title(of: .newTask(.backlog)) == "New Task"
               && ModalRoute.newTask(.backlog).selectionKey == "newTask:backlog")
         model.closeModal()
-        if let made = model.addTask(to: .overview, title: "From the sheet", body: "Why", project: "Registry", links: [URL(string: url)!]) {
+        if let made = model.addTask(status: .todo, title: "From the sheet", body: "Why", project: "Registry", links: [URL(string: url)!]) {
             check("a task added with a project, a description and links keeps them", made.project == "Registry" && made.body == "Why"
                   && made.links == [URL(string: url)!] && model.outputs(ofTask: made.id).contains(route))
             model.deleteTasks([made.id], action: "Delete")
@@ -588,8 +588,8 @@ enum SelfTest {
     /// The user's editors and Undo beside sessions writing the same notes: nothing either wrote is lost unseen.
     private static func editorChecks(_ model: AppModel) async {
         let body = "Goal.\n\n## Done when\n- [ ] one\n- [ ] two\n\n## Status\nStarted."
-        guard let task = model.addTask(to: .overview, title: "Written by two", body: body),
-              let other = model.addTask(to: .overview, title: "Opened next", body: "Mine alone.") else { return check("two tasks to edit", false) }
+        guard let task = model.addTask(status: .todo, title: "Written by two", body: body),
+              let other = model.addTask(status: .todo, title: "Opened next", body: "Mine alone.") else { return check("two tasks to edit", false) }
         func session(_ text: String) { agent("task edit", ["task": task.key, "body": text]) }
         await UITest.endUndoGroup(model)
 
@@ -648,8 +648,10 @@ enum SelfTest {
         check("Quit saves an open editor and the notifications of the last second", model.task(other.id)?.body == "Typed just before Quit."
               && model.editingDescription == nil && FileManager.default.fileExists(atPath: noticesFile.path), model.task(other.id)?.body ?? "-")
         let fields = Set(Mirror(reflecting: other).children.compactMap(\.label))
-        check("Undo knows every field of a task note", fields.subtracting(["id", "created", "modified", "path"]) == Set(TaskItem.noteFields.map(\.name)),
-              "\(fields.symmetricDifference(TaskItem.noteFields.map(\.name)).subtracting(["id", "created", "modified", "path"]))")
+        // listKey: an old note's list, read for the move to one list, never written.
+        let notWritten: Set<String> = ["id", "created", "modified", "path", "listKey"]
+        check("Undo knows every field of a task note", fields.subtracting(notWritten) == Set(TaskItem.noteFields.map(\.name)),
+              "\(fields.symmetricDifference(TaskItem.noteFields.map(\.name)).subtracting(notWritten))")
         model.deleteTasks([task.id, other.id])
 
         // notifications.json: a row a newer build wrote costs that row only; a field added later never empties the file.
@@ -661,7 +663,8 @@ enum SelfTest {
 
     // MARK: Vault
 
-    /// The board's notes on a scratch vault: the migration with its backup, then edits through the tree.
+    /// The two lists' notes (v15) on a scratch vault: the move to one list with its backup (v16, T-471), a quit in its
+    /// middle, then edits through the tree.
     private static func vaultChecks(_ model: AppModel) async {
         func settle(_ seconds: Double = 0.3) async { try? await Task.sleep(for: .seconds(seconds)) }
         let root = URL(fileURLWithPath: Store.url.path + "-vault")
@@ -670,10 +673,10 @@ enum SelfTest {
         try? FileManager.default.removeItem(at: Store.backups)
         try? FileManager.default.createDirectory(at: tasks, withIntermediateDirectories: true)
         let old: [(Int, String)] = [
-            (1, "---\ntitle: Backlog idea\nstatus: backlog\naliases: [idea]\n---\nKeep this **body**.\n"),
-            (2, "---\ntitle: Next up\nstatus: todo\ntags: [registry]\n---\n"),
-            (3, "---\ntitle: In progress\nstatus: doing\nsessions: [abc]\n---\nBody.\n\n**2026-11-03 16:12 · Claude**: a note.\n"),
-            (4, "---\ntitle: Finished\nstatus: done\n---\n"),
+            (1, "---\ntitle: Backlog idea\nstatus: todo\naliases: [idea]\nlist: backlog\norder: 1\n---\nKeep this **body**.\n"),
+            (2, "---\ntitle: Next up\nstatus: todo\ntags: [registry]\nlist: backlog\norder: 2\n---\n"),
+            (3, "---\ntitle: In progress\nstatus: doing\nsessions: [abc]\nlist: overview\norder: 5\n---\nBody.\n\n**2026-11-03 16:12 · Claude**: a note.\n"),
+            (4, "---\ntitle: Finished\nstatus: done\nlist: backlog\norder: 4\ndone: 2026-11-01T10:00\n---\n"),
         ]
         for (id, text) in old { try? text.write(to: tasks.appending(path: "T-\(id).md"), atomically: true, encoding: .utf8) }
         model.tasks = []
@@ -681,13 +684,17 @@ enum SelfTest {
         model.vault = Vault(vault: root)
         model.startVault()
         check("Tasks load until the first scan is in: none read on the main thread", model.vaultLoading && model.tasks.isEmpty, "\(model.tasks.count) tasks")
-        await expect("the first scan migrates the board's notes and reads them", !model.vaultLoading && model.taskTree.top(.overview) == [3])
+        await expect("the first scan moves the lists' notes to one list and reads them", !model.vaultLoading && model.taskTree.top() == [3, 1, 2, 4],
+                     "\(model.taskTree.top())")
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: Store.backups.path)) ?? []
         check("the migration backs up hq/tasks first", backups.contains { $0.hasPrefix("tasks-") && $0.hasSuffix(".zip") }, "\(backups)")
         func note(_ id: Int) -> FrontMatter { FrontMatter((try? String(contentsOf: tasks.appending(path: "T-\(id).md"), encoding: .utf8)) ?? "") }
-        check("a board backlog note stays backlog, in the Backlog", note(1).string("status") == "backlog" && note(1).string("list") == "backlog")
-        check("todo goes to the Backlog, doing to the overview", note(2).string("list") == "backlog" && note(3).string("list") == "overview")
-        check("done goes to the Backlog with its date", note(4).string("list") == "backlog" && note(4).string("done") != nil)
+        check("the Backlog's todo notes become backlog; doing and done stay", note(1).string("status") == "backlog"
+              && note(2).string("status") == "backlog" && note(3).string("status") == "doing" && note(4).string("status") == "done")
+        check("one list: no note keeps a list key, the overview's tasks come first", (1...4).allSatisfy { !note($0).has("list") }
+              && note(3).string("order") == "1" && note(4).string("order") == "4", "\(note(3).text) \(note(4).text)")
+        check("done keeps its date", note(4).string("done") != nil)
+        check("the one-list plan goes once every note is written", !FileManager.default.fileExists(atPath: Store.oneListJournal.path))
         check("a note without a type keeps none", (1...4).allSatisfy { note($0).string("type") == nil })
         check("other keys and bodies stay byte for byte",
               note(1).list("aliases") == ["idea"] && note(1).body == "Keep this **body**.\n" && note(3).body.contains("**2026-11-03 16:12 · Claude**: a note."))
@@ -695,18 +702,16 @@ enum SelfTest {
         model.rescanVault()
         for _ in 0..<100 where model.vaultScanning { try? await Task.sleep(for: .milliseconds(20)) }
         check("a second run changes nothing", (1...4).map { (try? String(contentsOf: tasks.appending(path: "T-\($0).md"), encoding: .utf8)) ?? "" } == snapshot)
-        check("the outline reads the lists", model.taskTree.top(.overview) == [3] && Set(model.taskTree.top(.backlog)) == [1, 2, 4], "\(model.taskTree.top(.overview)) \(model.taskTree.top(.backlog))")
-
+        check("the outline reads one list", model.taskTree.top() == [3, 1, 2, 4], "\(model.taskTree.top())")
         // Edits write only what changed, one Undo each.
         model.indent(4)
-        await expect("Tab nests a task: parent written, list dropped", note(4).string("parent") != nil && !note(4).has("list"), note(4).text)
+        await expect("Tab nests a task: parent written", note(4).string("parent") != nil, note(4).text)
         model.undoManager?.undo()
-        await expect("Undo Indent puts it back at the top", note(4).string("parent") == nil && note(4).string("list") == "backlog", note(4).text)
-        model.move(1, to: .overview)
-        await expect("Move to Tasks writes the list", note(1).string("list") == "overview" && model.taskTree.top(.overview).last == 1)
+        await expect("Undo Indent puts it back at the top", note(4).string("parent") == nil && model.taskTree.top() == [3, 1, 2, 4], note(4).text)
+        model.toggleBacklog([1])
+        await expect("Move Out of the Backlog writes todo and moves nothing", note(1).string("status") == "todo" && model.taskTree.top() == [3, 1, 2, 4])
         // Review was a status: a task still in Review becomes doing, and on the overview its reason a notification.
         check("an old note in Review reads as doing", TaskStatus(parsing: "review") == .doing)
-        model.move(3, to: .overview)
         model.changeTask(3, "Seed") { $0.review = "PR is ready" }
         model.migrateReviews()
         await expect("a task in Review moves on: no reason left, a notification instead", model.task(3)?.review == nil && !note(3).has("review")
@@ -714,13 +719,25 @@ enum SelfTest {
         model.setDescription(2, "- [ ] one\n- [ ] two")
         model.toggleCheckbox(2, at: 1)
         await expect("a checkbox ticks in the note", note(2).body == "- [ ] one\n- [x] two\n", note(2).body)
-        // Nothing moves on its own (T-345): a task done days ago stays on Tasks through a vault read.
+        // Nothing moves on its own (T-345): a task done days ago stays in its place through a vault read.
         model.setStatus(1, .done)
         model.changeTask(1, "Seed") { $0.done = Date.now.addingTimeInterval(-72 * 3600) }
         await settle()
         model.rescanVault()
         for _ in 0..<100 where model.vaultScanning { try? await Task.sleep(for: .milliseconds(20)) }
-        check("a task done days ago stays on Tasks", model.list(of: 1) == .overview, "list \(model.list(of: 1))")
+        check("a task done days ago stays in its place", model.taskTree.top() == [3, 1, 2, 4], "\(model.taskTree.top())")
+        // A quit in the middle of one list: its plan, written first, finishes at the next scan, even over a note it wrote already.
+        try? "---\ntitle: Written already\nstatus: todo\norder: 7\n---\n".write(to: tasks.appending(path: "T-5.md"), atomically: true, encoding: .utf8)
+        try? "---\ntitle: Not yet\nstatus: todo\nlist: backlog\norder: 1\n---\n".write(to: tasks.appending(path: "T-6.md"), atomically: true, encoding: .utf8)
+        let plan: [Int: TaskMigration.OneList] = [5: .init(status: nil, order: 7), 6: .init(status: .backlog, order: 8)]
+        try? JSONEncoder().encode(plan).write(to: Store.oneListJournal)
+        model.rescanVault()
+        await expect("a quit mid-run: the next scan finishes the plan it wrote first", !FileManager.default.fileExists(atPath: Store.oneListJournal.path)
+                     && note(6).string("status") == "backlog" && note(6).string("order") == "8" && !note(6).has("list") && note(5).string("order") == "7"
+                     && model.taskTree.top() == [3, 1, 2, 4, 5, 6], "\(note(6).text) \(model.taskTree.top())")
+        model.deleteTasks([5, 6])
+        await settle()
+
         model.deleteTasks([3])
         await expect("Delete moves the note to the Trash", !FileManager.default.fileExists(atPath: tasks.appending(path: "T-3.md").path))
         model.undoManager?.undo()
@@ -731,14 +748,14 @@ enum SelfTest {
 
     /// Title words, completions, colors, the Story status and a description's first line.
     private static func labelChecks(_ model: AppModel) {
-        guard let task = model.addTask(to: .backlog, title: "Labels") else { return check("a task for labels", false) }
+        guard let task = model.addTask(status: .todo, title: "Labels") else { return check("a task for labels", false) }
         let long = model.files.first { $0.title.count > AppModel.shortTitleLength }
         let pr = model.github?.items.first
         check("a link at rest reads T-34, #418 or a file's first letters", model.shortTitle(of: .task(task.id)) == task.key
               && pr.map { model.shortTitle(of: .github($0.url)) == "#\($0.number)" } ?? true
               && long.map { model.shortTitle(of: .file($0.id)).hasSuffix("…") && model.shortTitle(of: .file($0.id)).count <= AppModel.shortTitleLength + 1 } ?? true,
               "\(model.shortTitle(of: .task(task.id))) \(pr.map { model.shortTitle(of: .github($0.url)) } ?? "-") \(long.map { model.shortTitle(of: .file($0.id)) } ?? "-")")
-        let untyped = agent("task add", ["title": "No type yet", "backlog": "true"])
+        let untyped = agent("task add", ["title": "No type yet", "status": "backlog"])
         check("a task has no type", task.type == nil && untyped["type"] == nil && untyped["id"] != nil, "\(untyped)")
         if let key = untyped["id"] as? String, let id = TaskItem.key(key) {
             agent("task edit", ["task": key, "title": "Typed now #infra #bug"])
@@ -746,7 +763,7 @@ enum SelfTest {
                   && model.task(id)?.title == "Typed now", "\(String(describing: model.task(id)))")
             let sub = agent("task add", ["title": "Its first part", "parent": key])
             let moved = agent("task move", ["task": key, "status": "doing"])
-            check("doing brings a Backlog task to Tasks", model.list(of: id) == .overview && model.task(id)?.status == .doing)
+            check("a backlog task turned doing is doing, in its place", model.task(id)?.status == .doing)
             check("task move doing names the subtasks still todo", (moved["next"] as? String)?.contains("\(sub["id"] as? String ?? "?") Its first part") == true,
                   "\(moved["next"] ?? "none")")
             if let artifact = model.artifacts.first {
@@ -755,7 +772,15 @@ enum SelfTest {
                       && model.task(id)?.links.isEmpty == true)
             }
             let doing = agent("task add", ["title": "Start now #doing"])
-            check("#doing in a new task's title puts it on Tasks", doing["list"] as? String == "overview" && doing["status"] as? String == "doing", "\(doing)")
+            check("#doing in a new task's title makes it doing; a task has no list", doing["list"] == nil && doing["status"] as? String == "doing", "\(doing)")
+            // A subtask turning doing takes its backlog story to todo (T-471).
+            let later = agent("task add", ["title": "A story for later", "status": "backlog"])
+            if let story = (later["id"] as? String).flatMap(TaskItem.key) {
+                let step = agent("task add", ["title": "Its first step", "parent": "T-\(story)"])
+                agent("task move", ["task": step["id"] as? String ?? "", "status": "doing"])
+                check("a subtask turning doing takes its backlog story to todo", model.task(story)?.status == .todo, "\(String(describing: model.task(story)?.status))")
+                model.deleteTasks([story])
+            }
             if let other = (doing["id"] as? String).flatMap(TaskItem.key) { model.deleteTasks([other]) }
             model.deleteTasks([id])
         }
@@ -852,7 +877,7 @@ enum SelfTest {
         }
         check("the editor draws markdown as tall as the viewer, so switching moves nothing", offsets.isEmpty, offsets.joined(separator: "; "))
         // Links between tasks, one way; pins and labels on files.
-        guard let other = model.addTask(to: .backlog, title: "Linked") else { return check("a task to link", false) }
+        guard let other = model.addTask(status: .todo, title: "Linked") else { return check("a task to link", false) }
         let linked = agent("task link", ["task": task.key, "item": other.key])
         check("task link T-a T-b shows T-b under T-a, not T-a under T-b",
               (linked["related"] as? [String]) == [other.key] && model.outputs(ofTask: task.id).contains(.task(other.id))
@@ -935,11 +960,11 @@ enum SelfTest {
             model.deleteTasks([middle.id])
         }
         // A deleted task's id isn't given again while a file still names it: a new task inherits nothing.
-        if let gone = model.addTask(to: .overview, title: "Gone soon"), let file = model.addFile(title: "Notes on what went", task: gone.id) {
+        if let gone = model.addTask(status: .todo, title: "Gone soon"), let file = model.addFile(title: "Notes on what went", task: gone.id) {
             model.deleteTasks([gone.id])
             let named = model.files.first { $0.id == file.id }?.tasks ?? []
             let expected = model.nextTaskID
-            let next = model.addTask(to: .overview, title: "Comes after")
+            let next = model.addTask(status: .todo, title: "Comes after")
             check("a new task never takes the id of a deleted one a file still names", next.map { $0.id != gone.id && model.outputs(ofTask: $0.id).isEmpty } == true,
                   "gone \(gone.id), new \(String(describing: next?.id)), the file names \(named) (\(file.tasks)), next was \(expected), files \(model.files.count)")
             if let next { model.deleteTasks([next.id]) }
@@ -980,7 +1005,7 @@ enum SelfTest {
               PullRequestsSection.updated(.now.addingTimeInterval(-180), now: .now))
 
         // Linking by hand: a file, an artifact, a PR and a task; Link… offers what isn't linked yet; each unlinks.
-        if let target = model.addTask(to: .backlog, title: "Link target"), let other = model.addTask(to: .backlog, title: "Other"),
+        if let target = model.addTask(status: .todo, title: "Link target"), let other = model.addTask(status: .todo, title: "Other"),
            let file = model.addFile(title: "Link me", body: "# Link me\n", session: nil, task: nil) {
             let artifact = model.importArtifact(URL(string: "https://claude.ai/artifact/selftest-link")!, title: "Linked page")
             let pr = ModalRoute.github("https://github.com/acme/registry/pull/77")
@@ -1037,7 +1062,7 @@ enum SelfTest {
         check("and neither blinks", model.session("look-asks").map(model.blinks) == false && model.session("look-done").map(model.blinks) == false)
         model.sessions.removeAll { $0.id.hasPrefix("look-") }
         // A task added below one with a project takes it; a first child has it from its parent.
-        if let above = model.addTask(to: .backlog, title: "Above") {
+        if let above = model.addTask(status: .todo, title: "Above") {
             model.setProject(above.id, "Registry")
             let below = model.addTask(after: above.id)
             check("a task added below one with a project takes its project", below?.project == "Registry", "\(String(describing: below?.project))")
@@ -1067,45 +1092,72 @@ enum SelfTest {
         model.removeArtifact(elsewhere.id)
         check("Remove from HQ takes an artifact off the list", !model.artifacts.contains { $0.id == elsewhere.id })
         // Link to Task…'s finder: a number finds its task first, words find titles.
-        if let found = model.addTask(to: .backlog, title: "Findable widget") {
+        if let found = model.addTask(status: .todo, title: "Findable widget") {
             check("the task finder finds a task by its number and by its title",
                   TaskFinder.matches(model, query: "\(found.id)").first?.id == found.id
                   && TaskFinder.matches(model, query: "findable").contains { $0.id == found.id })
             model.deleteTasks([found.id])
         }
         // A search shows the tasks whose title has it, and their parents: not their siblings.
-        if let parent = model.addTask(to: .overview, title: "Searchable parent"), let hit = model.addSubtask(to: parent.id, title: "Needle here"),
+        if let parent = model.addTask(status: .todo, title: "Searchable parent"), let hit = model.addSubtask(to: parent.id, title: "Needle here"),
            model.addSubtask(to: parent.id, title: "Hay") != nil {
-            model.listSearch[.overview] = "needle"
+            model.taskSearch = "needle"
             let snapshot = OutlineSnapshot.make(model)
             check("a search shows the tasks that match and their parents, not their siblings",
-                  snapshot.children(of: .header(.overview)).contains(.task(parent.id)) && snapshot.children(of: .task(parent.id)) == [.task(hit.id)],
+                  snapshot.children(of: .header).contains(.task(parent.id)) && snapshot.children(of: .task(parent.id)) == [.task(hit.id)],
                   "\(snapshot.children(of: .task(parent.id)))")
-            model.listSearch = [:]
+            // It finds backlog and done tasks while they're hidden, and a project or a tag by its name (T-471).
+            model.setStatus(parent.id, .backlog)
+            model.setStatus(hit.id, .done)
+            check("a search finds hidden backlog and done tasks", OutlineSnapshot.make(model).children(of: .task(parent.id)) == [.task(hit.id)])
+            model.setProject(parent.id, "Needlework")
+            model.setStatus(hit.id, .todo)
+            model.taskSearch = "needlework"
+            check("a search finds a project by its name", OutlineSnapshot.make(model).children(of: .header).contains(.task(parent.id)))
+            model.taskSearch = ""
             model.deleteTasks([parent.id])
         }
-        // Hide Done and Descriptions apply to their own list.
-        if let open = model.addTask(to: .overview, title: "On Tasks"), let openDone = model.addSubtask(to: open.id, title: "Done here"),
-           let later = model.addTask(to: .backlog, title: "In the Backlog"), let laterDone = model.addSubtask(to: later.id, title: "Done there") {
+        // The Backlog and Done toggles (T-471): each hides its tasks at every level, a backlog one with all under it; a done
+        // task with an open one under it stays.
+        if let open = model.addTask(status: .todo, title: "Open now"), let openDone = model.addSubtask(to: open.id, title: "Done here"),
+           let openLater = model.addSubtask(to: open.id, title: "Later here"),
+           let later = model.addTask(status: .backlog, title: "A story for later"), let laterStep = model.addSubtask(to: later.id, title: "Its step"),
+           let finished = model.addTask(status: .todo, title: "Finished, but not all"), let leftover = model.addSubtask(to: finished.id, title: "Left over") {
             model.setStatus(openDone.id, .done)
-            model.setStatus(laterDone.id, .done)
-            model.setDescription(open.id, "Why.")
-            model.setDescription(later.id, "Why.")
-            let saved = (model.hideDone, model.allDescriptions, model.backlogOpen)
-            model.backlogOpen = true
-            model.hideDone = [.backlog]
-            model.allDescriptions = [.backlog]
-            let snapshot = OutlineSnapshot.make(model)
-            check("Hide Done in the Backlog hides its done subtasks, not those in Tasks",
-                  snapshot.children(of: .task(open.id)) == [.task(openDone.id)] && snapshot.children(of: .task(later.id)).isEmpty,
-                  "\(snapshot.children(of: .task(open.id))) \(snapshot.children(of: .task(later.id)))")
-            check("Descriptions in the Backlog shows its descriptions, not those in Tasks",
-                  model.descriptionShownInOutline(later.id) && !model.descriptionShownInOutline(open.id))
-            (model.hideDone, model.allDescriptions, model.backlogOpen) = saved
-            model.deleteTasks([open.id, later.id])
+            model.setStatus(openLater.id, .backlog)
+            model.setStatus(finished.id, .done)
+            let saved = (model.showBacklog, model.showDone)
+            (model.showBacklog, model.showDone) = (false, false)
+            var snapshot = OutlineSnapshot.make(model)
+            let tops = snapshot.children(of: .header)
+            check("at rest: no backlog or done task at any level, a backlog story with its steps",
+                  tops.contains(.task(open.id)) && !tops.contains(.task(later.id)) && snapshot.children(of: .task(open.id)).isEmpty
+                  && OutlineSnapshot.matches(model).contains(open.id), "\(snapshot.children(of: .task(open.id)))")
+            check("a done task with an open one under it stays, so no open task hides",
+                  tops.contains(.task(finished.id)) && snapshot.children(of: .task(finished.id)) == [.task(leftover.id)])
+            model.showBacklog = true
+            snapshot = OutlineSnapshot.make(model)
+            check("Backlog shows them where they sit, steps too", snapshot.children(of: .header).contains(.task(later.id))
+                  && snapshot.children(of: .task(later.id)) == [.task(laterStep.id)] && snapshot.children(of: .task(open.id)) == [.task(openLater.id)])
+            (model.showBacklog, model.showDone) = (false, true)
+            snapshot = OutlineSnapshot.make(model)
+            check("Done shows done tasks where they sit", snapshot.children(of: .task(open.id)) == [.task(openDone.id)])
+            (model.showBacklog, model.showDone) = saved
+            model.deleteTasks([open.id, later.id, finished.id])
+        }
+        // Descriptions shows every description in Tasks.
+        if let described = model.addTask(status: .todo, title: "Described") {
+            model.setDescription(described.id, "Why.")
+            let saved = model.allDescriptions
+            model.allDescriptions = false
+            let before = model.descriptionShownInOutline(described.id)
+            model.allDescriptions = true
+            check("Descriptions shows every description", !before && model.descriptionShownInOutline(described.id))
+            model.allDescriptions = saved
+            model.deleteTasks([described.id])
         }
         // --parent moves a task under another, or out to the top.
-        if let child = model.addTask(to: .backlog, title: "Child") {
+        if let child = model.addTask(status: .todo, title: "Child") {
             let moved = agent("task edit", ["task": child.key, "parent": task.key])
             check("task edit --parent makes it the last subtask", model.taskTree.parent(of: child.id) == task.id && model.taskTree.children(of: task.id).last == child.id,
                   "\(moved)")
@@ -1135,14 +1187,14 @@ enum SelfTest {
                   "\(String(describing: dashed)) \(String(describing: ended)) \(typed)")
         }
         let session = "5e550000-0000-4000-8000-000000000001"
-        let added = agent("task add", ["title": "Dedup layers on push #perf", "project": "Registry", "body": "Goal.", "backlog": "true", "_session": session])
+        let added = agent("task add", ["title": "Dedup layers on push #perf", "project": "Registry", "body": "Goal.", "status": "backlog", "_session": session])
         let key = added["id"] as? String ?? ""
         let id = TaskItem.key(key) ?? -1
-        check("task add --backlog goes to the top of the Backlog, with project, tags and the session; no type",
-              added["list"] as? String == "backlog" && model.taskTree.top(.backlog).first == id && added["type"] == nil && model.task(id)?.type == nil
+        check("task add --status backlog makes a backlog task at the end, with project, tags and the session; no type, no list",
+              added["status"] as? String == "backlog" && added["list"] == nil && model.taskTree.top().last == id && added["type"] == nil && model.task(id)?.type == nil
                 && added["project"] as? String == "Registry" && (added["tags"] as? [String]) == ["perf"] && model.task(id)?.sessions == [session], "\(added)")
         let now = agent("task add", ["title": "Pair on this"])
-        check("task add goes to the end of Tasks unless the user asks for the Backlog", now["list"] as? String == "overview" && model.taskTree.top(.overview).last == TaskItem.key(now["id"] as? String ?? ""))
+        check("task add makes a todo task at the end of the list", now["status"] as? String == "todo" && model.taskTree.top().last == TaskItem.key(now["id"] as? String ?? ""))
         if let mine = TaskItem.key(now["id"] as? String ?? "") {
             model.setStatus(mine, .done)
             model.setStatus(mine, .todo)
@@ -1192,7 +1244,7 @@ enum SelfTest {
             let asked = agent("task undo", ["task": "T-\(stray)"])
             check("task undo without --yes only says what it would put back", asked["wouldRevert"] != nil && model.task(stray)?.parent == id)
             agent("task undo", ["task": "T-\(stray)", "yes": "true"])
-            check("task undo --yes puts the task back where it was", model.task(stray)?.parent == nil && model.task(stray)?.list == before?.list
+            check("task undo --yes puts the task back where it was", model.task(stray)?.parent == nil
                   && model.task(stray)?.order == before?.order, "\(String(describing: model.task(stray)?.parent))")
             agent("task delete", ["task": "T-\(stray)", "yes": "true"])
         }
@@ -1245,8 +1297,14 @@ enum SelfTest {
         }
         agent("task link", ["task": key, "item": "https://github.com/acme/registry/pull/418"])
         check("task link adds a PR", model.task(id)?.links.map(\.absoluteString) == ["https://github.com/acme/registry/pull/418"])
+        // ls tasks lists todo and doing, as the page at rest; --backlog adds the backlog, --search finds any status (T-471).
+        let atRest = agent("ls", ["kind": "tasks"])["tasks"] as? [JSONObject] ?? []
         let listed = agent("ls", ["kind": "tasks", "backlog": "true"])["tasks"] as? [JSONObject] ?? []
-        check("ls tasks filters by list", listed.contains { $0["id"] as? String == key } && listed.allSatisfy { $0["list"] as? String == "backlog" && $0["type"] == nil })
+        let found = agent("ls", ["kind": "tasks", "search": model.task(id)?.title ?? "-"])["tasks"] as? [JSONObject] ?? []
+        check("ls tasks lists the open ones, --backlog the backlog too, --search any status",
+              atRest.allSatisfy { ["todo", "doing"].contains($0["status"] as? String ?? "") && $0["list"] == nil && $0["type"] == nil }
+                && listed.contains { $0["status"] as? String == "backlog" } && found.contains { $0["id"] as? String == key },
+              "\(atRest.count) \(listed.count) \(found.count)")
         let file = agent("file new", ["title": "Push path plan", "body": "# Push path plan\n", "_session": session, "task": key])
         check("file new links the file to its task and session", (file["tasks"] as? [String]) == [key] && model.files.contains { $0.tasks == [id] && $0.sessions == [session] })
         check("a note made for a task is in the task's project", model.files.first { $0.title == "Push path plan" }?.project == model.project(ofTask: id),

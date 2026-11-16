@@ -190,8 +190,6 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     var project: String?
     var tags: [String] = []
     var parent: Int?
-    /// Tasks or the Backlog; a subtask shows in its root's.
-    var list: TaskList = .backlog
     var order: Double = 0
     /// Read from a note still in Review, the status v9 dropped: its reason, until the center has it (`migrateReviews`).
     var review: String?
@@ -218,6 +216,8 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     var body: String = ""
     /// The note on disk; nil for sample data.
     var path: String?
+    /// The `list` key of a note from before one list (v16, T-471): the one-list move reads it, HQ never writes it.
+    var listKey: String?
 
     var key: String { "T-\(id)" }
     var searchText: String { "\(key) \(title) \(tags.map { "#\($0)" }.joined(separator: " ")) \(project ?? "")" }
@@ -232,13 +232,13 @@ nonisolated struct TaskItem: Identifiable, Hashable, Sendable, Codable {
     /// so it never reverts what a session wrote since; the self-test holds this list to the type's fields.
     static var noteFields: [Field] {
         [Field("title", \.title), Field("status", \.status), Field("type", \.type), Field("project", \.project),
-         Field("tags", \.tags), Field("parent", \.parent), Field("list", \.list), Field("order", \.order),
+         Field("tags", \.tags), Field("parent", \.parent), Field("order", \.order),
          Field("review", \.review), Field("reviewBy", \.reviewBy), Field("reviewAt", \.reviewAt), Field("done", \.done),
          Field("links", \.links), Field("related", \.related), Field("blocked", \.blocked), Field("blockedReason", \.blockedReason),
          Field("blockedBy", \.blockedBy), Field("after", \.after), Field("sessions", \.sessions), Field("body", \.body)]
     }
 
-    var node: TaskTree.Node { TaskTree.Node(id: id, parent: parent, list: list, order: order) }
+    var node: TaskTree.Node { TaskTree.Node(id: id, parent: parent, order: order) }
 
     static func key(_ text: String) -> Int? {
         Int(text.trimmingCharacters(in: .whitespaces).uppercased().replacingOccurrences(of: "T-", with: ""))
@@ -256,7 +256,6 @@ extension TaskItem {
         project = try c.decodeIfPresent(String.self, forKey: .project)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         parent = try c.decodeIfPresent(Int.self, forKey: .parent)
-        list = try c.decodeIfPresent(TaskList.self, forKey: .list) ?? .backlog
         order = try c.decodeIfPresent(Double.self, forKey: .order) ?? 0
         review = try c.decodeIfPresent(String.self, forKey: .review)
         reviewBy = try c.decodeIfPresent(String.self, forKey: .reviewBy)
@@ -273,6 +272,7 @@ extension TaskItem {
         modified = try c.decode(Date.self, forKey: .modified)
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
         path = try c.decodeIfPresent(String.self, forKey: .path)
+        listKey = try c.decodeIfPresent(String.self, forKey: .listKey)
     }
 }
 

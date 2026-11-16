@@ -47,7 +47,7 @@ struct HQCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("New Task…") { model.beginTask(.overview) }
+            Button("New Task…") { model.beginTask(.todo) }
                 .keyboardShortcut("n")
             Button("New Backlog Task…") { model.beginTask(.backlog) }
                 .keyboardShortcut("n", modifiers: [.command, .option])
@@ -88,23 +88,16 @@ struct HQCommands: Commands {
         }
 
         CommandGroup(before: .toolbar) {
-            ForEach(TaskList.allCases) { list in
-                let place = list == .overview ? "in Tasks" : "in the Backlog"
-                Button(menu.descriptions.contains(list) ? "Hide Descriptions \(place)" : "Show Descriptions \(place)") {
-                    model.allDescriptions.formSymmetricDifference([list])
-                }
-                if list == .overview {
-                    Button(menu.hideDone.contains(list) ? "Show Done \(place)" : "Hide Done \(place)") { model.hideDone.formSymmetricDifference([list]) }
-                }
-            }
+            Button(menu.descriptions ? "Hide Descriptions in Tasks" : "Show Descriptions in Tasks") { model.allDescriptions.toggle() }
+            Button(menu.showBacklog ? "Hide Backlog" : "Show Backlog") { model.showBacklog.toggle() }
+                .keyboardShortcut("b", modifiers: [.command, .control])
+            Button(menu.showDone ? "Hide Done" : "Show Done") { model.showDone.toggle() }
             Divider()
             ForEach(PageSection.allCases, id: \.self) { section in
                 Button(menu.folded.contains(section) ? "Show \(section.title)" : "Hide \(section.title)") {
                     model.folded.formSymmetricDifference([section])
                 }
             }
-            Button(menu.backlogOpen ? "Hide Backlog" : "Show Backlog") { model.backlogOpen.toggle() }
-                .keyboardShortcut("b", modifiers: [.command, .control])
             Divider()
             Button("Refresh Pull Requests") { model.refreshGitHub() }
                 .disabled(!menu.github)
@@ -198,8 +191,8 @@ struct HQCommands: Commands {
                 .disabled(task == nil || menu.inModal)
             Divider()
             Button(menu.tasksToBacklog ? (several ? "Move \(menu.tasks.count) to Backlog" : "Move to Backlog")
-                   : (several ? "Move \(menu.tasks.count) to Tasks" : "Move to Tasks")) {
-                model.moveTasks(menu.tasks, toBacklog: menu.tasksToBacklog)
+                   : (several ? "Move \(menu.tasks.count) Out of the Backlog" : "Move Out of the Backlog")) {
+                model.toggleBacklog(menu.tasks)
             }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(task == nil)

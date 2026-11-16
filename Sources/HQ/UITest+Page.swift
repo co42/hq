@@ -32,7 +32,7 @@ extension UITest {
 
     /// Every form sheet grows with the zoom: its header and its buttons stay inside it, at the user's 115% and at 150% (T-446).
     private static func sheetsFollowZoom(_ model: AppModel, _ ui: Driver) async {
-        let forms: [(ModalRoute, String)] = [(.start, "start-button"), (.newTask(.overview), "new-task-add"), (.newReminder, "new-reminder-add"),
+        let forms: [(ModalRoute, String)] = [(.start, "start-button"), (.newTask(.todo), "new-task-add"), (.newReminder, "new-reminder-add"),
                                              (.newFile, "new-file-create"), (.importArtifact, "import-add")]
         for zoom in [1.15, 1.5] as [CGFloat] {
             model.zoom = zoom
@@ -117,7 +117,7 @@ extension UITest {
     /// hasn't brought yet too.
     private static func linkRows(_ model: AppModel, _ ui: Driver) async {
         let pr = "https://github.com/acme/registry/pull/9001", issue = SeedData.unfetchedIssue
-        guard let task = model.addTask(to: .overview, title: "Every kind of link"), let file = model.addFile(title: "Linked note"),
+        guard let task = model.addTask(status: .todo, title: "Every kind of link"), let file = model.addFile(title: "Linked note"),
               let artifact = model.artifacts.first?.id, model.githubItem(pr) == nil, model.githubItem(issue) == nil else {
             return await check("a task, a file, an artifact and two GitHub links HQ hasn't fetched", false)
         }
@@ -207,7 +207,7 @@ extension UITest {
     /// A row clicked in the modal selects there: the page's selection is still the one thing selected once it closes.
     private static func modalSelection(_ model: AppModel, _ ui: Driver) async {
         guard let pr = model.reviewRequests.first ?? model.ownPullRequests.first, let file = model.addFile(title: "Linked note"),
-              let task = model.addTask(to: .overview, title: "Has a note") else { return await check("a PR, a file and a task", false) }
+              let task = model.addTask(status: .todo, title: "Has a note") else { return await check("a PR, a file and a task", false) }
         model.link(.file(file.id), to: task.id)
         await endUndoGroup(model)
         await ui.settle(0.4)
@@ -278,7 +278,7 @@ extension UITest {
               "\(model.selectedItem ?? "none"), modal \(String(describing: model.modal)), fields \(fields.map { "\($0.placeholderString ?? "-")=\($0.stringValue)" })")
 
         // Over a task's window: Cancel (Escape) goes back to it.
-        guard let task = model.addTask(to: .overview, title: "Under the sheet") else { return }
+        guard let task = model.addTask(status: .todo, title: "Under the sheet") else { return }
         await endUndoGroup(model)
         model.open(.task(task.id))
         await ui.until(2) { ui.window.attachedSheet != nil }
@@ -324,7 +324,7 @@ extension UITest {
     /// said; an index past the cards puts the card last.
     private static func gridHoldsUnderDrag(_ model: AppModel, _ ui: Driver) async {
         guard let collection = ui.find(SessionGrid.CardCollection.self), let coordinator = collection.delegate as? SessionGrid.Coordinator,
-              let task = model.addTask(to: .overview, title: "Drop me on a card") else { return await check("the grid and a task", false) }
+              let task = model.addTask(status: .todo, title: "Drop me on a card") else { return await check("the grid and a task", false) }
         await endUndoGroup(model)
         await ui.settle(0.4)
         let before = coordinator.ids
@@ -371,7 +371,7 @@ extension UITest {
 
     /// Escape in a form over a modal goes back to what's under it; in the center's reminder editor it ends the edit.
     private static func escapeInForms(_ model: AppModel, _ ui: Driver) async {
-        guard let task = model.addTask(to: .overview, title: "Remind me of this") else { return }
+        guard let task = model.addTask(status: .todo, title: "Remind me of this") else { return }
         await endUndoGroup(model)
         model.open(.task(task.id))
         await ui.until(2) { ui.window.attachedSheet != nil }
@@ -402,9 +402,9 @@ extension UITest {
               model.modal == .notifications && ui.anchorFrame("reminder-text") == nil, "\(String(describing: model.modal))")
     }
 
-    /// ⇧⌘B in a task's window moves the selected subtask, as B and ⌘⌫ act on it, not the window's task.
+    /// ⇧⌘B in a task's window moves the selected subtask to the backlog, as B and ⌘⌫ act on it, not the window's task.
     private static func subtaskToBacklog(_ model: AppModel, _ ui: Driver) async {
-        guard let parent = model.addTask(to: .overview, title: "Window's task"), let sub = model.addSubtask(to: parent.id, title: "Its subtask") else {
+        guard let parent = model.addTask(status: .todo, title: "Window's task"), let sub = model.addSubtask(to: parent.id, title: "Its subtask") else {
             return await check("a task with a subtask", false)
         }
         await endUndoGroup(model)
@@ -421,9 +421,9 @@ extension UITest {
         if !sheet.performKeyEquivalent(with: event) { _ = NSApp.mainMenu?.performKeyEquivalent(with: event) }
         await endUndoGroup(model)
         await ui.settle(0.4)
-        await check("⇧⌘B on a selected subtask in its task's window moves the subtask, not the window's task",
-              model.list(of: sub.id) == .backlog && model.list(of: parent.id) == .overview && model.modal == .task(parent.id),
-              "subtask in \(model.list(of: sub.id)), task in \(model.list(of: parent.id))")
+        await check("⇧⌘B on a selected subtask in its task's window moves the subtask to the backlog, not the window's task",
+              model.task(sub.id)?.status == .backlog && model.task(parent.id)?.status == .todo && model.modal == .task(parent.id),
+              "subtask \(String(describing: model.task(sub.id)?.status)), task \(String(describing: model.task(parent.id)?.status))")
         model.closeModal()
         await ui.until(2) { ui.window.attachedSheet == nil }
     }

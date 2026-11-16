@@ -5,7 +5,7 @@ description: Keep HQ, the user's cockpit, current - tasks, notifications, remind
 
 # HQ
 
-HQ is the user's cockpit beside Ghostty: one page with the pull requests that wait on them, every Claude session as a card, files and artifacts, and their tasks as one outline, **Tasks** (now) and the **Backlog** (later). A bell opens the notification center: **Needs You**, **Updates**, **Later**. The user follows your work there, not in the chat. The plugin's hooks report this session on their own; your part is the tasks and telling the user.
+HQ is the user's cockpit beside Ghostty: one page with the pull requests that wait on them, every Claude session as a card, files and artifacts, and their tasks as one outline: todo and doing show, the **backlog** (later) and done tasks behind two toggles. A bell opens the notification center: **Needs You**, **Updates**, **Later**. The user follows your work there, not in the chat. The plugin's hooks report this session on their own; your part is the tasks and telling the user.
 
 Everything goes through `hq`. `hq help <command>` gives its options, an example and the shape of its `--json`. A command or flag `hq help` doesn't list doesn't exist.
 
@@ -14,7 +14,7 @@ Everything goes through `hq`. `hq help <command>` gives its options, an example 
 - **`doing` the moment work starts**, before the first edit or investigation; each subtask too, as you start it: the parent's doing never covers them. A task left todo while you work on it looks untouched.
 - **Finished, for the user to check** (most work: a PR to review or merge, a page, a choice, an app to restart): its Status says what changed, its checklist is ticked, it stays `doing`, and `hq notify` says what to check. The user moves it to `done`.
 - **Finished, nothing to check** (a chore, a subtask whose parent they'll review): `hq task move T-n done`.
-- **New tasks go to Tasks.** The Backlog only when the user says Backlog, or later.
+- **New tasks are todo.** `--status backlog` only when the user says Backlog, or later.
 
 ## Taking a task
 
@@ -62,7 +62,7 @@ hq task edit T-12 --replace "until 14:30" --with "until 15:00"   # an exact text
 The tree is the user's map of the work: few tasks, each one the user would want to see on its own. A step, a finding or a follow-up is a line in a description, not another task. A bug found while working is the exception: a task right away, under the story being worked on (`--parent`), not fixed unasked.
 
 - **Titles**: a few words saying what it delivers ("Dedup layers on push"). No status, dates, keys or explanations: the description holds them.
-- **Status**: `todo`, `doing`, `done`. `hq task move T-n backlog` is todo in the Backlog; `hq task move T-n todo --list tasks` brings it back. There is no review status.
+- **Status**: `backlog`, `todo`, `doing`, `done`, at any level. `hq task move T-n backlog` puts it in the backlog (the user hides it until they show the backlog), `hq task move T-n todo` brings it out; doing takes the backlog tasks above it to todo. Nothing moves in the list. There is no review status.
 - **Project**: the product or area (HQ, Registry, Billing). A task you create always gets one: `--project` on a top-level task; a subtask takes its parent's. Reuse a project in use (`hq ls projects`); naming a new one creates it.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`).
 - **Subtasks** (`--parent T-12`): by the same rule; steps stay in the checklist.
@@ -88,11 +88,11 @@ Nothing notifies when a turn ends. Tell them when they should look:
 
 ```
 hq ctx [--all]                       # this session's role, leader, tasks, its sessions, what is doing in its project, its files
-hq ls tasks [--overview|--backlog] [--parent T-12] [--project p] [--tag t] [--all]
+hq ls tasks [--backlog] [--search words] [--parent T-12] [--project p] [--tag t] [--all]
 hq ls sessions [--here] [--tree] | prs | files | artifacts | projects | notifications | reminders | roles
 hq task show T-12 [T-13 …] [--deep|--brief|--body]
-hq task add "Title" [--project p] [--parent T-12] [--status doing] [--backlog] [--link url] [--body -]
-hq task move T-12 todo|doing|done|backlog [--list tasks]
+hq task add "Title" [--project p] [--parent T-12] [--status doing|backlog] [--link url] [--body -]
+hq task move T-12 backlog|todo|doing|done
 hq task edit T-12 [--title t] [--section S --body -] [--replace "old" --with "new"] [--project p] [--add-tag t] [--parent T-34]
 hq task tick T-12 "item" [--untick]
 hq task link T-12 <item>             # task unlink takes the same; --blocked-by T-34, --after T-34

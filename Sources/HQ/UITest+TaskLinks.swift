@@ -43,7 +43,7 @@ extension UITest {
     /// T-377, T-429: a top-level task and a subtask, each with a PR, a file, an artifact, Slack messages and a web page.
     private static func linksOnSelectedCards(_ model: AppModel, _ ui: Driver) async {
         let pr = "https://github.com/acme/registry/pull/418"
-        guard let parent = model.addTask(to: .overview, title: "Every kind of link"),
+        guard let parent = model.addTask(status: .todo, title: "Every kind of link"),
               let child = model.addSubtask(to: parent.id, title: "Every kind, on a subtask"),
               let file = model.addFile(title: "Linked note", body: "# Linked note\n"),
               let artifact = model.artifacts.first?.id else {
@@ -116,7 +116,7 @@ extension UITest {
     /// scrolls only to keep the caret in view, never back and forth, and the editor's own box never scrolls.
     private static func longDescriptionScroll(_ model: AppModel, _ ui: Driver) async {
         let paragraphs = (1...40).map { "Paragraph \($0): the retry budget holds per upload, so a slow part never starves the others in the push." }
-        guard let task = model.addTask(to: .overview, title: "A long description", body: paragraphs.joined(separator: "\n\n")) else {
+        guard let task = model.addTask(status: .todo, title: "A long description", body: paragraphs.joined(separator: "\n\n")) else {
             return await check("a task with a long description", false)
         }
         await endUndoGroup(model)

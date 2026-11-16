@@ -45,10 +45,10 @@ extension AppModel {
         }
         vaultScanning = true
         let cache = vaultCache
-        let backups = Store.backups
+        let backups = Store.backups, journal = Store.oneListJournal
         let started = Date.now
         Task {
-            let scanned = await Task.detached { Result { try vault.scanMigrating(cache, backups: backups) } }.value
+            let scanned = await Task.detached { Result { try vault.scanMigrating(cache, backups: backups, journal: journal) } }.value
             guard case .success(let result) = scanned else {
                 // Nothing changes: the tasks and files stay as last read, and nothing is written over.
                 if problem != .vaultUnreadable {
@@ -61,6 +61,7 @@ extension AppModel {
                 return
             }
             if problem == .vaultUnreadable { problem = nil }
+            for line in result.log { AppLog.write("vault: \(line)", to: "vault.log") }
             vaultCache = result.cache
             // A note HQ wrote after the scan began: the scan read it too early, HQ's copy is newer.
             let recent = Set(vaultWrites.filter { $0.value >= started }.keys).union(pendingWrites.keys)
@@ -160,9 +161,6 @@ extension AppModel {
         return tasks.first { $0.id == id }
     }
 
-    /// The list a task shows in: its own, or its root's.
-    func list(of id: Int) -> TaskList { taskTree.list(of: id) ?? .backlog }
-
     /// Projects in use, for the Project pop-up and the Backlog filter.
     var projects: [String] {
         var names: [String] = tasks.compactMap(\.project)
@@ -232,8 +230,8 @@ extension AppModel {
             guard let edited = byID[next[index].id], let old = before[next[index].id] else { continue }
             var fields = TaskItem.noteFields.filter { $0.differs(old, edited) }
             guard !fields.isEmpty else { continue }
-            // Parent, list and order are one place: a subtask's list is read back as the Backlog's, so Undo puts all three.
-            let place: Set = ["parent", "list", "order"]
+            // Parent and order are one place: Undo puts both.
+            let place: Set = ["parent", "order"]
             if fields.contains(where: { place.contains($0.name) }) {
                 fields = TaskItem.noteFields.filter { place.contains($0.name) || fields.map(\.name).contains($0.name) }
             }
@@ -269,7 +267,6 @@ extension AppModel {
         editTasks(action) { tasks in
             for (id, placement) in changes {
                 tasks[id]?.parent = placement.parent
-                tasks[id]?.list = placement.list
                 tasks[id]?.order = placement.order
             }
         }
@@ -290,7 +287,7 @@ extension AppModel {
         let split = TitleTags.split(title)
         var item = TaskItem(id: nextTaskID, title: split.title, status: status,
                             project: project, tags: tags,
-                            parent: placement.parent, list: placement.list, order: placement.order,
+                            parent: placement.parent, order: placement.order,
                             done: status == .done ? .now : nil,
                             sessions: session.map { [$0] } ?? [], created: .now, modified: .now, body: body)
         item.links = links
@@ -321,13 +318,14 @@ extension AppModel {
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
-    /// The quick-add line: the end of Tasks, the top of the Backlog.
+    /// The quick-add line and New Task…: a top-level task at the end of the list, todo or in the backlog.
     @discardableResult
-    func addTask(to list: TaskList, title: String, body: String = "", session: String? = nil, project: String? = nil,
+    func addTask(status: TaskStatus, title: String, body: String = "", session: String? = nil, project: String? = nil,
                  links: [URL] = []) -> TaskItem? {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
-              let (placement, renumber) = taskTree.placeNew(in: .list(list), at: list == .backlog ? 0 : nil) else { return nil }
-        return addTask(title: title, placement: placement, project: project, body: body, session: session, links: links, renumber: renumber)
+              let (placement, renumber) = taskTree.placeNew(in: .top) else { return nil }
+        return addTask(title: title, placement: placement, status: status, project: project, body: body, session: session, links: links,
+                       renumber: renumber)
     }
 
     /// Add Subtask: the last child, the parent opened, in the parent's project.
@@ -361,8 +359,11 @@ extension AppModel {
         }
     }
 
+    /// One Undo step with what it takes along: a task turning doing takes its backlog parents to todo (T-471).
     func setStatus(_ id: Int, _ status: TaskStatus) {
-        changeTask(id, status == .done ? "Mark Done" : "Move to \(status.title)") { task in
+        let action = status == .done ? "Mark Done" : "Move to \(status.title)"
+        guard task(id)?.status != status else { return }
+        changeTask(id, action) { task in
             guard task.status != status else { return }
             task.status = status
             task.done = status == .done ? (task.done ?? .now) : nil
@@ -371,6 +372,18 @@ extension AppModel {
                 task.blockedReason = nil
             }
         }
+        reselectOnUndo([id], action)
+        guard status == .doing else { return }
+        for parent in TaskStatus.backlogAncestors(of: id, parent: { self.task($0)?.parent }, status: { self.task($0)?.status }) {
+            changeTask(parent, action) { $0.status = .todo }
+        }
+    }
+
+    /// A selected task a change of status hides (the Backlog or Done toggle off) leaves at once; Undo brings it back
+    /// selected (2026-11-16, T-471). Registered after the change, so it runs once the change is undone.
+    private func reselectOnUndo(_ ids: [Int], _ action: String) {
+        guard let first = ids.first(where: selectedTasks.contains) else { return }
+        registerUndo(action) { model in model.outlineFocus = .row(first) }
     }
 
     /// Tasks still in Review from before v9: doing now, and on the overview a row in the center with their reason.
@@ -380,7 +393,7 @@ extension AppModel {
         undoManager?.disableUndoRegistration()
         defer { undoManager?.enableUndoRegistration() }
         for task in pending {
-            if list(of: task.id) == .overview {
+            if task.status != .done {
                 let reason = task.review.flatMap { $0.isEmpty ? nil : $0 }
                 notify("\(task.key) was in Review" + (reason.map { ": \($0)" } ?? ""), level: .update, source: nil,
                        links: [ModalRoute.task(task.id).selectionKey])
@@ -422,7 +435,8 @@ extension AppModel {
         keepShown(id)
     }
 
-    /// The siblings the outline showing a task shows: moves and indents step over the ones Hide Done, a filter or a search hide.
+    /// The siblings the outline showing a task shows: moves and indents step over the ones the Backlog and Done toggles or a
+    /// search hide.
     func shownBeside(_ id: Int) -> (Int) -> Bool {
         guard let outline = OutlineCoordinator.owner(of: id), outline.shows(id) else { return { _ in true } }
         return { outline.shows($0) }
@@ -439,14 +453,16 @@ extension AppModel {
         if let parent = taskTree.parent(of: id) { showSubtasks(parent) }
     }
 
-    /// ⇧⌘B and the row button: to the top of the Backlog, or the end of Tasks.
-    func toggleList(_ id: Int) {
-        let target = list(of: id).other
-        place(taskTree.moveToList(id, target), target == .backlog ? "Move to Backlog" : "Move to Tasks")
-    }
-
-    func move(_ id: Int, to list: TaskList) {
-        place(taskTree.moveToList(id, list), list == .backlog ? "Move to Backlog" : "Move to Tasks")
+    /// ⇧⌘B: every task to the backlog, or, when all are there, out of it to todo; at any level, nothing moves (T-471).
+    func toggleBacklog(_ ids: [Int]) {
+        let tasks = ids.compactMap { task($0) }
+        guard !tasks.isEmpty else { return }
+        if tasks.contains(where: { $0.status != .backlog }) {
+            for task in tasks where task.status != .backlog { changeTask(task.id, "Move to Backlog") { $0.status = .backlog; $0.done = nil } }
+            reselectOnUndo(ids, "Move to Backlog")
+        } else {
+            for task in tasks { changeTask(task.id, "Move Out of the Backlog") { $0.status = .todo } }
+        }
     }
 
     /// A drop in the outline. False when refused.

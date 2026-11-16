@@ -94,22 +94,6 @@ public enum TaskType: String, Sendable, Hashable, CaseIterable, Identifiable, Co
     }
 }
 
-/// Where a top-level task lives: on the overview's Tasks, or in the Backlog.
-public enum TaskList: String, Sendable, Hashable, CaseIterable, Identifiable, Codable {
-    case overview, backlog
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .overview: "Tasks"
-        case .backlog: "Backlog"
-        }
-    }
-
-    public var other: TaskList { self == .overview ? .backlog : .overview }
-}
-
 /// `#word` in a typed title becomes a tag. A tag needs a letter, as in Obsidian: `#418` stays text.
 public enum TitleTags {
     public static func split(_ text: String) -> (title: String, tags: [String]) {
