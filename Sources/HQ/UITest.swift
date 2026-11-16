@@ -83,6 +83,7 @@ enum UITest {
                 ("taskLinks", taskLinks),
                 ("archiveWindow", archiveWindow),
                 ("sessionStarts", sessionStarts),
+                ("sessionRestarts", sessionRestarts),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still

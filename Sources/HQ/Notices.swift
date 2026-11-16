@@ -27,6 +27,10 @@ nonisolated struct Notice: Codable, Hashable, Identifiable, Sendable {
     var title: String?
     /// The texts this row had before newer ones of the same source replaced them, newest first (T-511).
     var replaced: [String]?
+    /// What its button does: Restart Idle Sessions on the row that says a newer Claude Code is installed (T-454).
+    var action: Action?
+
+    enum Action: String, Codable, Sendable { case restartIdle }
 }
 
 /// Where a row shows in the center.
@@ -255,7 +259,7 @@ extension AppModel {
     /// `at`: when it happened, a GitHub review's or comment's own time; a session's notification happens now.
     @discardableResult
     func notify(_ text: String, level: Notice.Level, kind: Notice.Kind = .session, source: String?, links: [String] = [],
-                count: Int = 1, at happened: Date = .now, anchor: String? = nil, title: String? = nil) -> Notice {
+                count: Int = 1, at happened: Date = .now, anchor: String? = nil, title: String? = nil, action: Notice.Action? = nil) -> Notice {
         if kind != .reminder, source != nil, let index = notices.firstIndex(where: { $0.kind == kind && $0.source == source && $0.level == level && unread($0) && $0.dueAt == nil }) {
             var row = notices[index]
             if row.text != text { row.replaced = Array(([row.text] + (row.replaced ?? [])).prefix(Self.replacedKept)) }
@@ -265,11 +269,13 @@ extension AppModel {
             row.at = max(row.at, happened)
             if happened >= row.at, let anchor { row.anchor = anchor }
             if let title { row.title = title }
+            if let action { row.action = action }
             notices[index] = row
             if level == .important { banner(row) }
             return row
         }
-        let row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: happened, anchor: anchor, title: title)
+        var row = Notice(kind: kind, level: level, source: source, text: text, count: count, links: links, at: happened, anchor: anchor, title: title)
+        row.action = action
         notices.append(row)
         if level == .important { banner(row) }
         return row

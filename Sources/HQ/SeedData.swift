@@ -223,7 +223,7 @@ enum SeedData {
             Notice(kind: .reminder, level: .important, text: "Call noor about the GPU quota", links: ["task:13"], at: ago(5)),
             Notice(kind: .session, level: .update, source: s1, text: "Retry budget ready to check: PR #418 is open, the canary is green. The plan has the numbers per region: eu-west still retries twice on large layers, left for a follow-up since the fix touches the S3 client. Merge when you're happy with the canary.",
                    count: 2, links: ["task:13", "file:2026-11-04 - Retry budget plan.md", "artifact:https://claude.ai/artifact/5eed-canary", "github:\(pr418)"],
-                   at: ago(15)),
+                   at: ago(15), replaced: ["Retry budget plan written: one budget per upload, shared by its parts."]),
             Notice(kind: .session, level: .update, source: s5, text: "The mockup is ready to look at",
                    links: ["task:44", "artifact:https://claude.ai/artifact/5eed-mockup"], at: ago(3)),
             Notice(kind: .github, level: .update, source: pr418, text: "noor approved your PR: “Nice, the budget per upload reads well”",

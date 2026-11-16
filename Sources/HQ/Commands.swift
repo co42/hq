@@ -291,6 +291,8 @@ struct HQCommands: Commands {
                 .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.leftArrow, modifiers: .shift) : nil)
                 .disabled(!menu.sessionLeft)
             Divider()
+            Button("Restart Session") { if let session { model.restartSession(session) } }
+                .disabled(!menu.sessionRestartable)
             Button("Start Again") { if let session { model.startAgain(session) } }
                 .disabled(!menu.sessionCanStartAgain)
             Button("Close Session") { if let session { model.closeSession(session) } }
@@ -300,6 +302,8 @@ struct HQCommands: Commands {
                 if let session { model.closeTeam(session) }
             }
                 .disabled(menu.teamOpenCount == 0)
+            Button(menu.restartIdleCount > 0 ? "Restart Idle Sessions (\(menu.restartIdleCount))…" : "Restart Idle Sessions…") { model.restartIdleSessions() }
+                .disabled(menu.restartIdleCount == 0)
             Divider()
             Button("Randomize Face") { if let session { model.randomizeFace(session) } }
                 .disabled(session == nil)

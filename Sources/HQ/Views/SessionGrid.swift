@@ -1476,6 +1476,9 @@ struct SessionMenu: View {
         if session.isRunning {
             Divider()
             RunMenus(session: session)
+            Button("Restart Session") { model.restartSession(session.id) }
+                .disabled(model.restartBlocked(session) != nil)
+                .help(model.restartBlocked(session) ?? "Quits its Claude and resumes it in the same tab, its conversation kept: it picks up a newly installed Claude Code")
         }
         Divider()
         if session.startTrouble == .didntStart {

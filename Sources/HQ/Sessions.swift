@@ -22,6 +22,8 @@ extension AppModel {
     func receive(_ event: HookEvent) {
         let now = event.at ?? Date.now
         lastHookEvent = now
+        // A Claude that starts may run another Claude Code than the others (T-454).
+        defer { if event.name == "SessionStart" { checkClaudeVersions() } }
         let known = session(event.sessionID)
         if let known, event.isStale(for: known.status) { return receiveStale(event, into: known) }
         let replaced = known == nil ? continued(by: event) : nil
@@ -516,6 +518,8 @@ extension AppModel {
     func processExited(_ pid: Int32) {
         exitWatchers.removeValue(forKey: pid)?.cancel()
         if let tty = closingTerminals.removeValue(forKey: pid) { closeTerminal(tty) }
+        // Restart Session: the card keeps its place, its terminal gets `claude --resume` (T-454).
+        let restart = sessionRestarts.removeValue(forKey: pid)
         let now = Date.now
         for var item in sessions where item.pid == pid {
             titleWatchers.removeValue(forKey: item.id)?.cancel()
@@ -524,10 +528,11 @@ extension AppModel {
             live.end(now)
             item.live = live
             item.pid = nil
-            if item.closedAt == nil { item.closedAt = now }
+            if item.closedAt == nil, restart?.id != item.id { item.closedAt = now }
             put(item)
-            _ = forgetIfEmpty(item.id)
+            if restart?.id != item.id { _ = forgetIfEmpty(item.id) }
         }
+        if let restart { resumeAfterRestart(restart.id, tty: restart.tty) }
     }
 
     /// Ended sessions with nothing in them, as Claude's daemon left them before HQ forgot those: once the tasks are read,
@@ -1136,7 +1141,7 @@ extension AppModel {
     static var claudeRunsInTest = false
 
     /// HQ opened its tab: its Claude has `startDeadline` to report, else it didn't start, or runs without reporting.
-    private func awaitStart(_ id: SessionItem.ID, tty: String?) {
+    func awaitStart(_ id: SessionItem.ID, tty: String?) {
         guard var item = session(id) else { return }
         let since = Date.now
         item.awaitingStart = since
@@ -1180,7 +1185,8 @@ extension AppModel {
 
     /// A session that reported: whatever HQ judged of its start no longer holds.
     func startReported(_ item: inout SessionItem) {
-        guard item.awaitingStart != nil || item.startTrouble != nil else { return }
+        guard item.awaitingStart != nil || item.startTrouble != nil || item.restarting else { return }
+        item.restarting = false
         let after = item.awaitingStart.map { String(format: " %.1f s after its tab opened", Date.now.timeIntervalSince($0)) } ?? ", late"
         AppLog.write("\(item.id.prefix(8)) \(item.name): Claude reported\(after)", to: "sessions.log")
         item.awaitingStart = nil
@@ -1223,7 +1229,7 @@ extension AppModel {
     }
 
     /// Runs a Ghostty call; a missing Automation grant or an unreachable Ghostty shows the banner.
-    private func ghostty(_ call: () throws -> Void) {
+    func ghostty(_ call: () throws -> Void) {
         do {
             try call()
             if problem == .ghosttyAccess || problem == .ghosttyUnreachable { problem = nil }

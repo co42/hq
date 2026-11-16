@@ -405,6 +405,7 @@ extension SessionItem {
     /// "Working", "Asks a question", "Done", as its card says: what it asks is in the tooltip and its terminal.
     var stateWords: String {
         if let startTrouble { return startTrouble.title }
+        if restarting { return "Restarting" }
         guard isRunning else { return "Ended" }
         return status.state == .waiting(.question) ? "Asks a question" : status.title
     }
@@ -413,13 +414,16 @@ extension SessionItem {
 /// A running session's model, effort and context on a pill, "Opus VH · 442k", the whole of it on hover (T-446, T-475).
 struct ModelChip: View {
     let session: SessionItem
+    /// Absent where a card is drawn alone (a drag's image): no version line there.
+    @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
         if session.isRunning, let line = session.modelLine {
+            let help = [session.modelHelp ?? line, session.claudeVersionLine(installed: model?.installedClaude)].compactMap(\.self).joined(separator: "\n")
             FactChip(text: line)
                 .fixedSize()
-                .help(session.modelHelp ?? line)
-                .accessibilityLabel(session.modelHelp ?? line)
+                .help(help)
+                .accessibilityLabel(help)
         }
     }
 }

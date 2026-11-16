@@ -56,6 +56,7 @@ enum Snapshot {
             model.showBlockControls = false
             // Each page on the same seed: a page that empties Needs You leaves it full for the next ones.
             SeedData.fill(model, now: seeded)
+            model.installedClaude = nil
             if SeedData.large { SeedData.fillLarge(model, now: seeded) }
             model.pendingTaskLink = nil
             model.zoom = 1
@@ -281,6 +282,25 @@ enum Snapshot {
                 model.sessions = model.sessions.filter { !$0.status.needsYou }
                 model.notices = model.notices.filter { $0.dueAt != nil }
                 model.beginReminder()
+            },
+            // Updates (T-454, T-511): the newer Claude Code's row with Restart Idle Sessions, a row open on the text it replaced.
+            Page(name: "modal-notifications-updates", capture: .sheet) { model in
+                reset(model)
+                if let merged = model.notices.first(where: { $0.replaced != nil }) { model.expandedNotices = [merged.id.uuidString] }
+                // The sessions at their prompt run an older Claude Code than the one installed.
+                for var item in model.gridSessions where item.isRunning {
+                    item.claudeVersion = [.idle, .done].contains(item.status.state) ? "2.1.300" : "2.1.325"
+                    model.put(item)
+                }
+                model.installedClaude = "2.1.325"
+                model.notify("Claude Code 2.1.325 is installed: \(model.outdatedSessions.count) sessions run an older one. Restart Session on its card picks it up.",
+                             level: .update, source: AppModel.claudeUpdateSource, action: .restartIdle)
+                model.openCenter()
+                await ready()
+                if let scroll = PerfOpen.sheetScroll(model), let document = scroll.documentView {
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, document.frame.height - scroll.contentView.bounds.height) * 0.6))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                }
             },
             Page(name: "modal-notifications-selected", capture: .sheet) { model in
                 reset(model)

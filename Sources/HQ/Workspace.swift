@@ -66,6 +66,10 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var startRequest: StartRequest?
     /// Started or resumed by a session through `hq`, not by the user.
     var startedBySession = false
+    /// The Claude Code version its Claude runs, from where its executable lives; not stored (T-454).
+    var claudeVersion: String?
+    /// Restart Session: its Claude was asked to quit, `claude --resume` follows in its terminal; not stored (T-454).
+    var restarting = false
 
     /// The user's name, else Claude's title, else the first prompt, else the repository.
     var name: String {

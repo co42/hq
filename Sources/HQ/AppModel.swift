@@ -318,6 +318,11 @@ final class AppModel {
     @ObservationIgnored var preparingNotes: Set<FileItem.ID> = []
     /// Counts the notes prepared off the main thread: a view showing one is drawn again when it lands.
     var notesPrepared = 0
+    /// The Claude Code `claude` starts now, read every 10 minutes (T-454).
+    var installedClaude: String?
+    /// Sessions asked to quit for Restart Session, by their Claude's pid: their terminal gets `claude --resume` once it quits.
+    @ObservationIgnored var sessionRestarts: [Int32: (id: String, tty: String)] = [:]
+    @ObservationIgnored var claudeCheckedAt = Date.distantPast
     /// Tasks whose subtasks are hidden or shown by the user's choice, by key; a task not in it shows them.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
         didSet { FoldMode.remember(fold) }
@@ -560,10 +565,13 @@ final class AppModel {
                     self.archiveCheckedAt = date
                     self.archiveDue()
                 }
+                // Every 10 minutes, a newer Claude Code (T-454).
+                if let self, date.timeIntervalSince(self.claudeCheckedAt) >= 600 { self.checkClaudeVersions() }
             }
         }
         reviveSessions()
         adoptRenames()
+        checkClaudeVersions()
         startVault()
         gitHubService = GitHubService(model: self)
         slackService = SlackService(model: self)
@@ -769,6 +777,9 @@ final class MenuState: ObservableObject {
     @Published private(set) var sessionClosable = false
     @Published private(set) var sessionCanStartAgain = false
     @Published private(set) var sessionNotReporting = false
+    @Published private(set) var sessionRestartable = false
+    /// Outdated sessions at their prompt: Restart Idle Sessions (N) (T-454).
+    @Published private(set) var restartIdleCount = 0
     @Published private(set) var hasClosed = false
     @Published private(set) var github = false
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
@@ -832,6 +843,8 @@ final class MenuState: ObservableObject {
         set(\.sessionClosable, session.map { ($0.isRunning && $0.tty != nil) || $0.startTrouble != nil } ?? false)
         set(\.sessionCanStartAgain, session?.startTrouble == .didntStart)
         set(\.sessionNotReporting, session?.startTrouble == .notReporting)
+        set(\.sessionRestartable, session.map { model.restartBlocked($0) == nil } ?? false)
+        set(\.restartIdleCount, model.restartableIdle.count)
         let tree = model.sessionTree
         let root = session.map { tree.root(of: $0.id) }
         set(\.sessionHasTeam, root.map { !tree.rows(under: $0).isEmpty } ?? false)

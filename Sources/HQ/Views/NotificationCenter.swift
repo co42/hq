@@ -286,6 +286,15 @@ private struct NoticeRow: View {
                 if !links.isEmpty { ChipLine(routes: links, notice: notice).padding(.top, Space.xs) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // A newer Claude Code is installed: the outdated sessions at their prompt restart from here, as Focus answers (T-454).
+            if notice.action == .restartIdle, !done, case let count = model.restartableIdle.count, count > 0 {
+                Button("Restart Idle Sessions (\(count))") { model.restartIdleSessions() }
+                    .buttonStyle(.glassProminent)
+                    .tint(Ink.accent)
+                    .clickable()
+                    .help("Restart the sessions on an older Claude Code that wait at their prompt; working ones keep running")
+                    .uiTestAnchor("restart-idle:\(notice.id.uuidString)")
+            }
         }
         .listCard(selected: selected, active: active)
         // Over the time, beside the toggle, which stays where it is.
@@ -329,7 +338,7 @@ private struct NoticeRow: View {
     @ViewBuilder
     private var who: some View {
         let name: String = switch notice.kind {
-        case .session: model.session(notice.source)?.name ?? "Claude"
+        case .session: model.session(notice.source)?.name ?? (notice.source == AppModel.claudeUpdateSource ? "Claude Code" : "Claude")
         case .github: model.githubItem(notice.source)?.reference ?? notice.source.flatMap(GitHubThreads.reference) ?? "GitHub"
         case .reminder: notice.level == .important ? "Reminder · Important" : "Reminder"
         }
