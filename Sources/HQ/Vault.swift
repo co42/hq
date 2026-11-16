@@ -207,7 +207,7 @@ nonisolated struct Vault: Sendable {
 
     /// A note's text, for the editor.
     static func body(at path: String) -> String {
-        FrontMatter((try? String(contentsOfFile: path, encoding: .utf8)) ?? "").body
+        FrontMatter(read(URL(fileURLWithPath: path)) ?? "").body
     }
 
     // MARK: Writing

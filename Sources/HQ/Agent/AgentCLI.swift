@@ -44,7 +44,7 @@ enum AgentCLI {
     /// Forwards the event on stdin to HQ with a 1 s timeout, with Claude's pid and terminal.
     /// Hooks never slow Claude: any failure is silent.
     private static func hook() {
-        let input = FileHandle.standardInput.readDataToEndOfFile()
+        let input = FileHandle.standardInput.readDataToEndOfFile() // io: ok the hq command, not the app
         var args = ["event": String(decoding: input, as: UTF8.self)]
         if let claude = ClaudeProcess.current() {
             args["pid"] = "\(claude.pid)"
@@ -101,7 +101,7 @@ enum AgentCLI {
         var values = try parse(retired(rest, for: command), for: command)
         // "-" reads a text from stdin: `hq task add "Title" --body - < notes.md`.
         for name in ["body", "message"] where values[name] == "-" {
-            values[name] = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+            values[name] = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self) // io: ok the hq command, not the app
         }
         // Run inside Claude Code, a command knows its session: what it creates lands in that session's folders.
         if let session = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"], !session.isEmpty {
@@ -270,7 +270,7 @@ enum AgentCLI {
         let session = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"].flatMap { $0.isEmpty ? nil : $0 } ?? "terminal"
         let line = "\(session) \(key)"
         let url = Store.directory.appending(path: "hq-warned")
-        let seen = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        let seen = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init) // io: ok the hq command, not the app
         guard !seen.contains(line) else { return false }
         try? ((seen.suffix(200) + [line]).joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
         return true

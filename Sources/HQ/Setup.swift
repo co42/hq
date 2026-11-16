@@ -4,9 +4,18 @@ import AppKit
 extension AppModel {
     /// Checks all three without asking anything: at launch, when HQ becomes active, and every
     /// 2 s while the setup sheet is open.
-    func checkSetup() {
-        setup.pluginInstalled = Self.pluginInstalled()
-        switch Ghostty.access() {
+    /// Asks in the background: macOS's answer on Ghostty can take seconds. `showSheet` opens the setup sheet if one is missing.
+    func checkSetup(showSheet: Bool = false) {
+        Task {
+            let (plugin, access) = await Task.detached { (Self.pluginInstalled(), Ghostty.access()) }.value
+            applySetup(plugin: plugin, ghostty: access)
+            if showSheet { showSetup = !setup.isComplete }
+        }
+    }
+
+    private func applySetup(plugin: Bool, ghostty access: Ghostty.Access) {
+        setup.pluginInstalled = plugin
+        switch access {
         case .allowed: setup.ghosttyAllowed = true
         case .denied, .notAsked: setup.ghosttyAllowed = false
         case .notRunning: break
@@ -15,7 +24,7 @@ extension AppModel {
         guard !Store.isOverridden else { return }
         if !setup.pluginInstalled {
             problem = .pluginMissing
-        } else if Ghostty.access() == .denied {
+        } else if access == .denied {
             problem = .ghosttyAccess
         } else if problem == .pluginMissing || problem == .ghosttyAccess {
             problem = nil

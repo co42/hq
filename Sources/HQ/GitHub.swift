@@ -320,7 +320,7 @@ final class GitHubService {
     private static var cacheURL: URL { Store.directory.appending(path: "github.json") }
 
     private static func loadCache() -> GitHubSnapshot? {
-        guard let data = try? Data(contentsOf: cacheURL) else { return nil }
+        guard let data = try? Data(contentsOf: cacheURL) else { return nil } // io: ok HQ's own cache, once at launch
         return try? JSONDecoder().decode(GitHubSnapshot.self, from: data)
     }
 

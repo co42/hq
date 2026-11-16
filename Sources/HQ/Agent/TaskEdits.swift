@@ -2,7 +2,7 @@ import Foundation
 import HQKit
 
 /// What one `hq` command changed in tasks, so a wrong change can be seen (`hq task history`) and undone (`hq task undo`).
-struct TaskEdit: Codable {
+nonisolated struct TaskEdit: Codable, Sendable {
     var at: Date
     /// The session that ran it; nil from a terminal.
     var session: String?
@@ -10,7 +10,7 @@ struct TaskEdit: Codable {
     var changes: [Change]
 
     /// A task as it was and as it became: `before` nil when the command created it, `after` nil when it deleted it.
-    struct Change: Codable {
+    struct Change: Codable, Sendable {
         var id: Int
         var before: TaskItem?
         var after: TaskItem?
@@ -64,13 +64,25 @@ extension AppModel {
     }
 }
 
-/// Every task change a session made through `hq` in the last 30 days, in task-edits.jsonl beside the store.
+/// Every task change a session made through `hq` in the last 7 days, in task-edits.jsonl beside the store. The file is read,
+/// trimmed and written on one background queue, in order.
 @MainActor
 final class TaskEditLog {
     static let shared = TaskEditLog()
-    private static let kept: TimeInterval = 30 * 86_400
+    nonisolated private static let kept: TimeInterval = 7 * 86_400
+    nonisolated private static let queue = DispatchQueue(label: "hq.task-edits", qos: .utility)
     private let url = Store.directory.appending(path: "task-edits.jsonl")
-    private(set) lazy var edits: [TaskEdit] = load()
+    /// The last 7 days' edits: those recorded this run until `load` has read the file.
+    private(set) var edits: [TaskEdit] = []
+
+    /// Reads the file in the background at launch, dropping what's older than 7 days.
+    func load() {
+        let url = url
+        Self.queue.async {
+            let recent = Self.read(url)
+            Task { @MainActor in self.edits = recent + self.edits }
+        }
+    }
 
     /// The tasks a command changed, from the list before it ran and after.
     func record(command: String, session: String?, before: [TaskItem], after: [TaskItem]) {
@@ -84,7 +96,30 @@ final class TaskEditLog {
         guard !changes.isEmpty else { return }
         let edit = TaskEdit(at: .now, session: session, command: command, changes: changes)
         edits.append(edit)
-        guard let line = try? Self.encoder.encode(edit) else { return }
+        let url = url
+        Self.queue.async { Self.append(edit, to: url) }
+    }
+
+    /// The edits that changed a task, oldest first.
+    func edits(of id: Int) -> [TaskEdit] {
+        edits.filter { edit in edit.changes.contains { $0.id == id } }
+    }
+
+    nonisolated private static func read(_ url: URL) -> [TaskEdit] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let all = data.split(separator: UInt8(ascii: "\n")).compactMap { try? decoder.decode(TaskEdit.self, from: Data($0)) }
+        let recent = all.filter { $0.at > Date.now.addingTimeInterval(-kept) }
+        if recent.count < all.count {
+            let lines = recent.compactMap { try? encoder().encode($0) }
+            try? Data(lines.joined(separator: Data("\n".utf8)) + Data("\n".utf8)).write(to: url)
+        }
+        return recent
+    }
+
+    nonisolated private static func append(_ edit: TaskEdit, to url: URL) {
+        guard let line = try? encoder().encode(edit) else { return }
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
             handle.write(line + Data("\n".utf8))
@@ -94,32 +129,10 @@ final class TaskEditLog {
         }
     }
 
-    /// The edits that changed a task, oldest first.
-    func edits(of id: Int) -> [TaskEdit] {
-        edits.filter { edit in edit.changes.contains { $0.id == id } }
-    }
-
-    private func load() -> [TaskEdit] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
-        let all = data.split(separator: UInt8(ascii: "\n")).compactMap { try? Self.decoder.decode(TaskEdit.self, from: Data($0)) }
-        let recent = all.filter { $0.at > Date.now.addingTimeInterval(-Self.kept) }
-        if recent.count < all.count {
-            let lines = recent.compactMap { try? Self.encoder.encode($0) }
-            try? Data(lines.joined(separator: Data("\n".utf8)) + Data("\n".utf8)).write(to: url)
-        }
-        return recent
-    }
-
-    private static let encoder: JSONEncoder = {
+    nonisolated private static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return encoder
-    }()
-
-    private static let decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
+    }
 }

@@ -13,7 +13,7 @@ extension AppModel {
         try? FileManager.default.removeItem(at: taken)
         guard (try? FileManager.default.moveItem(at: url, to: taken)) != nil else { return }
         defer { try? FileManager.default.removeItem(at: taken) }
-        guard let data = try? Data(contentsOf: taken) else { return }
+        guard let data = try? Data(contentsOf: taken) else { return } // io: ok HQ's own spool, once at launch
         for entry in HookSpool.replayable(HookSpool.entries(data)) {
             _ = AgentRouter.handle(JSON.data(["command": "hook", "args": entry.args]))
         }

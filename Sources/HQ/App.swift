@@ -69,8 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         // The plugin, Ghostty access and the vault: the setup sheet until all three are ready.
         if !Store.isOverridden {
-            model.checkSetup()
-            model.showSetup = !model.setup.isComplete
+            model.checkSetup(showSheet: true)
             NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.model.checkSetup() }
             }
@@ -167,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         model.settleActivity()
         model.saveSessionsNow()
+        model.flushNoteWrites()
         if !Store.isOverridden, let mainWindow { WindowFrame.save(mainWindow) }
         Prefs.forget()
         if SelfTest.requested || UITest.requested { exit(SelfTest.exitCode) }

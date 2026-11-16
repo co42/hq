@@ -63,7 +63,7 @@ extension AppModel {
             if problem == .vaultUnreadable { problem = nil }
             vaultCache = result.cache
             // A note HQ wrote after the scan began: the scan read it too early, HQ's copy is newer.
-            let recent = Set(vaultWrites.filter { $0.value >= started }.keys)
+            let recent = Set(vaultWrites.filter { $0.value >= started }.keys).union(pendingWrites.keys)
             let tasks = Dictionary(
                 (result.tasks.filter { !recent.contains($0.path ?? "") } + self.tasks.filter { recent.contains($0.path ?? "") }).map { ($0.id, $0) },
                 uniquingKeysWith: { _, mine in mine }).values.sorted { $0.id < $1.id }
@@ -116,8 +116,7 @@ extension AppModel {
         let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for task in tasks {
             guard let previous = before[task.id], !task.sameNote(as: previous) else { continue }
-            report { try vault.save(task) }
-            wrote(task.path)
+            writeNote(task.path) { try vault.save(task) }
         }
     }
 
@@ -126,8 +125,7 @@ extension AppModel {
         let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for file in files {
             guard let previous = before[file.id], !file.sameNote(as: previous) else { continue }
-            report { try vault.save(file) }
-            wrote(file.path)
+            writeNote(file.path) { try vault.save(file) }
         }
     }
 
@@ -498,12 +496,15 @@ extension AppModel {
 
     /// A file's text, as its editor ends: the same rule.
     func commitFile(_ id: FileItem.ID, base: String, text: String) {
-        switch TextMerge.commit(base: base, mine: text, theirs: fileBody(id)) {
-        case .unchanged: break
-        case .write(let merged): editFileBody(id, merged + "\n")
-        case .conflict(let mine):
-            editFileBody(id, mine + "\n")
-            changedUnder("“\(file(id)?.title ?? id)”", link: "file:\(id)")
+        Task {
+            await loadFileBody(id, fresh: true)
+            switch TextMerge.commit(base: base, mine: text, theirs: fileBody(id) ?? base) {
+            case .unchanged: break
+            case .write(let merged): editFileBody(id, merged + "\n")
+            case .conflict(let mine):
+                editFileBody(id, mine + "\n")
+                changedUnder("“\(file(id)?.title ?? id)”", link: "file:\(id)")
+            }
         }
     }
 
@@ -711,6 +712,7 @@ extension AppModel {
         } else {
             fileDrafts[item.id] = body.isEmpty ? "# \(title)\n" : body
         }
+        if let path = item.path { diskTexts[path] = DiskText(text: body.isEmpty ? "# \(title)\n" : body, version: .now) }
         wrote(item.path)
         files.append(item)
         return item
@@ -752,15 +754,28 @@ extension AppModel {
     }
 
     /// The note's markdown, without its front matter.
-    func fileBody(_ id: FileItem.ID) -> String {
-        if let path = files.first(where: { $0.id == id })?.path { return Vault.body(at: path) }
+    /// Nil until `loadFileBody` has read it.
+    func fileBody(_ id: FileItem.ID) -> String? {
+        if let path = files.first(where: { $0.id == id })?.path { return diskTexts[path]?.text }
         return fileDrafts[id] ?? "# \(files.first { $0.id == id }?.title ?? "")\n\nSample text.\n"
+    }
+
+    /// The note's text for a CLI call, which waits for its reply on the main thread: what's in, else read now.
+    func fileBodyNow(_ id: FileItem.ID) -> String {
+        if let text = fileBody(id) { return text }
+        guard let path = files.first(where: { $0.id == id })?.path else { return "" }
+        return Vault.body(at: path) // io: ok a CLI call waits for its reply on the main thread
+    }
+
+    /// Reads the note in the background: again when it changed on disk since, or always (`fresh`) before a merge.
+    func loadFileBody(_ id: FileItem.ID, fresh: Bool = false) async {
+        guard let file = files.first(where: { $0.id == id }), let path = file.path else { return }
+        await readDiskText(path, version: fresh ? .now : file.modified, read: Vault.body(at:))
     }
 
     /// A saved edit: the note's markdown, with Undo.
     func editFileBody(_ id: FileItem.ID, _ body: String, action: String = "Edit File") {
-        let old = fileBody(id)
-        guard body != old, let index = files.firstIndex(where: { $0.id == id }) else { return }
+        guard let old = fileBody(id), body != old, let index = files.firstIndex(where: { $0.id == id }) else { return }
         saveFileBody(id, body)
         files[index].modified = .now
         registerUndo(action) { $0.editFileBody(id, old, action: action) }
@@ -768,7 +783,7 @@ extension AppModel {
 
     /// A checkbox ticked in a file's rendered view.
     func toggleFileCheckbox(_ id: FileItem.ID, at index: Int) {
-        guard let toggled = Markdown.toggleTask(fileBody(id), at: index) else { return }
+        guard let body = fileBody(id), let toggled = Markdown.toggleTask(body, at: index) else { return }
         editFileBody(id, toggled, action: "Tick Checkbox")
     }
 
@@ -778,8 +793,9 @@ extension AppModel {
             fileDrafts[id] = body
             return
         }
-        report { try vault?.saveBody(body, at: path) }
-        wrote(path)
+        diskTexts[path] = DiskText(text: body, version: .now)
+        guard let vault else { return }
+        writeNote(path) { try vault.saveBody(body, at: path) }
     }
 
     // MARK: Obsidian and the Trash
@@ -802,6 +818,8 @@ extension AppModel {
 
     func trash(_ path: String?) -> URL? {
         guard let path else { return nil }
+        // A queued save would write the note back after it went.
+        if pendingWrites[path] != nil { flushNoteWrites() }
         wrote(path)
         var result: NSURL?
         do {

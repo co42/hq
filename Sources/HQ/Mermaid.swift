@@ -196,7 +196,7 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
         if let loading { return await loading.value }
         let task = Task { () -> WKWebView? in
             guard let url = Bundle.main.url(forResource: "mermaid.min", withExtension: "js", subdirectory: "Mermaid"),
-                  let script = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+                  let script = await Task.detached(operation: { try? String(contentsOf: url, encoding: .utf8) }).value else { return nil }
             let configuration = WKWebViewConfiguration()
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 2048, height: 2048), configuration: configuration) // grid: ok room for a large diagram

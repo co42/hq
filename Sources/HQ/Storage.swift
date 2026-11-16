@@ -196,6 +196,40 @@ final class Storage {
              make: { SeenRecord(key: $0.key, seenAt: $0.date) }) { if $0.seenAt != $1.date { $0.seenAt = $1.date } }
     }
 
+    /// SwiftData's change history, which HQ never reads: what's older than an hour goes, in the background, 10 s after
+    /// launch and every 6 hours.
+    func pruneHistoryRegularly() {
+        let container = container
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .seconds(10))
+            while !Task.isCancelled {
+                let failure = Self.pruneHistory(container, before: .now.addingTimeInterval(-3600))
+                await MainActor.run {
+                    LaunchLog.mark("pruned")
+                    if let failure { AppLog.write("couldn't prune the store's history: \(failure)", to: "store.log") }
+                }
+                try? await Task.sleep(for: .seconds(6 * 3600))
+            }
+        }
+    }
+
+    /// Deletes the history before `cutoff`; what went wrong, if anything.
+    nonisolated static func pruneHistory(_ container: ModelContainer, before cutoff: Date) -> String? {
+        var descriptor = HistoryDescriptor<DefaultHistoryTransaction>()
+        descriptor.predicate = #Predicate { $0.timestamp < cutoff }
+        do {
+            try ModelContext(container).deleteHistory(descriptor)
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    /// How many history transactions the store holds (the self-test).
+    func historyCount() -> Int {
+        (try? context.fetchHistory(HistoryDescriptor<DefaultHistoryTransaction>()).count) ?? -1
+    }
+
     /// How many rows of a kind the store holds (the self-test counts duplicates).
     func rows<Record: PersistentModel>(_ type: Record.Type) -> Int {
         (try? context.fetchCount(FetchDescriptor<Record>())) ?? -1

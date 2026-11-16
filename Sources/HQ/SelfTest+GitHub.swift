@@ -26,6 +26,7 @@ extension SelfTest {
         guard let task = model.addTask(to: .backlog, title: "Two-line reason") else { return check("a task to block", false) }
         let reason = "Waiting on X\nsee Slack"
         agent("task block", ["task": task.key, "reason": reason])
+        model.flushNoteWrites()
         let path = model.task(task.id)?.path ?? ""
         let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
         let read = Vault.task(at: URL(fileURLWithPath: path), modified: .now)

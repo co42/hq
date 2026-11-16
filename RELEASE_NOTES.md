@@ -1,5 +1,13 @@
 # Release notes
 
+## v15.2 · 2026-11-16
+
+- HQ no longer stalls when you come back to it. A file's window and a session's plan read their text in the background and show "Loading the note…" or "Loading the plan…" until it's in, even for a note iCloud moved off the Mac. Saves to notes are written in the background, in order. The check HQ runs each time it comes to the front no longer waits on macOS.
+- Pull Requests show "Loading pull requests…" until GitHub first answers, only when HQ has nothing cached yet. Sections with something to show show it at once.
+- HQ's store stays small. HQ now prunes the change history it never reads, 10 s after launch and every 6 hours: your store goes from 161 MB to about 1 MB.
+- `hq task history` keeps 7 days. Its log is read in the background.
+- For HQ's own checks: `tools/io-lint.sh` fails on any disk read on the main thread, and `tools/perf.sh --check` budgets the launch (2 s) and the store's size.
+
 ## v15.1 · 2026-11-16
 
 - HQ no longer hangs at launch on a store that saved every session thousands of times. Since 2026-11-13, a save that couldn't read the store stored all sessions again. The next launch loaded the copies, and each save after it stored them again, until the store held 4.5 million rows. Now a save that can't read the store writes nothing, each session is stored once, and launch removes any copies already there, keeping the newest. Each case leaves a line in `~/Library/Logs/HQ/store.log`.

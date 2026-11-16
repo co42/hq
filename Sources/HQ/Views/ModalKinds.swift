@@ -837,10 +837,19 @@ struct SessionModal: View {
                     }
                 }
             case .waiting(.plan):
-                if let plan = session.planPath.flatMap({ try? String(contentsOfFile: $0, encoding: .utf8) }) {
-                    MarkdownView(plan)
-                        .padding(Space.md)
-                        .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                if let path = session.planPath {
+                    Group {
+                        if let plan = model.diskTexts[path]?.text {
+                            MarkdownView(plan)
+                                .padding(Space.md)
+                                .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                        } else {
+                            LoadingLine(title: "Loading the plan…")
+                        }
+                    }
+                    .task(id: session.status.since) {
+                        await model.readDiskText(path, version: session.status.since) { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? "" }
+                    }
                 }
             case .waiting(.permission):
                 if let input = session.toolInput { CodeBlock(text: input, copies: true) }
@@ -928,11 +937,15 @@ struct FileModal: View {
                            setTags: { model.setFileLabels(file.id, tags: $0) },
                            setPinned: { model.setFileLabels(file.id, pinned: $0) })
             }
-            let blocks = Markdown.blocks(model.fileBody(file.id))
+            let text = model.fileBody(file.id)
+            let blocks = text.map(Markdown.blocks) ?? []
             if case .heading(1, _) = blocks.first {} else {
                 Text(file.title).kitType(.heading1)
             }
-            if model.editingFile == file.id {
+            if text == nil {
+                LoadingLine(title: "Loading the note…")
+                    .uiTestAnchor("file-loading")
+            } else if model.editingFile == file.id {
                 MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: file.title,
                                onHeight: { editorHeight = $0 },
                                onCommit: { model.saveModalEdits() }, onCancel: { model.saveModalEdits() }, onEnd: {})
@@ -950,6 +963,7 @@ struct FileModal: View {
                     .uiTestAnchor("file-text")
             }
         }
+        .task(id: file.modified) { await model.loadFileBody(file.id) }
         .uiTestAnchor("file-page")
     }
 

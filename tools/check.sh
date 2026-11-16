@@ -55,6 +55,7 @@ step build $build
 step unit swift test --package-path HQKit --scratch-path ~/Library/Developer/HQ/kit-build
 step grid-lint tools/grid-lint.sh
 step perf-lint tools/perf-lint.sh
+step io-lint tools/io-lint.sh
 step code-lint tools/code-lint.sh
 collect
 if ! verdict build; then

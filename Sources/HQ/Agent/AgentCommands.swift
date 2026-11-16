@@ -107,7 +107,7 @@ enum AgentCommands {
             model.deleteTasks([task.id])
             return ["deleted": keys, "text": "Deleted \(named): \(keys.count == 1 ? "its note is" : "their notes are") in the Trash."]
         },
-        AgentCommand(name: "task history", summary: "What sessions changed in a task through hq in the last 30 days, the latest first. task undo reverts the latest.",
+        AgentCommand(name: "task history", summary: "What sessions changed in a task through hq in the last 7 days, the latest first. task undo reverts the latest.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12")],
                      example: "hq task history T-12", output: "{edits: [{at, command, by, session, changes, tasks}], text}", readOnly: true) { args, model in
             let ref = try args.required("task")
@@ -127,7 +127,7 @@ enum AgentCommands {
                     + TaskEdit.fields(change?.before, change?.after).joined(separator: ", ")
                     + (others > 0 ? " (and \(others) other task\(others == 1 ? "" : "s"))" : "")
             }
-            return ["edits": items, "text": lines.isEmpty ? "No change to T-\(id) through hq in the last 30 days." : lines.joined(separator: "\n")]
+            return ["edits": items, "text": lines.isEmpty ? "No change to T-\(id) through hq in the last 7 days." : lines.joined(separator: "\n")]
         },
         AgentCommand(name: "task undo", summary: "Undo the latest change hq made to a task: every task that command changed goes back as it was. Tasks it created or deleted stay so.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12")],
@@ -135,7 +135,7 @@ enum AgentCommands {
             let ref = try args.required("task")
             guard let id = TaskItem.key(ref) else { throw AgentError.usage("\(ref) isn't a task key: T-12") }
             guard let edit = TaskEditLog.shared.edits(of: id).last else {
-                throw AgentError.notFound("no change to T-\(id) through hq in the last 30 days")
+                throw AgentError.notFound("no change to T-\(id) through hq in the last 7 days")
             }
             let reverted = edit.changes.filter { $0.before != nil && $0.after != nil }
             let moved = reverted.filter { change in model.task(change.id).map { !$0.sameNote(as: change.after!) } ?? true }
@@ -222,7 +222,7 @@ enum AgentCommands {
                      example: "hq file show \"2026-11-03 - Push plan\"", output: fileOutput + "; body", readOnly: true) { args, model in
             let file = try findFile(args, model)
             var json = file.agentJSON
-            json["body"] = model.fileBody(file.id)
+            json["body"] = model.fileBodyNow(file.id)
             return json
         },
         AgentCommand(name: "file write", summary: "Replace a note's text, one ## section of it (--section), one exact text in it (--replace), or add to its end; its front matter stays.",
@@ -1151,7 +1151,7 @@ extension AgentCommands {
 
     static func writeFileCommand(_ args: Args, _ model: AppModel) throws -> Any {
         let file = try findFile(args, model)
-        let current = model.fileBody(file.id)
+        let current = model.fileBodyNow(file.id)
         let text: String
         if let old = args.string("replace") {
             guard args.string("body") == nil, args.string("section") == nil else { throw AgentError.usage("--replace changes one text: leave out --body and --section") }

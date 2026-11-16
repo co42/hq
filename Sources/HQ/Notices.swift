@@ -410,7 +410,7 @@ extension AppModel {
     func loadNotices() {
         let url = Store.directory.appending(path: "notifications.json")
         // No file: nothing yet. A file that doesn't decode, whole or a row of it, goes aside before HQ saves over it.
-        if let data = try? Data(contentsOf: url) {
+        if let data = try? Data(contentsOf: url) { // io: ok HQ's own file, once at launch
             let store = try? Self.noticeDecoder.decode(NoticeStore.self, from: data)
             if store == nil || store?.dropped ?? 0 > 0 {
                 if let aside = Store.moveAside(url) { movedAside.append(aside.path) }

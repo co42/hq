@@ -43,5 +43,13 @@ extension SelfTest {
               "\(loaded.count) loaded, \(reopened.rows(SessionRecord.self)) rows, \(AppLog.expected)")
         reopened.save(loaded)
         check("and its next save keeps one row each", reopened.rows(SessionRecord.self) == 3)
+
+        // The store's change history goes once old: it held 4.57 million rows on 2026-11-16.
+        let before = reopened.historyCount()
+        let kept = Storage.pruneHistory(reopened.container, before: .now.addingTimeInterval(-3600))
+        let midway = reopened.historyCount()
+        let pruned = Storage.pruneHistory(reopened.container, before: .now.addingTimeInterval(1))
+        check("pruning keeps the last hour's history, then drops what's older", before > 0 && kept == nil && midway == before
+              && pruned == nil && reopened.historyCount() == 0, "\(before), \(midway), \(reopened.historyCount()): \(pruned ?? "")")
     }
 }

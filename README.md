@@ -128,6 +128,7 @@ tools/          snapshots, tests and lints
 | Snapshots of every screen, light and dark, at two widths | `tools/snap.sh` (to `/tmp/HQ-shots/`) |
 | The 4 pt grid | `tools/grid-lint.sh` and `swift tools/check-layout.swift /tmp/HQ-shots/*-layout.json` |
 | Performance rules in the code | `tools/perf-lint.sh` |
+| No disk read or wait on the main thread | `tools/io-lint.sh` |
 | The docs, skills, `hq help` and the hook's start text against the CLI | `tools/docs-lint.sh` |
 | What sessions typed that `hq` refused, since a date | `tools/hq-usage.sh --since 2026-11-10` |
 

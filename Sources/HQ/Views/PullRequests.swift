@@ -22,6 +22,9 @@ struct PullRequestsSection: View {
             }
             if model.folded.contains(.pullRequests) {
                 EmptyView()
+            } else if model.github == nil, model.problem != .githubMissing, model.problem != .githubSignedOut {
+                LoadingLine(title: "Loading pull requests…")
+                    .uiTestAnchor("prs-loading")
             } else if model.github == nil {
                 EmptySection(title: setupTitle, message: setupMessage) {
                     if model.setup.ghPath != nil || model.problem == .githubSignedOut {

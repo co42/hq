@@ -417,7 +417,11 @@ extension AppModel {
 
     /// Edit (⌘E) on a file: its markdown in the editor.
     func beginFileEdit(_ id: FileItem.ID) {
-        fileDraftBase = fileBody(id)
+        guard let body = fileBody(id) else {
+            Task { await loadFileBody(id); if fileBody(id) != nil { beginFileEdit(id) } }
+            return
+        }
+        fileDraftBase = body
         fileDraft = fileDraftBase
         editingFile = id
     }

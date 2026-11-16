@@ -498,8 +498,12 @@ final class AppModel {
     @ObservationIgnored var readingVault = false
     /// When HQ last wrote each note (by path).
     @ObservationIgnored var vaultWrites: [String: Date] = [:]
+    /// Writes to notes queued or running on the background writer, by path.
+    @ObservationIgnored var pendingWrites: [String: Int] = [:]
     /// Sample files' text, with no vault.
     @ObservationIgnored var fileDrafts: [FileItem.ID: String] = [:]
+    /// Notes' and plans' text read in the background, by path, with the date it was read for.
+    var diskTexts: [String: DiskText] = [:]
     @ObservationIgnored var tasksVersion = 0
     /// The last search's tasks and their parents, by list, tasks' version and words.
     @ObservationIgnored var foundCache: [TaskList: (key: String, found: Set<Int>)] = [:]
@@ -548,6 +552,8 @@ final class AppModel {
         sessions = storage?.sessions() ?? []
         artifacts = storage?.artifacts() ?? []
         seen = storage?.seen() ?? [:]
+        storage?.pruneHistoryRegularly()
+        TaskEditLog.shared.load()
         loadNotices()
         // A test run starts on its own empty preferences (Prefs): zoom 1, nothing folded.
         Zoom.factor = zoom

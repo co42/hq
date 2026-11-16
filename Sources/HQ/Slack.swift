@@ -233,7 +233,7 @@ final class SlackService {
     private static var cacheURL: URL { Store.directory.appending(path: "slack.json") }
 
     private static func loadCache() -> Cache? {
-        guard let data = try? Data(contentsOf: cacheURL) else { return nil }
+        guard let data = try? Data(contentsOf: cacheURL) else { return nil } // io: ok HQ's own cache, once at launch
         return try? JSONDecoder().decode(Cache.self, from: data)
     }
 

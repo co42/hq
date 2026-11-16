@@ -867,6 +867,7 @@ enum SelfTest {
         _ = agent("task link", ["task": task.key, "blocked-by": other.key])
         let afterLinked = agent("task link", ["task": other.key, "after": task.key])
         check("a link that would go in a circle is refused", (afterLinked["error"] as? JSONObject) != nil, "\(afterLinked)")
+        model.flushNoteWrites()
         let note = model.task(task.id).flatMap(\.path).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
         let blockedNote = model.task(other.id).flatMap(\.path).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
         check("Blocked and blocked by go to the notes' front matter", (blocked["blocked"] as? Bool) == true
@@ -886,6 +887,7 @@ enum SelfTest {
         if let old = model.addFile(title: "Older note"), let pinned = model.addFile(title: "Pinned note") {
             model.setFileLabels(pinned.id, project: .some("Registry"), tags: ["#perf", "perf"])
             model.setFileLabels(pinned.id, pinned: true)
+            model.flushNoteWrites()
             let saved = model.file(pinned.id).flatMap(\.path).flatMap { try? String(contentsOfFile: $0, encoding: .utf8) } ?? ""
             check("a file's project, tags and pin go to its front matter", saved.contains("pinned: true") && saved.contains("project: Registry") && saved.contains("perf")
                   && model.file(pinned.id)?.tags == ["perf"], saved)
@@ -1011,8 +1013,8 @@ enum SelfTest {
             // A file's checkbox ticks from its view, one Undo step.
             model.editFileBody(file.id, "# Link me\n\n- [ ] one\n- [ ] two\n")
             model.toggleFileCheckbox(file.id, at: 1)
-            check("a click on a file's checkbox ticks it in the note, one Undo step", model.fileBody(file.id).contains("- [ ] one\n- [x] two")
-                  && model.undoManager?.undoActionName == "Tick Checkbox", model.fileBody(file.id))
+            check("a click on a file's checkbox ticks it in the note, one Undo step", (model.fileBody(file.id) ?? "").contains("- [ ] one\n- [x] two")
+                  && model.undoManager?.undoActionName == "Tick Checkbox", model.fileBody(file.id) ?? "")
             model.deleteTasks([target.id, other.id])
             model.deleteFile(file.id)
             model.artifacts.removeAll { $0.id == artifact.id }
@@ -1227,6 +1229,7 @@ enum SelfTest {
         let rows = (agent("ls", ["kind": "notifications"])["notifications"] as? [JSONObject]) ?? []
         check("hq ls notifications lists Needs You first, then Later", rows.first?["section"] as? String == "needsYou"
               && rows.contains { $0["text"] as? String == "Check the canary" && $0["section"] as? String == "later" })
+        model.flushNoteWrites()
         if let path = model.task(id)?.path {
             try? (try? String(contentsOfFile: path, encoding: .utf8))?.replacingOccurrences(of: "status:", with: "type: bug\naliases: [dedup]\nstatus:")
                 .write(toFile: path, atomically: true, encoding: .utf8)

@@ -23,6 +23,8 @@ budget_memory=200        # MB at rest (about 90)
 budget_peak=200          # MB at any time since launch (about 90; 380 to 540 before 2026-11-06)
 budget_gpu=20            # MB of GPU memory at rest (3; 260 to 420 before)
 budget_busy_cpu=5        # % with tool calls coming in at 10 a second (1.5; 28 before)
+budget_launch=2          # s from opening HQ to its window with the tasks shown (0.4 on the user's store and vault, 2026-11-16)
+budget_store=5           # MB of the store and its log after the busy run (the user's held 161 MB of history before it was pruned, 2026-11-16)
 
 # "88.9M", "3136 KB", "1.2 GB": megabytes.
 megabytes() {
@@ -35,12 +37,12 @@ megabytes() {
   esac
 }
 
-# One run: sets cpu, memory, peak, gpu and events.
+# One run: sets launch, cpu, memory, peak, gpu, store_size and events.
 measure() {
   local measure=$1 settle=$2
   rm -f $store $store-shm $store-wal $store.sock $log
   rm -rf $vault && mkdir -p $vault
-  local env=(--env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_GITHUB=fixtures)
+  local env=(--env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_GITHUB=fixtures --env HQ_LAUNCH_LOG=1)
   if [[ ${PERF_SEED:-0} == 1 ]]; then
     mkdir -p $vault/hq/tasks $vault/hq/files
     env+=(--env APP_SEED=1)
@@ -48,6 +50,7 @@ measure() {
     sqlite3 "$HOME/Library/Application Support/HQ/HQ.store" ".backup $store"
     cp -R "$notes/hq" $vault/
   fi
+  local opened=$EPOCHREALTIME
   open -g -n "$app" $env --stdout $log --stderr $log --args -ApplePersistenceIgnoreState YES
   # The test copy is the process with its store open: other test copies may start beside it.
   local pid=""
@@ -58,6 +61,9 @@ measure() {
   done
   [[ -n $pid ]] || { print "perf: the test copy didn't start"; exit 1 }
   sleep $settle
+  # The window with the tasks shown, from the launch marks HQ prints (LaunchLog).
+  local shown=$(awk '$1 == "launch" && ($2 == "window" || $2 == "tasks") {n++; if ($3 > t) t = $3} END {if (n == 2) printf "%.3f", t}' $log)
+  launch=$(( ${shown:-0} > 0 ? shown - opened : 999 ))
   local busy=""
   if [[ -n ${PERF_BUSY:-} ]]; then
     hook() { print -r -- "{\"hook_event_name\":\"$1\",\"session_id\":\"perf-busy\",\"cwd\":\"/tmp\"$2}" | APP_AGENT_SOCKET=$store.sock "$app/Contents/MacOS/HQ" hook >/dev/null 2>&1 }
@@ -69,9 +75,9 @@ measure() {
     ( n=0; while true; do
         n=$((n + 1))
         hook PreToolUse ",\"tool_name\":\"$tool\",\"tool_input\":{\"command\":\"echo $n\"}"
-        print $n >| /tmp/HQ-perf.busy; sleep $(( 1.0 / PERF_BUSY ))
+        print $n >| /tmp/HQ-perf.busy.new && mv /tmp/HQ-perf.busy.new /tmp/HQ-perf.busy; sleep $(( 1.0 / PERF_BUSY ))
         hook PostToolUse ",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo $n\"}"
-        print $n >| /tmp/HQ-perf.busy; sleep $(( 1.0 / PERF_BUSY ))
+        print $n >| /tmp/HQ-perf.busy.new && mv /tmp/HQ-perf.busy.new /tmp/HQ-perf.busy; sleep $(( 1.0 / PERF_BUSY ))
       done ) &
     busy=$!
   fi
@@ -84,7 +90,8 @@ measure() {
   events=0
   if [[ -n $busy ]]; then
     kill $busy
-    events=$(( $(cat /tmp/HQ-perf.busy) * 2 ))
+    local sent=$(cat /tmp/HQ-perf.busy 2>/dev/null)
+    events=$(( ${sent:-0} * 2 ))
   fi
   local summary=$(vmmap --summary $pid 2>/dev/null)
   memory=$(megabytes "$(print -r -- $summary | awk -F: '/^Physical footprint:/ {print $2}')")
@@ -92,6 +99,8 @@ measure() {
   local graphics=$(footprint $pid 2>/dev/null | awk '/unmapped\) \(graphics\)/ {print $1, $2; exit}')
   gpu=$(megabytes "${graphics:-0 KB}")
   kill $pid
+  sleep 0.5
+  store_size=$(( ($(stat -f %z $store) + $(stat -f %z $store-wal 2>/dev/null || print 0)) / 1048576.0 ))
 }
 
 if [[ ${1:-} == --check ]]; then
@@ -104,12 +113,14 @@ if [[ ${1:-} == --check ]]; then
   unset PERF_BUSY PERF_STATES PERF_SAMPLE
   measure 15 10
   rest_cpu=$cpu rest_memory=$memory rest_peak=$peak rest_gpu=$gpu
+  verdict "launch to the window with its tasks" $launch $budget_launch s
   verdict "CPU at rest" $rest_cpu $budget_rest_cpu %
   verdict "memory at rest" $rest_memory $budget_memory MB
   verdict "memory peak since launch" $rest_peak $budget_peak MB
   verdict "GPU memory at rest" $rest_gpu $budget_gpu MB
   PERF_BUSY=10 measure 15 10
   verdict "CPU with tool calls coming in ($(( events / 15 )) a second)" $cpu $budget_busy_cpu %
+  verdict "store size after the busy run" $store_size $budget_store MB
   mkdir -p ${perf_history:h}
   [[ -f $perf_history ]] || print "date\tcommit\trest cpu %\tmemory MB\tpeak MB\tgpu MB\tbusy cpu %" >| $perf_history
   commit=$(git -C ${0:A:h:h} rev-parse --short HEAD 2>/dev/null)$(git -C ${0:A:h:h} diff --quiet 2>/dev/null || print +)
@@ -120,6 +131,6 @@ if [[ ${1:-} == --check ]]; then
 fi
 
 measure ${1:-30} ${2:-20}
-printf 'cpu %s%%  memory %.0f MB (peak %.0f MB)  GPU memory %.1f MB' $cpu $memory $peak $gpu
+printf 'launch %.2f s  cpu %s%%  memory %.0f MB (peak %.0f MB)  GPU memory %.1f MB  store %.1f MB' $launch $cpu $memory $peak $gpu $store_size
 (( events )) && printf '  busy: %s hook events sent' $events
 print

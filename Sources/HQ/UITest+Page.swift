@@ -191,7 +191,8 @@ extension UITest {
             if let key = model.selectedItem, ui.anchorFrame("item:\(key)") == nil { unshown.append(key) }
         }
         await check("with Pinned Only, the card shows every pinned file and ↓ selects only rows it shows",
-              unshown.isEmpty && model.selectedItem == pinned.last, "not shown: \(unshown), at \(model.selectedItem ?? "none")")
+              unshown.isEmpty && model.selectedItem == pinned.last,
+              "not shown: \(unshown), at \(model.selectedItem ?? "none"), \(model.listedFiles.count) listed of \(pinned.count) pinned, \(model.files.filter(\.pinned).count) pinned now")
     }
 
     /// A row clicked in the modal selects there: the page's selection is still the one thing selected once it closes.

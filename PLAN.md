@@ -106,7 +106,7 @@ The description, in markdown. Older dated notes stay here as paragraphs.
 
 A Claude `session_id` with its name (the latest of the user's rename in HQ, the name HQ gave a session it started, and a /rename in Claude Code (`custom-title`, kept as `renamed` so an old one never comes back over a later rename in HQ); else Claude's `ai-title`, else the first prompt), state, cwd, repo, branch, origin, pid and tty, and the cockpit's fields: `order`, `closedAt`, `faceSalt`, `faceID` (the session whose face it wears, after /clear), `links` (PR URLs it printed). Ended (SessionEnd, or the pid exits) sets `closedAt`; Resume clears it and appends the session to the grid.
 
-One row per session (v15.1, 2026-11-16, T-485): a save that can't read the store writes nothing, a save stores a session once and removes a second row of it, and launch removes a session's other rows, the newest kept. Each logs to `store.log`. A launch whose read failed never deletes the rows its list lacks. Artifacts and seen records follow the same rules.
+One row per session (v15.1, 2026-11-16, T-485): a save that can't read the store writes nothing, a save stores a session once and removes a second row of it, and launch removes a session's other rows, the newest kept. Each logs to `store.log`. A launch whose read failed never deletes the rows its list lacks. Artifacts and seen records follow the same rules. SwiftData's change history, which HQ never reads, is pruned in the background 10 s after launch and every 6 hours, keeping the last hour (v15.2, T-486: the user's store went from 161 MB to 1 MB). `tools/perf.sh --check` budgets the store's size.
 
 Teams (v14, 2026-11-11): `parentID`, the session that started it (`hq session new` from a session, Start a Session with a Parent, Move Under), and `role`, the name of the role note it started with. HQKit's `SessionTree` reads the teams: a parent that isn't there, or a loop, reads as top level; the grid shows the top-level sessions, and a closed one stays, faded, while a session under it is open, then leaves with the last one for Closed Sessions. After /clear the new conversation keeps its parent and role and leads the sessions the old one started. Move Under and Make Root take Undo; a session never goes under its own team. The grid orders the top-level sessions by their `order`; a team's sessions keep theirs among their siblings. A drop between cards or rows, Move Above, Move Below and ⇧ with the arrows place a session under a parent (none: the grid) before or after a sibling, renumbering that parent's sessions 1, 2, 3…: one Undo step that puts back every parent and order it touched (`placeSession`). The team shown open (`openTeam`, one at a time) isn't stored.
 
@@ -197,7 +197,7 @@ hq task show T-n [T-m …] [--deep|--brief|--body]  # parents, reminders, descri
 hq task link T-n <url | T-m | session id | note name>
 hq task unlink T-n <the same item>
 hq task delete T-n [--yes]                     # with its subtasks, to the Trash; without --yes: what it would delete
-hq task history T-n                            # what sessions changed in it through hq, the last 30 days
+hq task history T-n                            # what sessions changed in it through hq, the last 7 days
 hq task undo T-n [--yes]                       # put back every task its latest hq change touched
 hq file new "Title" [--task T-n] [--body -]    # "<date> - Title"; a dated title keeps one date
 hq file write <name> [--body - [--append]] [--section S --body -] [--replace old --with new]
@@ -263,7 +263,7 @@ hq/
   HQKit/Tests/       unit tests and GitHub fixtures
   plugin/            .claude-plugin/plugin.json, hooks/, skills/, bin/hq
   .claude-plugin/marketplace.json
-  tools/             check.sh (every check), snap.sh, selftest.sh, uitest.sh, grid-lint.sh, perf-lint.sh, docs-lint.sh, check-layout.swift, perf.sh, launch.sh, install-plugin.sh
+  tools/             check.sh (every check), snap.sh, selftest.sh, uitest.sh, grid-lint.sh, perf-lint.sh, io-lint.sh, docs-lint.sh, check-layout.swift, perf.sh, launch.sh, install-plugin.sh
 ```
 
 ## 12. AppKit inside SwiftUI, Swift 6 at AppKit's edges
