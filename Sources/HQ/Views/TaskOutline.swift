@@ -1059,6 +1059,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func row(of id: Int) -> Int { outline?.row(forItem: node(.task(id))) ?? -1 }
 
+    /// The task has a row here.
+    func shows(_ id: Int) -> Bool { nodes[.task(id)].map { (outline?.row(forItem: $0) ?? -1) >= 0 } ?? false }
+
     private func task(atRow row: Int) -> Int? { (outline?.item(atRow: row) as? OutlineNode)?.task }
 
     private var selectedIDs: [Int] { outline?.selectedRowIndexes.compactMap { task(atRow: $0) } ?? [] }
@@ -1623,7 +1626,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (48, []), (48, .shift): leaveSection(by: flags.contains(.shift) ? -1 : 1)
         case (48, _): break
         // A held key moves among siblings only: it never indents, outdents or leaves the parent.
-        case (124, .shift): if !event.isARepeat { model.indentTasks(ids.filter(indentsInView)) }
+        case (124, .shift): if !event.isARepeat { model.indentTasks(ids) }
         case (123, .shift): if !event.isARepeat { model.outdentTasks(ids) }
         case (126, .shift): model.shiftTasks(ids, by: -1, leavingParent: !event.isARepeat)
         case (125, .shift): model.shiftTasks(ids, by: 1, leavingParent: !event.isARepeat)
@@ -1833,7 +1836,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let parent = model.taskTree.parent(of: id)
             // Moving the row ends its edit for a moment: an empty task stays until its title is edited again.
             reEditing = id
-            if left { model.outdent(id) } else if indentsInView(id) { model.indent(id) }
+            if left { model.outdent(id) } else { model.indent(id) }
             guard model.taskTree.parent(of: id) != parent else {
                 reEditing = nil
                 return true
@@ -2002,13 +2005,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         default:
             return false
         }
-    }
-
-    /// ⇧→ goes under the sibling above only when it shows: not a done one Hide Done hides, where the task would vanish.
-    private func indentsInView(_ id: Int) -> Bool {
-        let tree = model.taskTree
-        guard let index = tree.index(of: id), index > 0, let container = tree.container(of: id) else { return false }
-        return row(of: tree.children(of: container)[index - 1]) >= 0
     }
 
     /// The list whose new task's card comes right under a task's row.
@@ -2477,11 +2473,10 @@ extension AppModel {
         var stuck = Set<Int>()
         for id in offset < 0 ? moving : moving.reversed() {
             let tree = taskTree
-            guard let container = tree.container(of: id), let index = tree.index(of: id) else { continue }
-            let siblings = tree.children(of: container)
-            let target = index + offset
+            guard let container = tree.container(of: id) else { continue }
             let atTop: Bool = if case .list = container { true } else { false }
-            let blocked = siblings.indices.contains(target) ? stuck.contains(siblings[target]) : atTop || !leavingParent || keptInWindow(id)
+            let next = tree.neighbor(of: id, by: offset, shown: shownBeside(id))
+            let blocked = next.map(stuck.contains) ?? (atTop || !leavingParent || keptInWindow(id))
             guard !blocked else {
                 stuck.insert(id)
                 continue

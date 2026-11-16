@@ -170,11 +170,18 @@ public struct TaskTree: Sendable {
         return (placement, changes)
     }
 
-    /// Tab: the task becomes the last child of its previous sibling.
-    public func indent(_ id: Int) -> [Int: Placement]? {
-        guard let container = containers[id], let index = index(of: id), index > 0 else { return nil }
-        let previous = children(of: container)[index - 1]
+    /// Tab: the task becomes the last child of its previous shown sibling.
+    public func indent(_ id: Int, shown: (Int) -> Bool = { _ in true }) -> [Int: Placement]? {
+        guard let previous = neighbor(of: id, by: -1, shown: shown) else { return nil }
         return move([id], to: .task(previous), at: children(of: previous).count)
+    }
+
+    /// The nearest sibling before (`offset` < 0) or after a task that `shown` keeps: the outline skips hidden ones.
+    public func neighbor(of id: Int, by offset: Int, shown: (Int) -> Bool = { _ in true }) -> Int? {
+        guard let container = containers[id], let index = index(of: id) else { return nil }
+        let siblings = children(of: container)
+        let others = offset < 0 ? Array(siblings[..<index].reversed()) : Array(siblings[(index + 1)...])
+        return others.first(where: shown)
     }
 
     /// ⇧Tab: the task moves out one level, right after its parent.
@@ -183,12 +190,10 @@ public struct TaskTree: Sendable {
         return move([id], to: outer, at: index + 1)
     }
 
-    /// ⇧↑ ⇧↓: one place among its siblings; past the first or the last, out one level, before or after its parent.
-    public func shift(_ id: Int, by offset: Int) -> [Int: Placement]? {
-        guard let container = containers[id], let index = index(of: id) else { return nil }
-        let siblings = children(of: container)
-        let target = index + offset
-        guard siblings.indices.contains(target) else {
+    /// ⇧↑ ⇧↓: past its shown sibling before or after; past the first or the last shown, out one level, before or after its parent.
+    public func shift(_ id: Int, by offset: Int, shown: (Int) -> Bool = { _ in true }) -> [Int: Placement]? {
+        guard let container = containers[id] else { return nil }
+        guard let next = neighbor(of: id, by: offset, shown: shown), let target = index(of: next) else {
             guard case .task(let parent) = container, let outer = containers[parent], let at = self.index(of: parent) else { return nil }
             return move([id], to: outer, at: offset < 0 ? at : at + 1)
         }

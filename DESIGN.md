@@ -178,8 +178,8 @@ On the selected row (one at a time, 2026-11-10):
 | Return, or a double-click on the title | edit the title |
 | ⇧Return | show / hide the description |
 | N / ⇧N | new task below / new subtask, title edited; it takes the project in effect there (the task's own, or a parent's), written on it |
-| ⇧→ / ⇧← | indent under the previous sibling / outdent; a held key does nothing more (2026-11-06) |
-| ⇧↑ / ⇧↓ | move among siblings; past the first or last, out one level, above or below the parent; a held key stops at the first or last |
+| ⇧→ / ⇧← | indent under the sibling shown above / outdent; a held key does nothing more (2026-11-06) |
+| ⇧↑ / ⇧↓ | move past the sibling shown above or below; past the first or last, out one level, above or below the parent; a held key stops at the first or last. Siblings Hide Done, a filter or a search hide are stepped over, so every press moves the row on screen (2026-11-16, T-479) |
 | ⌘Return | next status (Todo, Doing, Done, Todo…) |
 | B / ⇧B / A | Block… (or Unblock) / Blocked By… / After… (§7) |
 | Escape | unselect the task: nothing stays dimmed; in a task's window with nothing selected, close it |
@@ -392,7 +392,7 @@ macOS text styles. Body 13 for titles and rows; Subheadline 11 for second lines,
 
 ### Status glyphs
 
-One drawn family, 14 pt in a 16 pt slot, 1.5 pt stroke. Marks inside discs are cut out.
+One drawn family, 14 pt in a 16 pt slot, 1.5 pt stroke. Marks inside discs are cut out. A glyph that is a button takes a click anywhere in its slot, the middle of a ring too (2026-11-16, T-487).
 
 | Task | Glyph |
 |---|---|

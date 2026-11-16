@@ -17,6 +17,9 @@ enum UITest {
         probes.append(WeakView(view: view))
         anchors[name] = probes
     }
+    static func unregister(_ name: String, _ view: NSView) {
+        anchors[name] = anchors[name]?.filter { $0.view != nil && $0.view !== view }
+    }
     /// UITEST_VERBOSE=1: where each click lands.
     static let verbose = ProcessInfo.processInfo.environment["UITEST_VERBOSE"] == "1"
     private static var failures = 0
@@ -675,6 +678,8 @@ private struct AnchorView: NSViewRepresentable {
     func makeNSView(context: Context) -> Probe { Probe() }
 
     func updateNSView(_ view: Probe, context: Context) {
+        // A row reused for another item: its probe answers only to the new name.
+        if view.name != name { UITest.unregister(view.name, view) }
         view.name = name
         UITest.register(name, view)
     }

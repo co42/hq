@@ -235,7 +235,7 @@ struct WindowAccessor: NSViewRepresentable {
 enum Prefs {
     static let defaults: UserDefaults = {
         guard Store.isOverridden else { return .standard }
-        let suite = "io.github.co42.hq.test." + Store.url.deletingPathExtension().lastPathComponent
+        let suite = suiteName
         guard let defaults = UserDefaults(suiteName: suite) else { return .standard }
         defaults.removePersistentDomain(forName: suite)
         if ProcessInfo.processInfo.environment["HQ_PREFS"] == "copy", let user = UserDefaults.standard.persistentDomain(forName: "io.github.co42.hq") {
@@ -247,8 +247,12 @@ enum Prefs {
     /// Removes a test run's preferences file as it quits.
     static func forget() {
         guard Store.isOverridden else { return }
-        defaults.removePersistentDomain(forName: "io.github.co42.hq.test." + Store.url.deletingPathExtension().lastPathComponent)
+        defaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(atPath: suiteName + ".plist")
     }
+
+    /// A test run's preferences file, beside its store in /tmp: none lands in ~/Library/Preferences.
+    private static var suiteName: String { Store.url.deletingPathExtension().path + "-prefs" }
 }
 
 enum Store {

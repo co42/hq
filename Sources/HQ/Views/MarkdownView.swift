@@ -116,6 +116,7 @@ private struct MarkdownBlockView: View {
                     .accessibilityLabel(text)
                     .accessibilityValue(checked ? "Done" : "To do")
                     .accessibilityAddTraits(.isToggle)
+                    .uiTestAnchor("checkbox:\(task)")
             } else {
                 mark.accessibilityLabel(text).accessibilityValue(checked ? "Done" : "To do")
             }

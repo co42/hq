@@ -1962,6 +1962,30 @@ extension UITest {
         await ui.settle(0.3)
         await check("Undo puts the subtasks back", tree().children(of: a) == [a1, a2] && tree().top(.overview) == [a, b, new, c],
               "\(tree().children(of: a)) \(tree().top(.overview))")
+        // A task Hide Done hides is stepped over: ⇧→ goes under the shown task above, ⇧↑ past it (T-479).
+        let bStatus = model.task(b)?.status ?? .todo
+        model.setStatus(b, .done)
+        model.hideDone = [.overview]
+        await endUndoGroup(model)
+        coordinator.select(new)
+        await ui.settle(0.4)
+        await ui.key(.right, .shift)
+        await ui.until(2) { tree().parent(of: new) == a }
+        await check("with the task above hidden by Hide Done, Shift-Right indents under the shown one", tree().parent(of: new) == a && model.selectedTasks == [new],
+              "parent \(String(describing: tree().parent(of: new))) \(state())")
+        model.undoManager?.undo()
+        await ui.until(2) { tree().parent(of: new) == nil }
+        coordinator.select(new)
+        await ui.settle(0.3)
+        await ui.key(.up, .shift)
+        await ui.until(2) { tree().top(.overview).first == new }
+        await check("and Shift-Up moves it past the shown task above, not only the hidden one", tree().top(.overview) == [new, a, b, c] && model.selectedTasks == [new],
+              "\(tree().top(.overview)) \(state())")
+        model.undoManager?.undo()
+        await ui.until(2) { tree().top(.overview) == [a, b, new, c] }
+        model.hideDone = []
+        model.setStatus(b, bStatus)
+        await ui.settle(0.3)
 
         // In a title: Shift-Right at its end indents, Shift-Left at its start outdents; the title stays edited.
         coordinator.beginEditing(new)
@@ -2686,12 +2710,12 @@ extension UITest {
 
         print("  perf: baseline scroll of the small page \(baseline?.description ?? "-")")
         print("  perf: show all descriptions \(descriptions); search \(search); fold \(fold); move \(move); scroll \(scrolls); \(built) row views")
-        await check("Show Descriptions with 500 tasks holds the main thread under 150 ms", descriptions.worst < 150, "\(descriptions)")
-        await check("a search keystroke with 500 tasks holds it under 100 ms", search.worst < 100, "\(search)")
-        await check("folding a task with 500 tasks holds it under 50 ms", fold.worst < 50, "\(fold)")
-        await check("a move with 500 tasks takes under two frames, none over 100 ms", move.median < 34 && move.worst < 100, "\(move)")
-        await check("scrolling the page with 500 tasks stays within a frame, rare steps at two, none at three",
-              scrolls.median < 17 && scrolls.hitches <= scrolls.steps.count / 100 && scrolls.worst < 50, "\(scrolls)")
+        await check("Show Descriptions with 500 tasks holds the main thread under 150 ms (debug ×1.5)", descriptions.worst < Stall.budget(150), "\(descriptions)")
+        await check("a search keystroke with 500 tasks holds it under 100 ms (debug ×1.5)", search.worst < Stall.budget(100), "\(search)")
+        await check("folding a task with 500 tasks holds it under 50 ms (debug ×1.5)", fold.worst < Stall.budget(50), "\(fold)")
+        await check("a move with 500 tasks takes under two frames, none over 100 ms (debug ×1.5)", move.median < Stall.budget(34) && move.worst < Stall.budget(100), "\(move)")
+        await check("scrolling the page with 500 tasks stays within a frame, rare steps at two, none at three (debug ×1.5)",
+              scrolls.median < Stall.budget(17) && scrolls.hitches <= scrolls.steps.count / 100 && scrolls.worst < Stall.budget(50), "\(scrolls)")
     }
 }
 
@@ -2699,6 +2723,15 @@ extension UITest {
 final class Stall {
     private var last = CACurrentMediaTime()
     private var worst = 0.0
+
+    /// A budget in ms, held on a release build; a debug build, as check.sh --fast runs, has half again.
+    static func budget(_ ms: Int) -> Int {
+        #if DEBUG
+        ms * 3 / 2
+        #else
+        ms
+        #endif
+    }
 
     struct Result: CustomStringConvertible {
         let steps: [Int]
@@ -3209,6 +3242,20 @@ extension UITest {
         model.block(third.id, reason: "Waiting on a decision")
         await check("a Blocked task's window says why, with Unblock, and no Block…", ui.anchor("blocked-property") != nil && ui.anchor("relation-add:Block…") == nil)
         model.unblock(third.id)
+        // An icon button takes a click in its middle, not only on its strokes: the status ring, an empty checkbox (T-487).
+        let thirdBody = model.task(third.id)?.body ?? ""
+        model.setStatus(third.id, .todo)
+        model.setDescription(third.id, "- [ ] one")
+        await ui.settle(0.5)
+        await ui.click(ui.anchor("modal-status"), inSheet: true)
+        await ui.until(2) { model.task(third.id)?.status == .doing }
+        await check("a click in the middle of the window's status ring moves it to the next status", model.task(third.id)?.status == .doing,
+              String(describing: model.task(third.id)?.status))
+        await ui.click(ui.anchor("checkbox:0"), inSheet: true)
+        await ui.until(2) { model.task(third.id)?.body.contains("- [x] one") == true }
+        await check("a click in the middle of an empty checkbox ticks it", model.task(third.id)?.body.contains("- [x] one") == true, model.task(third.id)?.body ?? "")
+        model.setDescription(third.id, thirdBody)
+        model.setStatus(third.id, .todo)
         model.closeModal()
         await ui.settle(0.5)
         // The story's window: its subtasks as the list shows them, the same cards, above its related tasks (2026-11-11).
@@ -3225,6 +3272,19 @@ extension UITest {
               "rows \(rows()), outline \(String(describing: anchors().0)), relations \(String(describing: anchors().1))")
         // Its cards act as the list's: a row's menu goes through the window's outline.
         await check("a subtask in the window belongs to the window's outline", OutlineCoordinator.owner(of: second.id)?.root == goal.id)
+        // The last subtask's open tray closes inside the outline, as far above the new subtask's card as cards are apart (T-483).
+        let tail = model.addSubtask(to: third.id, title: "A part of the third")
+        await endUndoGroup(model)
+        func trayGap() -> (gap: CGFloat, text: String) {
+            guard let sheet = ui.window.attachedSheet, let inner = ui.find(TaskOutlineView.self, in: sheet.contentView),
+                  let bottom = inner.cardsView.shapes.map(\.rect.maxY).max(), let new = ui.anchorFrame("new-subtask") else { return (-1, "no outline or card") }
+            let drawn = inner.convert(NSRect(x: 0, y: bottom, width: 1, height: 0), to: nil).minY
+            return (drawn - new.maxY, "shapes end \(bottom) in \(inner.bounds.height), new card top \(new.maxY), drawn bottom \(drawn)")
+        }
+        await ui.until(2) { tail.map { OutlineCoordinator.scoped(goal.id)?.shows($0.id) } == true && trayGap().gap >= Metric.taskGap - 0.5 }
+        await check("the last subtask's tray ends a card gap above the new subtask's card", tail != nil && trayGap().gap >= Metric.taskGap - 0.5, trayGap().text)
+        if let tail { model.deleteTasks([tail.id]) }
+        await endUndoGroup(model)
         model.closeModal()
         await ui.settle(0.5)
         await check("closed, the page's outline has its rows again", OutlineCoordinator.owner(of: second.id)?.root == nil)

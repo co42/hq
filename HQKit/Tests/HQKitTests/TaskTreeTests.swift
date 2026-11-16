@@ -86,6 +86,17 @@ private func applying(_ changes: [Int: TaskTree.Placement]?, to tree: TaskTree) 
     #expect(applying(tree.shift(4, by: -1), to: tree).children(of: 1) == [2, 4, 3])
 }
 
+@Test func shiftAndIndentSkipHiddenSiblings() {
+    // 1's subtasks 2, 8 (hidden, as Hide Done hides a done one), 3.
+    let tree = TaskTree(sample().nodes.values.map { $0 } + [.init(id: 8, parent: 1, order: 1.5)])
+    let shown = { (id: Int) in id != 8 }
+    #expect(applying(tree.shift(3, by: -1, shown: shown), to: tree).children(of: 1) == [3, 2, 8])
+    #expect(applying(tree.shift(2, by: 1, shown: shown), to: tree).children(of: 1) == [8, 3, 2])
+    #expect(applying(tree.indent(3, shown: shown), to: tree).children(of: 2) == [3])
+    // Its only shown sibling is past it: out one level.
+    #expect(applying(tree.shift(2, by: -1, shown: shown), to: tree).top(.overview) == [2, 1, 5])
+}
+
 @Test func moveBetweenLists() throws {
     let tree = sample()
     let backlog = applying(tree.moveToList(3, .backlog), to: tree)

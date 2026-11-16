@@ -105,7 +105,7 @@ struct TaskGlyph: View {
     }
 }
 
-/// The 16 pt slot that centers a 14 pt glyph.
+/// The 16 pt slot that centers a 14 pt glyph; a click anywhere in it lands, not only on a ring's stroke.
 private struct GlyphSlot<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -113,6 +113,7 @@ private struct GlyphSlot<Content: View>: View {
         content
             .frame(width: Metric.glyph, height: Metric.glyph)
             .frame(width: Metric.glyphSlot, height: Metric.glyphSlot)
+            .contentShape(Rectangle())
     }
 }
 

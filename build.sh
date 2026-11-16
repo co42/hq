@@ -40,14 +40,23 @@ if [[ " $* " != *" --dev "* ]]; then
     exit 1
   fi
 fi
-swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | grep -E "error|warning|Build complete" | grep -v "^\[" || true
+build=(swift build -c $config --package-path "$here")
+# The release test copy compiles file by file, in parallel and incrementally: 35 s cold against 110 s for one whole module,
+# which keeps tools/check.sh under its 2 minutes after a large change. Your HQ keeps the whole-module build. Only SwiftPM's
+# native build system takes the flag, and it warns it's deprecated: that one warning is left out.
+if [[ " $* " == *" --dev "* && $config == release ]]; then
+  scratch="${HQ_BUILD_DIR:-$HOME/Library/Developer/$name/gate-build}"
+  build+=(--build-system native -Xswiftc -no-whole-module-optimization)
+fi
+build+=(--scratch-path "$scratch")
+$build 2>&1 | grep -E "error|warning|Build complete" | grep -v -e "^\[" -e "--build-system native. has been deprecated" || true
 bin="$scratch/$config/$name"
 [[ -x "$bin" ]] || { echo "build failed"; exit 1; }
 # swift build can report success while an edited file failed to compile: a second build shows its errors. With none,
 # the newer files only had their dates bumped (a checkout, a merge) and SwiftPM had nothing to relink.
 stale=$(find "$here/Sources" "$here/HQKit/Sources" -name '*.swift' -newer "$bin" | head -1)
 if [[ -n "$stale" ]]; then
-  errors=$(swift build -c $config --package-path "$here" --scratch-path "$scratch" 2>&1 | sed $'s/\e\\[[0-9;]*m//g' | grep -E "error:" | head -20 || true)
+  errors=$($build 2>&1 | sed $'s/\e\\[[0-9;]*m//g' | grep -E "error:" | head -20 || true)
   if [[ -n "$errors" ]]; then
     echo "build failed: binary is older than $stale"
     print -r -- "$errors"

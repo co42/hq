@@ -407,10 +407,9 @@ extension AppModel {
 
     func indent(_ id: Int) {
         let tree = taskTree
-        if let index = tree.index(of: id), index > 0, let container = tree.container(of: id) {
-            showSubtasks(tree.children(of: container)[index - 1])
-        }
-        place(tree.indent(id), "Indent")
+        let shown = shownBeside(id)
+        if let previous = tree.neighbor(of: id, by: -1, shown: shown) { showSubtasks(previous) }
+        place(tree.indent(id, shown: shown), "Indent")
     }
 
     func outdent(_ id: Int) {
@@ -420,8 +419,14 @@ extension AppModel {
     }
 
     func shift(_ id: Int, by offset: Int) {
-        place(taskTree.shift(id, by: offset), offset < 0 ? "Move Up" : "Move Down")
+        place(taskTree.shift(id, by: offset, shown: shownBeside(id)), offset < 0 ? "Move Up" : "Move Down")
         keepShown(id)
+    }
+
+    /// The siblings the outline showing a task shows: moves and indents step over the ones Hide Done, a filter or a search hide.
+    func shownBeside(_ id: Int) -> (Int) -> Bool {
+        guard let outline = OutlineCoordinator.owner(of: id), outline.shows(id) else { return { _ in true } }
+        return { outline.shows($0) }
     }
 
     /// A subtask of the task whose window is open: moves keep it in that window (2026-11-10).

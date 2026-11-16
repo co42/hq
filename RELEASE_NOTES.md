@@ -1,5 +1,12 @@
 # Release notes
 
+## v15.3 · 2026-11-16
+
+- ⇧↑ and ⇧↓ move a task on screen at every press. They used to swap it with a sibling the outline hides (a done task under Hide Done, the Backlog's Open filter, a search, a story's filter), so a press could do nothing until the other direction was tried. ⇧→ had the same cause and did nothing under a hidden task: it now indents under the task shown above.
+- The status glyph at the top of a task's window takes a click in its middle, not only on its ring. Every glyph that is a button does.
+- HQ's folder holds only live data: the old daemon's files, about 90 test preference domains and old build folders went to the Trash (HQ-leftovers-2026-11-16). Test copies now keep their preferences in /tmp.
+- For HQ's own checks: the gate builds its test copy file by file and runs in under 80 s after any change (it took 161 s); the perf budgets get half again on a debug build; two flaky UI checks are fixed at their cause, and five gates in a row pass.
+
 ## v15.2 · 2026-11-16
 
 - HQ no longer stalls when you come back to it. A file's window and a session's plan read their text in the background and show "Loading the note…" or "Loading the plan…" until it's in, even for a note iCloud moved off the Mac. Saves to notes are written in the background, in order. The check HQ runs each time it comes to the front no longer waits on macOS.

@@ -182,9 +182,18 @@ extension UITest {
         await check("Show Fewer folds the card back to five", !model.expandedCards.contains(.files))
         for file in made { model.setPinned(.file(file.id), true) }
         model.pinnedOnly = true
-        await ui.settle(0.5)
-        let pinned = model.listedFiles.map { ModalRoute.file($0.id).selectionKey }
-        await ui.click(ui.anchor("item:\(pinned[0])"))
+        // Pinning rewrites each note and the vault reads it back newer: the order holds once every one is read.
+        func listed() -> [String] { model.listedFiles.map { ModalRoute.file($0.id).selectionKey } }
+        var pinned = listed()
+        for _ in 0..<10 {
+            await ui.settle(0.3)
+            let now = listed()
+            if now == pinned && now.count == made.count { break }
+            pinned = now
+        }
+        guard !pinned.isEmpty else { return await check("pinned files to walk", false) }
+        await ui.click(await ui.steadyAnchor("item:\(pinned[0])"))
+        await check("with Pinned Only, a click selects the first pinned file", model.selectedItem == pinned.first, model.selectedItem ?? "none")
         var unshown: [String] = []
         for _ in 0..<6 {
             await ui.key(.down)
