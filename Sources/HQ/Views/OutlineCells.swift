@@ -1421,7 +1421,7 @@ final class HostCell: NSTableCellView {
     func show(_ view: AnyView) { host.rootView = view }
 }
 
-/// "Tasks · 14 open" with Descriptions and Hide Done; "Backlog · 8 open" with its disclosure.
+/// "Tasks · 14 open" with its toggles; "Backlog · 8 open" with its disclosure.
 struct OutlineHeader: View {
     @Environment(AppModel.self) private var model
 
@@ -1440,7 +1440,7 @@ struct OutlineHeader: View {
 }
 
 /// Tasks' toggles, as icons (2026-11-16, T-471): Backlog and Done show those tasks where they sit, each with its count at
-/// every level; Descriptions shows every description.
+/// every level.
 private struct TaskToggles: View {
     @Environment(AppModel.self) private var model
 
@@ -1458,13 +1458,10 @@ private struct TaskToggles: View {
             .help("Done: show the \(done) done tasks where they sit")
             .accessibilityLabel("Show Done")
             .uiTestAnchor("toggle:done")
-        Toggle(isOn: $model.allDescriptions) { HeaderIcon(icon: .description) }
-            .clickable()
-            .help("Descriptions: show every description in Tasks")
-            .accessibilityLabel("Descriptions")
         // The Archive (T-471): no count, it only grows.
         Button { model.openArchive() } label: { HeaderIcon(icon: .archive) }
             .clickable()
+            .contextMenu { Button("Archive All Done…") { model.archiveAllDone() } }
             .help("Archive: search the stories done and put away, and bring one back (⇧⌘A)")
             .accessibilityLabel("Archive")
             .uiTestAnchor("archive-button")

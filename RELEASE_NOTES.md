@@ -1,5 +1,13 @@
 # Release notes
 
+## v16.1 · 2026-11-16 · Archive by hand, links with a hand (plugin 0.13.1)
+
+- Nothing goes to the Archive on its own any more: Task › Archive All Done… (also on the Archive button's right-click) archives every story done throughout, after telling you how many; one Undo brings them all back. The Settings delay is gone.
+- An archived task's window looks like a task's: the same top lines, the description, its subtasks as cards, Unarchive in the header.
+- A link in any markdown text (descriptions, notes, notifications, table cells) shows the pointing hand.
+- Modal headers: More is the three dots alone, at the far right.
+- The Descriptions toggle and View › Show Descriptions in Tasks are gone: show a description with its card's button or ⇧Return, on several selected rows at once.
+
 ## v16 · 2026-11-16 · One list, the Archive, markdown
 
 **Tasks** (plugin 0.13.0)

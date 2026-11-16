@@ -105,21 +105,6 @@ struct GeneralSettings: View {
             Text("Tasks live in hq/tasks/ and files in hq/files/. HQ writes only the properties it owns.")
                 .foregroundStyle(.secondary)
         }
-        // T-471: done stories leave the list for the Archive on their own.
-        Section {
-            @Bindable var model = model
-            Picker("Archive done stories after", selection: $model.archiveDelay) {
-                ForEach(TaskArchive.delayChoices, id: \.self) { days in
-                    Text(AppModel.archiveDelayName(days)).tag(days)
-                }
-            }
-            .uiTestAnchor("archive-delay")
-        } header: {
-            Text("Archive")
-        } footer: {
-            Text("A story done this long, with everything under it done, goes to the Archive: out of the list and out of what HQ reads at launch. Archive (⌃⌘A) takes any story now.")
-                .foregroundStyle(.secondary)
-        }
     }
 }
 

@@ -133,9 +133,7 @@ enum UITest {
         model.folded = []
         model.pinnedOnly = false
         model.expandedCards = []
-        model.allDescriptions = false
         model.shownDescriptions = []
-        model.hiddenDescriptions = []
         model.selectSection(nil)
         for folder in [model.vault?.tasksDirectory, model.vault?.filesDirectory].compactMap(\.self) {
             (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?.forEach { try? FileManager.default.removeItem(at: $0) }

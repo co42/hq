@@ -178,7 +178,7 @@ struct MarkdownField: View {
 /// A notification's text (T-469 item 8): inline marks only, bold, italic, code and links that open, as Co chose; tooltips and
 /// banners get it without the marks.
 enum MarkdownLine {
-    static func text(_ source: String) -> Text { Text(attributed(source)) }
+    static func text(_ source: String) -> LinkText { LinkText(attributed(source)) }
 
     static func plain(_ source: String) -> String { String(attributed(source).characters) }
 

@@ -95,8 +95,6 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
-            // Done stories due for the Archive go on their own once the notes are all in (T-471).
-            archiveDue()
             // A session whose tasks are still in iCloud isn't empty.
             if !vaultLoading { forgetEmptySessions() }
             // A note read too early (mid-write) keeps its last read: read it again soon. So does one still coming from iCloud.

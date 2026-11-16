@@ -774,7 +774,6 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        model.allDescriptions = false
         guard let plain = model.addTask(status: .todo, title: "No description"),
               let noted = model.addTask(status: .todo, title: "With a description", body: "Some words.") else { return await check("tasks for the toggle", false) }
         await endUndoGroup(model)
@@ -817,15 +816,6 @@ extension UITest {
         model.toggleDescription(noted.id)
         await ui.settle(0.4)
         await check("and hides it", !model.descriptionShownInOutline(noted.id))
-        // Shown by the list's Descriptions, Hide Description hides that one.
-        model.allDescriptions = true
-        await ui.settle(0.4)
-        model.toggleDescription(noted.id)
-        await ui.settle(0.4)
-        await check("with Descriptions on, Hide Description hides that one", !model.descriptionShownInOutline(noted.id))
-        model.toggleDescription(noted.id)
-        await check("and shows it again", model.descriptionShownInOutline(noted.id))
-        model.allDescriptions = false
         // One face per row, the same open or folded: the task's own session, never a subtask's (T-346).
         let ranked = model.byImportance(model.gridSessions)
         if let top = ranked.first, let low = ranked.last, top.id != low.id, let sub = model.addSubtask(to: plain.id, title: "Under it") {
@@ -2503,7 +2493,6 @@ extension UITest {
     static func outlineLooks(_ model: AppModel, _ ui: Driver) async {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.shownDescriptions = []
-        model.allDescriptions = false
         // Its checks step a card through Done and keep reading it: done tasks show.
         model.showDone = true
         // Run alone, the overview has none of the earlier groups' tasks.
@@ -2885,11 +2874,12 @@ extension UITest {
         await check("the outline builds only the rows in view", built > 0 && built < 120, "\(built) row views for \(outline.numberOfRows) rows")
         scrollPage(to: 0)
 
-        // Descriptions on, scrolled, off, back to the top: no row keeps a description it no longer shows.
-        let descriptions = await Stall.measure([{ model.allDescriptions = true }], gap: 1)
+        // Every description shown, scrolled, hidden, back to the top: no row keeps a description it no longer shows.
+        let described = model.tasks.filter { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.id)
+        let descriptions = await Stall.measure([{ model.shownDescriptions = Set(described) }], gap: 1)
         scrollPage(to: 3000)
         await ui.settle(0.5)
-        model.allDescriptions = false
+        model.shownDescriptions = []
         await ui.settle(0.8)
         scrollPage(to: 0)
         await ui.settle(0.5)
@@ -2925,8 +2915,8 @@ extension UITest {
         scrollPage(to: 0)
 
         print("  perf: baseline scroll of the small page \(baseline?.description ?? "-")")
-        print("  perf: show all descriptions \(descriptions); search \(search); fold \(fold); move \(move); scroll \(scrolls); \(built) row views")
-        await check("Show Descriptions with 500 tasks holds the main thread under 150 ms (debug ×1.5)", descriptions.worst < Stall.budget(150), "\(descriptions)")
+        print("  perf: show every description \(descriptions); search \(search); fold \(fold); move \(move); scroll \(scrolls); \(built) row views")
+        await check("Showing every description of 500 tasks holds the main thread under 150 ms (debug ×1.5)", descriptions.worst < Stall.budget(150), "\(descriptions)")
         await check("a search keystroke with 500 tasks holds it under 100 ms (debug ×1.5)", search.worst < Stall.budget(100), "\(search)")
         await check("folding a task with 500 tasks holds it under 50 ms (debug ×1.5)", fold.worst < Stall.budget(50), "\(fold)")
         await check("a move with 500 tasks takes under two frames, none over 100 ms (debug ×1.5)", move.median < Stall.budget(34) && move.worst < Stall.budget(100), "\(move)")
@@ -3164,7 +3154,6 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return await check("the outline is on the page", false) }
         model.folded = []
         model.search = ""
-        model.allDescriptions = false
         guard let goal = model.addTask(status: .todo, title: "Ship the story"),
               let first = model.addSubtask(to: goal.id, title: "First step"),
               let second = model.addSubtask(to: goal.id, title: "Second step"),

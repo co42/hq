@@ -71,7 +71,7 @@ enum AgentCommands {
                      example: "hq task add \"Dedup layers on push\" --project Registry --link https://github.com/acme/registry/pull/418 -q",
                      output: taskOutput) { args, model in try addCommand(args, model) },
         AgentCommand(name: "task archive", summary: "Archive a top-level task with every task under it, as Archive (⌃⌘A) does in HQ: out of the list and out of what HQ reads; "
-                        + "hq task unarchive brings it back. Only when the user asks: done stories go on their own.",
+                        + "hq task unarchive brings it back. Only when the user asks.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12, a top-level task"), notMine],
                      example: "hq task archive T-12", output: "{id, title, status, project, tags, archived, note}") { args, model in try archiveCommand(args, model) },
         AgentCommand(name: "task unarchive", summary: "Bring an archived story back, with its tasks, at the end of the list, as Unarchive does in HQ.",

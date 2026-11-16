@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import HQKit
 
 /// The Archive's index (T-471, PLAN.md §5): `archive.json` beside the store. Read only when the Archive opens or `hq`
@@ -86,17 +86,6 @@ nonisolated final class ArchiveStore: @unchecked Sendable {
 }
 
 extension AppModel {
-    /// A delay in words, as Settings › General shows it: "1 week".
-    static func archiveDelayName(_ days: Int) -> String {
-        days == 1 ? "1 day" : days == 7 ? "1 week" : days == 14 ? "2 weeks" : days == 30 ? "1 month" : "\(days) days"
-    }
-
-    /// Settings › General: how long a done story waits before the Archive takes it, in days (T-471).
-    var archiveDelayDays: Int {
-        get { TaskArchive.delayChoices.contains(archiveDelay) ? archiveDelay : TaskArchive.defaultDelay }
-        set { archiveDelay = newValue }
-    }
-
     /// The highest key archived, kept apart from the index so a new key never reads it.
     var archivedHighestKey: Int {
         get { Prefs.defaults.integer(forKey: "archive.highestKey") }
@@ -104,9 +93,8 @@ extension AppModel {
     }
 
     /// Archive (⌃⌘A): top-level tasks with everything under them leave the list now; the note writer moves their notes
-    /// to the Archive's folder after any save queued before. One Undo step, which brings them back in their place; none
-    /// for what goes on its own.
-    func archive(_ ids: [Int], auto: Bool = false) {
+    /// to the Archive's folder after any save queued before. One Undo step, which brings them back in their place.
+    func archive(_ ids: [Int]) {
         guard let vault else { return }
         let tree = taskTree
         let stories = ids.filter { tree.parent(of: $0) == nil && task($0) != nil }
@@ -127,12 +115,7 @@ extension AppModel {
         }
         tasks.removeAll { gone.contains($0.id) }
         leaveModal { if case .task(let id) = $0 { gone.contains(id) } else { false } }
-        if auto {
-            AppLog.write("archive: \(stories.count) done \(stories.count == 1 ? "story" : "stories") went on their own: "
-                         + stories.map { "T-\($0)" }.joined(separator: ", "), to: "vault.log")
-        } else {
-            registerUndo("Archive") { model in for story in stories { model.unarchive(story, inPlace: true, select: story == selected) } }
-        }
+        registerUndo("Archive") { model in for story in stories { model.unarchive(story, inPlace: true, select: story == selected) } }
     }
 
     /// Unarchive: a story and its tasks come back from the Archive's folder, read in the background. In its old place
@@ -173,15 +156,40 @@ extension AppModel {
         }
     }
 
-    /// The done stories due for the Archive, after the first full vault read and every hour: done for the delay, every
-    /// task under them done. Nothing while notes are still coming from iCloud or caught mid-write.
-    func archiveDue() {
-        guard vault != nil, vaultRead, !vaultLoading, vaultDownloading == 0, vaultUnreadable.isEmpty else { return }
+    /// The stories done with every task under them done: what Archive All Done takes (T-537).
+    var doneStories: [Int] {
         let tree = taskTree
-        let due = TaskArchive.due(roots: tree.top(), subtree: { tree.subtree(of: $0) }, status: { self.task($0)?.status },
-                                  done: { id in self.task(id).map { $0.done ?? $0.modified } }, now: .now, delayDays: archiveDelayDays)
-        guard !due.isEmpty else { return }
-        archive(due, auto: true)
+        return TaskArchive.allDone(roots: tree.top(), subtree: { tree.subtree(of: $0) }, status: { self.task($0)?.status })
+    }
+
+    /// Archive All Done… (Task menu, the Archive button's menu): asks, naming how many, then archives them as one Undo step.
+    func archiveAllDone() {
+        let stories = doneStories
+        guard !stories.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Done Story to Archive"
+            alert.informativeText = "A story goes once it's done with every task under it done."
+            if let window = window.map({ $0.attachedSheet ?? $0 }) { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            return
+        }
+        let count = stories.count == 1 ? "1 done story" : "\(stories.count) done stories"
+        if Store.isOverridden {
+            ghosttyLog.append("confirm archive all done, \(stories.count)")
+            return archive(stories)
+        }
+        let alert = NSAlert()
+        alert.messageText = "Archive \(count)?"
+        alert.informativeText = "Each leaves Tasks for the Archive with every task under it. Undo (⌘Z) brings them back."
+        alert.addButton(withTitle: stories.count == 1 ? "Archive 1 Story" : "Archive \(stories.count) Stories")
+        alert.addButton(withTitle: "Cancel")
+        let finish = { (response: NSApplication.ModalResponse) in
+            if response == .alertFirstButtonReturn { self.archive(stories) }
+        }
+        if let window = window.map({ $0.attachedSheet ?? $0 }) {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
     }
 }
 

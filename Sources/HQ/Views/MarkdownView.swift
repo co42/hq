@@ -195,18 +195,18 @@ private struct MarkdownBlockView: View {
     var body: some View {
         switch block {
         case .block(.heading(1, let text)) where title:
-            Text(text)
+            LinkText(text)
                 .kitType(.pageTitle)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.bottom, Space.md)
         case .block(.heading(let level, let text)):
-            Text(text)
+            LinkText(text)
                 .kitType(MarkdownStyle.headingType(level))
                 .foregroundStyle(level >= 5 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level <= 2 ? Space.xs : 0)
         case .block(.paragraph(let text)):
-            Text(text)
+            LinkText(text)
                 .kitType(.body)
                 .fixedSize(horizontal: false, vertical: true)
         case .list(let ordered, let start, let items):

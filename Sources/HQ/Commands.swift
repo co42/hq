@@ -102,7 +102,6 @@ struct HQCommands: Commands {
         }
 
         CommandGroup(before: .toolbar) {
-            Button(menu.descriptions ? "Hide Descriptions in Tasks" : "Show Descriptions in Tasks") { model.allDescriptions.toggle() }
             Button(menu.showBacklog ? "Hide Backlog" : "Show Backlog") { model.showBacklog.toggle() }
                 .keyboardShortcut("b", modifiers: [.command, .control])
             Button(menu.showDone ? "Hide Done" : "Show Done") { model.showDone.toggle() }
@@ -222,6 +221,8 @@ struct HQCommands: Commands {
             }
                 .keyboardShortcut("a", modifiers: [.command, .control])
                 .disabled(menu.archivedStory == nil && !menu.taskIsTop)
+            // Every story done throughout, asked first (T-537).
+            Button("Archive All Done…") { model.archiveAllDone() }
             Button("Move Up") { model.shiftTasks(menu.tasks, by: -1) }
                 .keyboardShortcut(rows ? KeyboardShortcut(.upArrow, modifiers: .shift) : nil)
                 .disabled(task == nil)

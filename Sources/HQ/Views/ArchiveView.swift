@@ -31,7 +31,7 @@ struct ArchiveView: View {
                     if slow { LoadingLine(title: "Loading the archive…").uiTestAnchor("archive-loading") }
                 } else if shown?.searcher.count == 0 {
                     AllClear(title: "Nothing archived yet", icon: .archive,
-                             line: "Done stories come here \(AppModel.archiveDelayName(model.archiveDelayDays)) after they're done.")
+                             line: "Archive (⌃⌘A) puts a story here; Archive All Done takes every done one.")
                         .surface()
                         .uiTestAnchor("archive-empty")
                 } else if matches.isEmpty {
@@ -271,8 +271,7 @@ private struct ArchiveCard: View {
     }
 }
 
-/// An archived task's window (T-471): as a task's, read only. Its key and when it was archived, its glyph and title,
-/// its project and tags, the tasks under it, its description from its note (read when it opens), its links.
+/// An archived task's window (T-471, T-525): a task's, read only. Its description is read from its note when it opens.
 struct ArchivedTaskView: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -280,64 +279,58 @@ struct ArchivedTaskView: View {
     var body: some View {
         let index = model.archiveShown?.index
         if let entry = index?.entry(id) {
+            // As a task's window, part for part (T-525): its place line, glyph and title, project and tags, then the groups in
+            // the same order; read only, Unarchive in the header.
             ModalPage {
-                VStack(alignment: .leading, spacing: Space.md) {
-                    HStack(spacing: Space.sm) {
-                        Text(entry.key).kitType(.key).foregroundStyle(.secondary)
-                        Label("Archived \(entry.archived.formatted(.dateTime.day().month(.wide)))"
-                              + (entry.done.map { " · done \($0.formatted(.dateTime.day().month(.wide)))" } ?? ""), icon: .archive)
-                            .kitType(.meta)
-                            .padding(.horizontal, Space.sm)
-                            .padding(.vertical, Space.xs)
-                            .background(Ink.chipFill, in: Capsule())
-                        if entry.root != entry.id, let story = index?.entry(entry.root) {
-                            Text("Under")
-                            Button("\(story.key) \(story.title)") { model.open(.archivedTask(story.id), push: true) }
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    HStack(spacing: Space.xs) {
+                        let parent = entry.parent.flatMap { index?.entry($0) }
+                        Text(parent == nil ? entry.key : "\(entry.key) ·")
+                        if let parent {
+                            Text("Subtask of")
+                            Button("\(parent.key) \(parent.title)") { model.open(.archivedTask(parent.id), push: true) }
                                 .buttonStyle(.link)
+                                .clickable()
                                 .lineLimit(1)
+                                .help("Open \(parent.key)")
                         }
                     }
                     .kitType(.key)
                     .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: Space.md) {
-                        TaskGlyph(status: entry.status).scaleEffect(1.35)
+                    HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                        TaskGlyph(status: entry.status).scaleEffect(1.25)
                         Text(entry.title).kitType(.pageTitle).textSelection(.enabled)
                     }
-                    HStack(spacing: Space.xs) {
-                        if let project = entry.project { LabelChip(text: project, color: model.labelColor(.project, project), icon: .project) }
-                        ForEach(entry.tags, id: \.self) { tag in LabelChip(text: tag, color: model.labelColor(.tag, tag), icon: .tag) }
-                    }
                 }
-                let under = (index?.entries ?? []).filter { $0.parent == id && $0.root == entry.root }.sorted { $0.id < $1.id }
-                if !under.isEmpty {
-                    ModalGroup(title: "Subtasks · \(under.count)") {
-                        VStack(alignment: .leading, spacing: Space.xs) {
-                            ForEach(under, id: \.id) { task in
-                                Button { model.open(.archivedTask(task.id), push: true) } label: {
-                                    HStack(spacing: Space.sm) {
-                                        TaskGlyph(status: task.status)
-                                        Text(task.key).kitType(.key).foregroundStyle(.secondary)
-                                        Text(task.title).foregroundStyle(.primary).multilineTextAlignment(.leading)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .clickable()
-                            }
+                HStack(alignment: .firstTextBaseline, spacing: Space.md) {
+                    if entry.project != nil || !entry.tags.isEmpty {
+                        HStack(spacing: Space.xs) {
+                            if let project = entry.project { LabelChip(text: project, color: model.labelColor(.project, project), icon: .project) }
+                            ForEach(entry.tags, id: \.self) { tag in LabelChip(text: tag, color: model.labelColor(.tag, tag), icon: .tag) }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(Metric.cardPadding)
-                        .surface()
                     }
+                    Label("Archived \(entry.archived.formatted(.dateTime.day().month(.wide)))"
+                          + (entry.done.map { " · done \($0.formatted(.dateTime.day().month(.wide)))" } ?? ""), icon: .archive)
+                        .kitType(.meta)
+                        .foregroundStyle(.secondary)
                 }
                 ModalGroup(title: "Description") {
                     // Read only, on the description's card (T-469 item 8).
                     let note = model.archiveShown?.notes[id]
                     MarkdownSurface(text: note?.body ?? "", look: .compact, loading: note == nil ? "Loading the task…" : nil, placeholder: "No description.")
                 }
+                let under = (index?.entries ?? []).filter { $0.parent == id && $0.root == entry.root }.sorted { $0.id < $1.id }
+                if !under.isEmpty {
+                    ModalGroup(title: "Subtasks") {
+                        VStack(alignment: .leading, spacing: Space.xs) {
+                            ForEach(under, id: \.id) { task in ArchivedSubtaskCard(entry: task, count: (index?.entries ?? []).count { $0.parent == task.id }) }
+                        }
+                    }
+                }
                 if let links = model.archiveShown?.notes[id]?.links, !links.isEmpty {
                     ModalGroup(title: "Links") {
                         VStack(alignment: .leading, spacing: Space.xs) {
-                            ForEach(links, id: \.self) { link in Link(link.absoluteString, destination: link).lineLimit(1).truncationMode(.middle) }
+                            ForEach(links, id: \.self) { link in Link(link.absoluteString, destination: link).lineLimit(1).truncationMode(.middle).clickable() }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(Metric.cardPadding)
@@ -352,5 +345,31 @@ struct ArchivedTaskView: View {
         } else {
             ContentUnavailableView("This Item Is Gone", icon: .trash)
         }
+    }
+}
+
+/// A task under an archived one, read only, in the outline's card look: its glyph, key, title and how many tasks under it;
+/// a click opens it over this window.
+private struct ArchivedSubtaskCard: View {
+    let entry: ArchiveIndex.Entry
+    let count: Int
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button { model.open(.archivedTask(entry.id), push: true) } label: {
+            HStack(spacing: Space.sm) {
+                TaskGlyph(status: entry.status)
+                Text(entry.key).kitType(.key).foregroundStyle(.secondary)
+                Text(entry.title).kitType(.title).foregroundStyle(entry.status == .done ? .secondary : .primary).multilineTextAlignment(.leading)
+                Spacer(minLength: Space.sm)
+                if count > 0 { Text("\(count) \(count == 1 ? "task" : "tasks")").kitType(.meta).foregroundStyle(.secondary).monospacedDigit() }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listCard(selected: false, active: false)
+        }
+        .buttonStyle(.plain)
+        .clickable()
+        .help("Open \(entry.key)")
+        .uiTestAnchor("archived-subtask:\(entry.id)")
     }
 }

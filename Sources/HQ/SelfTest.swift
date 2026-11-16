@@ -681,7 +681,7 @@ enum SelfTest {
             (1, "---\ntitle: Backlog idea\nstatus: todo\naliases: [idea]\nlist: backlog\norder: 1\n---\nKeep this **body**.\n"),
             (2, "---\ntitle: Next up\nstatus: todo\ntags: [registry]\nlist: backlog\norder: 2\n---\n"),
             (3, "---\ntitle: In progress\nstatus: doing\nsessions: [abc]\nlist: overview\norder: 5\n---\nBody.\n\n**2026-11-03 16:12 · Claude**: a note.\n"),
-            // Done today: the Archive takes a done story on its own only past its delay.
+            // Done today: a done story stays in the list until archived by hand.
             (4, "---\ntitle: Finished\nstatus: done\nlist: backlog\norder: 4\ndone: \(NoteDate.minute(.now))\n---\n"),
         ]
         for (id, text) in old { try? text.write(to: tasks.appending(path: "T-\(id).md"), atomically: true, encoding: .utf8) }
@@ -1201,17 +1201,6 @@ enum SelfTest {
             check("Done shows done tasks where they sit", snapshot.children(of: .task(open.id)) == [.task(openDone.id)])
             (model.showBacklog, model.showDone) = saved
             model.deleteTasks([open.id, later.id, finished.id])
-        }
-        // Descriptions shows every description in Tasks.
-        if let described = model.addTask(status: .todo, title: "Described") {
-            model.setDescription(described.id, "Why.")
-            let saved = model.allDescriptions
-            model.allDescriptions = false
-            let before = model.descriptionShownInOutline(described.id)
-            model.allDescriptions = true
-            check("Descriptions shows every description", !before && model.descriptionShownInOutline(described.id))
-            model.allDescriptions = saved
-            model.deleteTasks([described.id])
         }
         // --parent moves a task under another, or out to the top.
         if let child = model.addTask(status: .todo, title: "Child") {

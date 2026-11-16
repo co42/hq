@@ -73,7 +73,6 @@ enum Snapshot {
             model.archiveSelection = nil
             model.folded = []
             model.pinnedOnly = false
-            model.allDescriptions = false
             model.editingDescription = nil
             model.shownDescriptions = [44]
             (mainWindow?.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
@@ -120,15 +119,8 @@ enum Snapshot {
                 }
                 select(task: 13)
             },
-            Page(name: "cockpit-descriptions") { model in
-                reset(model)
-                model.allDescriptions = true
-                await ready()
-                scroll(to: 0.45)
-            },
             Page(name: "cockpit-description-edit") { model in
                 reset(model)
-                model.allDescriptions = true
                 model.editDescription(13)
                 await ready()
                 scroll(to: 0.45)

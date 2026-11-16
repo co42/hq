@@ -291,7 +291,7 @@ final class MarkdownRuleRow: NSTableRowView {
 }
 
 /// A cell's text: selectable where the viewer's text is; its links open as the note's do.
-final class MarkdownCell: NSTextView, NSTextViewDelegate {
+final class MarkdownCell: NSTextView, NSTextViewDelegate, HandParts {
     static let id = NSUserInterfaceItemIdentifier("markdown-cell")
     private var opens: (URL) -> Void = { _ in }
 
@@ -310,6 +310,7 @@ final class MarkdownCell: NSTextView, NSTextViewDelegate {
         isVerticallyResizable = false
         isHorizontallyResizable = false
         delegate = self
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -334,6 +335,28 @@ final class MarkdownCell: NSTextView, NSTextViewDelegate {
         let hit = super.hitTest(point)
         guard hit != nil, !isSelectable else { return hit }
         return link(at: convert(point, from: superview)) != nil ? hit : nil
+    }
+
+    /// The pointing hand over its links (T-536), selectable or not.
+    var handParts: [NSRect] {
+        guard let layoutManager, let textContainer, let storage = textStorage else { return [] }
+        var rects: [NSRect] = []
+        storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            guard value != nil else { return }
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            layoutManager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: textContainer) { rect, _ in
+                rects.append(rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y))
+            }
+        }
+        return rects
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if link(at: convert(event.locationInWindow, from: nil)) != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        if link(at: convert(event.locationInWindow, from: nil)) != nil { NSCursor.pointingHand.set() } else { super.mouseMoved(with: event) }
     }
 
     override func mouseDown(with event: NSEvent) {

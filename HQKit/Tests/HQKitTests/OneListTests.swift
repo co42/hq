@@ -81,17 +81,12 @@ import Testing
 private let day: TimeInterval = 86_400
 private let now = NoteDate.parse("2026-11-16T12:00")!
 
-@Test func archiveTakesDoneStoriesAfterTheDelay() {
-    let children: [Int: [Int]] = [1: [2], 3: [4], 5: [], 6: [], 7: []]
-    let statuses: [Int: TaskStatus] = [1: .done, 2: .done, 3: .done, 4: .todo, 5: .done, 6: .done, 7: .todo]
-    let done: [Int: Date] = [1: now - 8 * day, 3: now - 30 * day, 5: now - 2 * day, 6: now - 7 * day]
+@Test func archiveAllDoneTakesStoriesDoneThroughout() {
+    let children: [Int: [Int]] = [1: [2], 3: [4], 5: [], 7: []]
+    let statuses: [Int: TaskStatus] = [1: .done, 2: .done, 3: .done, 4: .todo, 5: .done, 7: .todo]
     func subtree(_ id: Int) -> [Int] { [id] + (children[id] ?? []).flatMap(subtree) }
-    let due = TaskArchive.due(roots: [1, 3, 5, 6, 7], subtree: subtree, status: { statuses[$0] }, done: { done[$0] }, now: now, delayDays: 7)
-    // 3 still holds an open task, 5 is too recent, 7 is open.
-    #expect(due == [1, 6])
-    let sooner = TaskArchive.due(roots: [1, 3, 5, 6, 7], subtree: subtree, status: { statuses[$0] }, done: { done[$0] }, now: now, delayDays: 1)
-    #expect(sooner == [1, 5, 6])
-    #expect(TaskArchive.delayChoices.contains(TaskArchive.defaultDelay))
+    // 3 still holds an open task, 7 is open.
+    #expect(TaskArchive.allDone(roots: [1, 3, 5, 7], subtree: subtree, status: { statuses[$0] }) == [1, 5])
 }
 
 private func sampleIndex() -> ArchiveIndex {

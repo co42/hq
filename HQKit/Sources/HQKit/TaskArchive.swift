@@ -1,21 +1,11 @@
 import Foundation
 
-/// Archived stories (PLAN.md §5, T-471): which top-level tasks go to the Archive on their own, and the index the Archive
+/// Archived stories (PLAN.md §5, T-471): which top-level tasks Archive All Done takes, and the index the Archive
 /// window and `hq` search, kept beside the store so nothing reads the archived notes to find one.
 public enum TaskArchive {
-    /// Settings › General's choices for how long a done story waits, in days.
-    public static let delayChoices = [1, 3, 7, 14, 30]
-    public static let defaultDelay = 7
-
-    /// The top-level tasks done for `delayDays` or more, with every task under them done: the Archive's on its own.
-    /// `done` is when a task was done; a done task with none never goes on its own.
-    public static func due(roots: [Int], subtree: (Int) -> [Int], status: (Int) -> TaskStatus?, done: (Int) -> Date?,
-                           now: Date, delayDays: Int) -> [Int] {
-        let limit = now.addingTimeInterval(-Double(delayDays) * 86_400)
-        return roots.filter { root in
-            guard status(root) == .done, let when = done(root), when <= limit else { return false }
-            return subtree(root).allSatisfy { status($0) == .done }
-        }
+    /// The top-level tasks done with every task under them done: what Archive All Done takes (T-537).
+    public static func allDone(roots: [Int], subtree: (Int) -> [Int], status: (Int) -> TaskStatus?) -> [Int] {
+        roots.filter { root in status(root) == .done && subtree(root).allSatisfy { status($0) == .done } }
     }
 }
 

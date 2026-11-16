@@ -105,6 +105,7 @@ struct TaskModal: View {
                 Text("Subtask of")
                 Button("\(parent.key) \(parent.title)") { model.open(.task(parent.id), push: true) }
                     .buttonStyle(.link)
+                    .clickable()
                     .lineLimit(1)
                     .help("Open \(parent.key)")
                     .uiTestAnchor("modal-parent")
@@ -792,6 +793,7 @@ struct SessionModal: View {
                                     }
                                 }
                                 .buttonStyle(.link)
+                                .clickable()
                                 .help("Open \(parent.name)")
                                 .accessibilityLabel("Started by \(parent.name)")
                                 .uiTestAnchor("session-parent")

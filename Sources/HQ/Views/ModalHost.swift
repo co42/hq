@@ -206,20 +206,7 @@ private struct ModalActions: View {
             if let task = model.task(id) {
                 CopyItemButton(route: .task(id))
                 RemindMeButton(route: .task(id))
-                // The rare ones in More, with their keys; the main action last and prominent, as a session's and a PR's (2026-11-11).
-                Menu {
-                    Button(task.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
-                    if task.parent == nil { Button("Archive") { model.archive([id]) } }
-                    Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
-                    Divider()
-                    Button("Delete") { model.deleteTasks([id]) }
-                } label: {
-                    Label("More", icon: .more)
-                }
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Move to Backlog or Tasks (⇧⌘B), Open in Obsidian (⇧⌘O), Delete (⌘⌫; Undo brings it back)")
-                .uiTestAnchor("task-more")
+                // The main action prominent, then the rare ones in More at the far right, with their keys (2026-11-16, T-526).
                 if let session = model.byImportance(model.sessions(on: id)).first(where: \.isRunning), session.tty != nil {
                     Button("Focus") { model.open(session.id) }
                         .buttonStyle(.glassProminent)
@@ -230,6 +217,13 @@ private struct ModalActions: View {
                         .buttonStyle(.glassProminent)
                         .help("Start a Claude session on this task (⌥⌘Return)")
                         .uiTestAnchor("task-main-action")
+                }
+                ModalMore(help: "Move to Backlog or Tasks (⇧⌘B), Open in Obsidian (⇧⌘O), Delete (⌘⌫; Undo brings it back)", anchor: "task-more") {
+                    Button(task.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
+                    if task.parent == nil { Button("Archive") { model.archive([id]) } }
+                    Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
+                    Divider()
+                    Button("Delete") { model.deleteTasks([id]) }
                 }
             }
         case .session(let id):
@@ -331,26 +325,40 @@ private struct ModalActions: View {
             // Read only: Copy, the rare ones in More, and Unarchive (its story, for a task under one), prominent.
             let story = model.archiveShown?.index.entry(id)?.root ?? id
             CopyItemButton(route: .archivedTask(id))
-            Menu {
-                Button("Open in Obsidian") { model.openInObsidian(model.vault?.archivedURL(id).path) }
-                Divider()
-                Button("Delete") { model.deleteArchived(story) }
-            } label: {
-                Label("More", icon: .more)
-            }
-            .menuIndicator(.hidden)
-            .help("More")
             Button(story == id ? "Unarchive" : "Unarchive T-\(story)", icon: .unarchive) { model.unarchiveFromWindow(story) }
             .labelStyle(.titleAndIcon)
             .buttonStyle(.glassProminent)
             .clickable()
             .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
             .uiTestAnchor("unarchive-task")
+            ModalMore(help: "Open in Obsidian, Delete", anchor: "archived-more") {
+                Button("Open in Obsidian") { model.openInObsidian(model.vault?.archivedURL(id).path) }
+                Divider()
+                Button("Delete") { model.deleteArchived(story) }
+            }
         case .block(let block):
             ExpandedActions(block: block)
         case .archive, .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
             EmptyView()
         }
+    }
+}
+
+/// A modal header's rare actions: the three dots alone, last at the far right (T-526).
+private struct ModalMore<Items: View>: View {
+    let help: String
+    let anchor: String
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        // The glyph in a square: the ellipsis alone is shorter than the icons beside it.
+        Menu { items() } label: { KitIcon.more.image.frame(width: Metric.glyphSlot, height: Metric.glyphSlot) }
+            .accessibilityLabel("More")
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(help)
+            .uiTestAnchor(anchor)
     }
 }
 

@@ -144,6 +144,26 @@ extension UITest {
             model.deleteFile(wide.id)
         }
 
+        // A link in rendered markdown: the hand over it as the window gives it, the arrow beside (T-536).
+        if let task = model.addTask(status: .todo, title: "Read the plan", body: "Words before [the plan](https://example.com/plan) and after.") {
+            await endUndoGroup(model)
+            model.shownDescriptions.insert(task.id)
+            await ui.settle(0.6)
+            if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator {
+                outline.scrollRowToVisible(outline.row(forItem: coordinator.node(.task(task.id))))
+            }
+            await ui.until(5) { ui.find(LinkHandView.self)?.handParts.isEmpty == false }
+            if let hands = ui.find(LinkHandView.self), let part = hands.handParts.first {
+                let over = hands.convert(NSPoint(x: part.midX, y: part.midY), to: nil)
+                let beside = hands.convert(NSPoint(x: max(part.minX - Space.md, 1), y: part.midY), to: nil)
+                await check("the hand over a link in a description, as the window gives it, the arrow beside",
+                            ui.cursorShown(at: over) == .pointingHand && ui.cursorShown(at: beside) != .pointingHand, "\(part)")
+            } else {
+                await check("a description's link draws where the hand shows", false)
+            }
+            model.deleteTasks([task.id])
+        }
+
         // In the outline: a double-click on a diagram in a card's description opens the sheet on it.
         if let task = model.addTask(status: .todo, title: "Draw the path",
                                     body: "```mermaid\ngraph LR\n  a[Upload part] -->|503| b{Budget left?}\n  b -->|no| c[Return the error]\n```") {

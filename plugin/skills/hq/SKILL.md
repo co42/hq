@@ -98,7 +98,7 @@ hq task tick T-12 "item" [--untick]
 hq task link T-12 <item>             # task unlink takes the same; --blocked-by T-34, --after T-34
 hq task block T-12 "why"             # task unblock T-12
 hq task delete T-12 --yes            # only when the user asks; without --yes: what it would delete
-hq task archive T-12                 # only when the user asks: done stories go to the Archive on their own
+hq task archive T-12                 # only when the user asks: nothing goes to the Archive on its own
 hq task unarchive T-12               # an archived story back; hq task show reads one, read only
 hq task history T-12                 # a change gone wrong: task undo T-12 --yes puts it back
 ```

@@ -3,7 +3,7 @@ import HQKit
 
 extension SelfTest {
     /// The Archive's storage on the scratch vault (T-471): Archive and Unarchive move a story's notes there and back,
-    /// keys are never given again, done stories go on their own after the delay, a lost index comes back from the notes,
+    /// keys are never given again, Archive All Done takes the stories done throughout, a lost index comes back from the notes,
     /// and `hq` reads archived tasks without changing them.
     static func archiveChecks(_ model: AppModel) async {
         guard let vault = model.vault else { return check("a vault for the Archive", false) }
@@ -88,22 +88,17 @@ extension SelfTest {
         await expect("hq task unarchive brings it back", model.task(story.id) != nil && model.task(step.id) != nil)
         await settle()
 
-        // On its own: a story done past the delay, all of it done; not one still holding an open task, nor a recent one.
-        let past = Date.now.addingTimeInterval(-10 * 86_400), recent = Date.now.addingTimeInterval(-2 * 86_400)
+        // Archive All Done: every story done throughout goes, as one Undo step; not one still holding an open task (T-537).
         guard let old = model.addTask(status: .done, title: "Done long ago"), let held = model.addTask(status: .done, title: "Done, a step still open"),
               let open = model.addSubtask(to: held.id, title: "Still open"), let fresh = model.addTask(status: .done, title: "Done the other day") else {
             return check("done stories", false)
         }
         model.setStatus(open.id, .todo)
-        for (id, date) in [(old.id, past), (held.id, past), (fresh.id, recent)] { model.changeTask(id, "Seed") { $0.done = date } }
-        let delay = model.archiveDelay
-        model.archiveDelay = 7
-        model.archiveDue()
-        check("on its own: the story done past the delay goes, not one holding an open task, nor a recent one",
-              model.task(old.id) == nil && model.task(held.id) != nil && model.task(fresh.id) != nil)
-        model.archiveDelay = 1
-        check("a shorter delay in Settings applies at once", model.task(fresh.id) == nil && model.task(held.id) != nil)
-        model.archiveDelay = delay
+        let before = model.doneStories
+        model.archiveAllDone()
+        check("Archive All Done takes every story done throughout, not one holding an open task",
+              before.contains(old.id) && before.contains(fresh.id) && !before.contains(held.id)
+              && model.task(old.id) == nil && model.task(fresh.id) == nil && model.task(held.id) != nil)
         await settle()
 
         // A lost index comes back from the notes, each task under its story.

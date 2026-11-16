@@ -52,8 +52,8 @@ private struct OutlineHost: NSViewRepresentable {
             else if let model { model.setStoryFilter(id, !model.storyFilter.contains(id)) }
         }
         // Read what the outline shows, so SwiftUI calls this again when it changes.
-        _ = (model.tasks, model.sessions, model.search, model.taskSearch, model.showBacklog, model.showDone, model.allDescriptions, model.shownDescriptions,
-             model.hiddenDescriptions, model.folded, model.fold, model.storyFilter, model.editingDescription, model.descriptionEditorHeight, model.seen,
+        _ = (model.tasks, model.sessions, model.search, model.taskSearch, model.showBacklog, model.showDone, model.shownDescriptions,
+             model.folded, model.fold, model.storyFilter, model.editingDescription, model.descriptionEditorHeight, model.seen,
              model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
              model.pendingTaskLink, model.slackMessages, model.vaultLoading)
@@ -2614,22 +2614,15 @@ extension AppModel {
             && taskTree.children(of: id).isEmpty && outputs(ofTask: id).isEmpty
     }
 
-    /// Shown one by one, or all at once by the list's Descriptions for the tasks that have one.
-    func descriptionShownInOutline(_ id: Int) -> Bool {
-        if shownDescriptions.contains(id) { return true }
-        guard allDescriptions, !hiddenDescriptions.contains(id), let task = task(id) else { return false }
-        return !task.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// Shown one by one.
+    func descriptionShownInOutline(_ id: Int) -> Bool { shownDescriptions.contains(id) }
 
-    /// Shows or hides one description, also one its list's Descriptions shows.
+    /// Shows or hides one description.
     func toggleDescription(_ id: Int) {
-        if descriptionShownInOutline(id) {
-            shownDescriptions.remove(id)
-            if descriptionShownInOutline(id) { hiddenDescriptions.insert(id) }
+        if shownDescriptions.remove(id) != nil {
             if editingDescription == id { editingDescription = nil }
         } else {
-            hiddenDescriptions.remove(id)
-            if !descriptionShownInOutline(id) { shownDescriptions.insert(id) }
+            shownDescriptions.insert(id)
         }
     }
 }

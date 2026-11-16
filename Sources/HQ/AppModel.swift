@@ -230,15 +230,10 @@ final class AppModel {
         didSet { remember(showDone, as: "tasks.showDone"); syncMenu() }
     }
     var taskShow: TaskShow { TaskShow(backlog: showBacklog, done: showDone) }
-    /// Settings › General's delay before a done story goes to the Archive, in days (T-471); a shorter one applies at once.
-    var archiveDelay = Prefs.defaults.object(forKey: "archive.delayDays") as? Int ?? TaskArchive.defaultDelay {
-        didSet { remember(archiveDelay, as: "archive.delayDays"); archiveDue() }
-    }
     /// Each list's own search, in its header.
     var taskSearch = ""
     /// Files and Artifacts' own search, by title.
     var filesSearch = ""
-    /// The lists whose Descriptions toggle shows every description, remembered.
     /// Sections folded to their header, remembered; the Backlog has its own.
     var folded: Set<PageSection> = Set(((Prefs.defaults.array(forKey: "page.folded") as? [String]) ?? []).compactMap(PageSection.init(rawValue:))) {
         didSet { remember(folded.map(\.rawValue).sorted(), as: "page.folded"); syncMenu() }
@@ -252,9 +247,6 @@ final class AppModel {
     /// A note's card as wide as the sheet (T-523); remembered, off by default.
     var wideNotes = Prefs.defaults.bool(forKey: "notes.wide") {
         didSet { remember(wideNotes, as: "notes.wide") }
-    }
-    var allDescriptions = Prefs.defaults.bool(forKey: "tasks.descriptions") {
-        didSet { remember(allDescriptions, as: "tasks.descriptions"); hiddenDescriptions = []; syncMenu() }
     }
     /// View › Zoom, remembered: every size scales with it.
     var zoom: CGFloat = {
@@ -298,8 +290,6 @@ final class AppModel {
     }
     /// Descriptions shown one by one.
     var shownDescriptions: Set<Int> = []
-    /// Descriptions hidden one by one while their list shows them all.
-    var hiddenDescriptions: Set<Int> = []
     /// The description whose markdown is in an editor in the outline.
     var editingDescription: Int? {
         didSet {
@@ -513,8 +503,6 @@ final class AppModel {
     /// Notes' and plans' text read in the background, by path, with the date it was read for.
     var diskTexts: [String: DiskText] = [:]
     @ObservationIgnored var tasksVersion = 0
-    /// When the clock last asked for the done stories due for the Archive.
-    @ObservationIgnored var archiveCheckedAt = Date.now
     /// The last search's tasks and their parents, by tasks' version and words.
     @ObservationIgnored var foundCache: (key: String, found: Set<Int>)?
     @ObservationIgnored var treeCache: (version: Int, tree: TaskTree)?
@@ -572,11 +560,6 @@ final class AppModel {
             MainActor.assumeIsolated {
                 self?.settleActivity()
                 self?.now = date
-                // Every hour, the done stories due for the Archive (T-471), with nothing else to start a vault read.
-                if let self, date.timeIntervalSince(self.archiveCheckedAt) >= 3600 {
-                    self.archiveCheckedAt = date
-                    self.archiveDue()
-                }
                 // Every 10 minutes, a newer Claude Code (T-454).
                 if let self, date.timeIntervalSince(self.claudeCheckedAt) >= 600 { self.checkClaudeVersions() }
             }
@@ -797,7 +780,6 @@ final class MenuState: ObservableObject {
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
     @Published private(set) var pinnedOnly = false
     @Published private(set) var reviewDrafts = false
-    @Published private(set) var descriptions = false
     @Published private(set) var zoom: CGFloat = 1
     @Published private(set) var canEditFile = false
     @Published private(set) var canEditRole = false
@@ -883,7 +865,6 @@ final class MenuState: ObservableObject {
         set(\.pinnedOnly, model.pinnedOnly)
         set(\.reviewDrafts, model.reviewDrafts)
         set(\.hasClosed, !model.closedSessions.isEmpty)
-        set(\.descriptions, model.allDescriptions)
         set(\.zoom, model.zoom)
         let file: Bool = if case .file = model.modal { model.editingFile == nil } else { false }
         set(\.canEditFile, file)
