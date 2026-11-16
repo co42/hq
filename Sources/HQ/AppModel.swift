@@ -329,6 +329,9 @@ final class AppModel {
     @ObservationIgnored var claudeCheckedAt = Date.distantPast
     /// The sessions open when HQ quit whose Claude was gone at launch: Closed Sessions offers to reopen them (T-505).
     var reopenOffer: ReopenOffer?
+    /// The sessions still open at launch, and until when one that ends joins that offer: its end was kept while HQ was off,
+    /// or its Claude was still quitting (T-505).
+    @ObservationIgnored var openAtLaunch: (ids: Set<SessionItem.ID>, until: Date) = ([], .distantPast)
     /// Counts moves by keys and the Task menu (Move Up, Move Down, Indent, Outdent): the rows take each at once, as a drop,
     /// with no slide (Co, 2026-11-16, T-514).
     @ObservationIgnored var keyMoves = 0

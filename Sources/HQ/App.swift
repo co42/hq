@@ -94,8 +94,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated { self?.model.syncMenu() }
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command else { return event }
+            let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
             let key = event.charactersIgnoringModifiers?.lowercased()
+            // ⌃⌘A is Task › Archive or Unarchive, never Go › Archive (⇧⌘A), which AppKit falls to while the item is off.
+            // The outline's rows and titles take it themselves.
+            if flags == [.command, .control], key == "a", let model = self?.model {
+                if model.outlineKeyboard != .none, model.modal == nil { return event }
+                model.archiveFromKeys()
+                return nil
+            }
+            guard flags == .command else { return event }
             // ⌘B, ⌘I and ⌘K mark a markdown editor's selection before the menus and the views see them (T-513).
             if let editor = self?.model.keyboardEditor(), editor.format(key) { return nil }
             // An expanded diagram's zoom, whatever state the menus were built in (T-490).

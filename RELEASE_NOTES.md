@@ -25,6 +25,7 @@
 - ⇧↑ and ⇧↓ pressed quickly land each move at once; a task's text no longer vanishes while rows slide.
 - A big note opens and scrolls fast: tables draw only the rows in view, notes are read off the main thread.
 - A deleted task's key is never given to a new task.
+- ⌃⌘A archives the selected story, or unarchives in the Archive; it no longer opens the Archive.
 - With scroll bars shown always, the page's column moves out from under a scroll bar that appears as the page grows.
 - One unread notification per session keeps the texts it replaced and says so.
 - Logs write in the background, fold repeated lines and stay under 1 MB.

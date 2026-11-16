@@ -25,6 +25,16 @@ extension AppModel {
         setReopenOffer(offer)
     }
 
+    /// How long after launch a session open at launch that ends joins the offer: the hooks kept while HQ was off replay
+    /// at launch and 3 s later, and a Claude still quitting exits in that time.
+    static let launchSettle: TimeInterval = 15
+
+    /// A session open at launch ended within its first seconds: it was gone with HQ, so it joins the offer.
+    func endedAtLaunch(_ id: SessionItem.ID) {
+        guard openAtLaunch.ids.contains(id), Date.now < openAtLaunch.until else { return }
+        offerReopen([id])
+    }
+
     /// The offer's sessions still closed, top cards first; empty when there is nothing to offer.
     var reopenable: [SessionItem] {
         guard let reopenOffer, reopenOffer.at > now.addingTimeInterval(-Self.reopenKept) else { return [] }

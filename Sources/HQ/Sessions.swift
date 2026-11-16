@@ -54,7 +54,10 @@ extension AppModel {
         if let inGhostty = event.inGhostty { item.inGhostty = inGhostty }
         for url in event.pullRequests where !item.links.contains(url) { item.links.append(url) }
         if item.status.state == .ended {
-            if item.closedAt == nil { item.closedAt = now }
+            if item.closedAt == nil {
+                item.closedAt = now
+                endedAtLaunch(item.id)
+            }
         } else if item.closedAt != nil {
             // Resumed, from HQ or from a terminal: back at the end of the grid.
             item.closedAt = nil
@@ -517,7 +520,8 @@ extension AppModel {
 
     func processExited(_ pid: Int32) {
         exitWatchers.removeValue(forKey: pid)?.cancel()
-        if let tty = closingTerminals.removeValue(forKey: pid) { closeTerminal(tty) }
+        let closing = closingTerminals.removeValue(forKey: pid)
+        if let closing { closeTerminal(closing) }
         // Restart Session: the card keeps its place, its terminal gets `claude --resume` (T-454).
         let restart = sessionRestarts.removeValue(forKey: pid)
         let now = Date.now
@@ -528,7 +532,10 @@ extension AppModel {
             live.end(now)
             item.live = live
             item.pid = nil
-            if item.closedAt == nil, restart?.id != item.id { item.closedAt = now }
+            if item.closedAt == nil, restart?.id != item.id {
+                item.closedAt = now
+                if closing == nil { endedAtLaunch(item.id) }
+            }
             put(item)
             if restart?.id != item.id { _ = forgetIfEmpty(item.id) }
         }
@@ -646,6 +653,7 @@ extension AppModel {
         }
         // Open on the grid when HQ quit, its Claude gone now: Closed Sessions offers to reopen them (T-505).
         var gone: [SessionItem.ID] = []
+        openAtLaunch = (Set(sessions.filter { $0.isRunning && $0.closedAt == nil }.map(\.id)), .now.addingTimeInterval(Self.launchSettle))
         for var item in sessions where item.isRunning {
             if let pid = item.pid, ClaudeProcess.isRunningClaude(pid) {
                 watch(pid)

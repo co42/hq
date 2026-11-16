@@ -189,7 +189,7 @@ extension UITest {
         await typeInSheet(ui, "Builds one thing", replacing: true)
         await sheetKey(ui, .escape)
         await check("Escape in the line drops the edit", model.role(named: "Builder")?.line != "Builds one thing" && model.roleEdit == nil
-                    && model.modal == .roles)
+                    && model.modal == .roles, "line \(model.role(named: "Builder")?.line ?? "-"), edit \(String(describing: model.roleEdit)), responder \(ui.sheetResponder), modal \(String(describing: model.modal))")
         await ui.click(await ui.steadyAnchor("role-line"), count: 2, inSheet: true)
         await ui.until { ui.sheetIsTyping }
         await typeInSheet(ui, "Builds one thing", replacing: true)

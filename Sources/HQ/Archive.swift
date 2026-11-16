@@ -266,6 +266,17 @@ extension AppModel {
         ArchiveStore.shared.release()
     }
 
+    /// ⌃⌘A outside the outline: what Task › Archive says, Unarchive on the Archive's story or Archive on the selected stories;
+    /// nothing else.
+    func archiveFromKeys() {
+        let menu = MenuState.shared
+        if let story = menu.archivedStory {
+            unarchiveFromWindow(story)
+        } else if menu.taskIsTop {
+            archive(menu.tasks)
+        }
+    }
+
     /// Unarchive in the Archive (its card, Task › Unarchive, an archived task's window): the story leaves the results, the
     /// next one found takes the selection, its windows close; it comes back at the end of Tasks, selected once the Archive closes.
     func unarchiveFromWindow(_ story: Int) {

@@ -70,8 +70,8 @@ extension UITest {
                     "\(String(describing: model.archiveSelection))")
         await check("in the Archive, Task's ⌃⌘A item is Unarchive, on the selected story", MenuState.shared.archivedStory == other.id,
                     "\(String(describing: MenuState.shared.archivedStory))")
-        // An inactive app's menu bar keeps the state it had: a background run takes the item's action, as chooseView does.
-        if NSApp.isActive { await sheetKey(ui, 0, "\u{1}", ignoring: "a", [.command, .control]) } else { model.unarchiveFromWindow(other.id) }
+        // Through the queue, as a real key: HQ's key monitor takes it before the menus, whose ⌃⌘A item may be off.
+        await ui.key("a", [.command, .control], code: 0)
         await ui.until(3) { model.task(other.id) != nil }
         await ui.settle(0.3)
         await check("⌃⌘A in the Archive unarchives the selected story", model.task(other.id) != nil && ui.anchor("archived:\(other.id)") == nil)
@@ -85,6 +85,11 @@ extension UITest {
         model.closeModal()
         await ui.until(2) { model.modal == nil }
         model.deleteTasks([other.id, dial.id])
+        // Nothing to archive: ⌃⌘A does nothing, and never opens the Archive (⇧⌘A).
+        model.selectedTasks = []
+        await ui.key("a", [.command, .control], code: 0)
+        await ui.settle(0.4)
+        await check("⌃⌘A with nothing to archive leaves the Archive shut", model.modal == nil, "\(String(describing: model.modal))")
         await endUndoGroup(model)
 
         // Nothing archived.

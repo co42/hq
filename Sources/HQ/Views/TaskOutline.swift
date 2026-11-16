@@ -920,6 +920,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private var reEditing: Int?
     private var mermaidObserver: NSObjectProtocol?
     private var clickMonitor: Any?
+    private let clicks = ClickTaker()
     /// The rows selected when Tab left the tasks.
     private var parked: [Int] = []
     /// The completion list is opening, or the last key deleted: no new list.
@@ -935,8 +936,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             MainActor.assumeIsolated { self?.descriptionsChanged() }
         }
         // Before the description's own views take the click.
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            self?.descriptionClick(event) ?? event
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+            return self.clicks.pass(event) { self.descriptionClick($0) }
         }
     }
 
@@ -1250,7 +1252,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let byKeys = model.keyMoves != keyMovesSeen
         keyMovesSeen = model.keyMoves
         landedAtOnce = landing || byKeys
-        let still = changed > 24 || landedAtOnce
+        let still = changed > 24 || landedAtOnce || !onScreen
         landing = false
         slideStarted = !still && (changed > 0 || old.children != next.children)
         let effect: NSTableView.AnimationOptions = still ? [] : .effectFade
@@ -1610,7 +1612,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     @discardableResult
     private func noteAllHeights() -> Bool {
         guard let outline else { return false }
-        let animated = slideStarted || (sliding == 0 && !landedAtOnce)
+        let animated = slideStarted || (sliding == 0 && !landedAtOnce && onScreen)
         Motion.appKit(still: !animated) { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows)) }
         if animated { slide() }
         return animated
@@ -1701,7 +1703,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (49, []), (34, .command): model.open(.task(first), push: root != nil)
         // In a task's window too, the selected subtask moves, not the window's task.
         case (11, [.command, .shift]): model.toggleBacklog(ids)
-        case (0, [.command, .control]): model.archive(ids)
+        case (_, [.command, .control]) where letter == "a": model.archive(ids)
         // Escape unselects: nothing stays dimmed.
         case (53, []): outline?.deselectAll(nil)
         case (51, []), (117, []), (51, .command): model.deleteTasks(ids)
@@ -1827,6 +1829,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func chord(_ field: TitleField, _ id: Int, event: NSEvent? = NSApp.currentEvent) -> Bool {
         guard let event, event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let letter = event.charactersIgnoringModifiers?.lowercased()
         switch (event.keyCode, flags) {
         case (36, .command), (76, .command):
             commitTitle(field)
@@ -1840,7 +1843,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (11, [.command, .shift]):
             commitTitle(field)
             model.toggleBacklog([id])
-        case (0, [.command, .control]):
+        case (_, [.command, .control]) where letter == "a":
             commitTitle(field)
             model.archive([id])
         case (34, .command):
@@ -2354,6 +2357,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     /// The mouse button is down: the system's, which a UI test sets so the user's own clicks beside it don't count.
     static var buttonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
+
+    /// The window shows on screen: a locked screen or a covered window runs no AppKit animation, which would leave the rows
+    /// off their place (T-534), so its rows change at once.
+    private var onScreen: Bool { outline?.window?.occlusionState.contains(.visible) == true }
 
     /// A row change AppKit animates. The rows are watched until they land: AppKit's completion handlers don't wait for a
     /// table's rows, and on a slow main thread its slide lasts longer than `rowsSeconds` (T-514).

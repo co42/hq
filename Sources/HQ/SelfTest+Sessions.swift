@@ -188,6 +188,19 @@ extension SelfTest {
         model.reopenOffer?.at = .now.addingTimeInterval(-AppModel.reopenKept - 60)
         check("after 24 h it's gone", model.reopenable.isEmpty)
         model.dismissReopen()
+        // HQ quit first, then Ghostty: launch can't tell an idle session with no pid is gone; its SessionEnd, kept by `hq hook`
+        // while HQ was off, replays a moment later and it joins the offer.
+        var quiet = item(lead, "Reopen lead")
+        quiet.status = SessionStatus(state: .idle, since: .now.addingTimeInterval(-120))
+        quiet.pid = nil
+        model.sessions = [quiet]
+        model.reviveSessions()
+        let openAfterLaunch = model.session(lead)?.isRunning == true
+        event("SessionEnd", lead, ",\"reason\":\"other\"", at: .now.addingTimeInterval(-30))
+        await expect("a session whose end replays at launch, from hooks kept while HQ was off, is offered too",
+                     openAfterLaunch && model.session(lead)?.closedAt != nil && model.reopenable.map(\.id) == [lead],
+                     "open after launch \(openAfterLaunch), closed \(String(describing: model.session(lead)?.closedAt)), offer \(model.reopenable.map(\.name))")
+        model.dismissReopen()
         model.sessions = saved
     }
 
