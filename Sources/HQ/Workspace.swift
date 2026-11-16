@@ -58,6 +58,14 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
     var contextTokens: Int?
     /// When HQ last typed /model or /effort in its terminal: a reply older than that doesn't undo it.
     var runChangedAt: Date?
+    /// HQ opened its tab and waits for its Claude to report, since then; not stored (T-507).
+    var awaitingStart: Date?
+    /// Its Claude never reported from the tab HQ opened, or runs there without reporting; not stored (T-507).
+    var startTrouble: StartTrouble?
+    /// How HQ started it, for Start Again; nil for a resume. Not stored.
+    var startRequest: StartRequest?
+    /// Started or resumed by a session through `hq`, not by the user.
+    var startedBySession = false
 
     /// The user's name, else Claude's title, else the first prompt, else the repository.
     var name: String {
@@ -115,6 +123,43 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
 
     var isRunning: Bool { status.state != .ended }
     var isWorking: Bool { status.state == .working }
+}
+
+/// A session HQ opened a tab for whose Claude didn't report in time (T-507).
+nonisolated enum StartTrouble: String, Hashable, Sendable {
+    /// No Claude reported, and none runs on its terminal.
+    case didntStart
+    /// Claude runs on its terminal but sends HQ nothing: its hooks aren't loaded.
+    case notReporting
+
+    var title: String {
+        switch self {
+        case .didntStart: "Didn't start"
+        case .notReporting: "Not reporting"
+        }
+    }
+
+    /// Why, as a sentence after the session's name.
+    var because: String {
+        switch self {
+        case .didntStart: "didn't start: Claude never reported from its Ghostty tab"
+        case .notReporting: "runs but doesn't report to HQ: its Claude has no HQ hooks (is the hq plugin installed?)"
+        }
+    }
+}
+
+/// What Start a Session or `hq session new` asked for, to start it again.
+nonisolated struct StartRequest: Hashable, Sendable {
+    var name: String
+    var directory: String
+    var task: Int?
+    var pullRequest: String?
+    var message: String
+    var parent: String?
+    var role: String?
+    var history: String?
+    var model: String?
+    var effort: String?
 }
 
 /// One field of an item: compared, and copied from another copy of the item. An edit's Undo puts back the fields

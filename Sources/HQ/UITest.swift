@@ -81,6 +81,7 @@ enum UITest {
                 ("teams", teams),
                 ("sessionDrags", sessionDrags),
                 ("taskLinks", taskLinks),
+                ("sessionStarts", sessionStarts),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still
@@ -620,9 +621,10 @@ struct Driver {
                 else if (view as? NSButton)?.isEnabled == true && !swiftUI || (takesPress(view) && !surfaces.contains(name)) { [view.bounds] }
                 else { [] }
             for part in parts {
-                let shown = part.intersection(view.visibleRect)
+                // Below the toolbar: a part scrolled under it gets the toolbar's arrow, for the user too (T-508).
+                let shown = view.convert(part.intersection(view.visibleRect), to: nil).intersection(window.contentLayoutRect)
                 guard shown.width >= 2, shown.height >= 2 else { continue }
-                let point = view.convert(NSPoint(x: shown.midX, y: shown.midY), to: nil)
+                let point = NSPoint(x: shown.midX, y: shown.midY)
                 // Covered by something else (a section bar, a floating card): not the user's pointer on this part.
                 guard let hit = hitView(point), hit === view || hit.isDescendant(of: view) || view.isDescendant(of: hit) else { continue }
                 guard cursorShown(at: point) != .pointingHand else { continue }

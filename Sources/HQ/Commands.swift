@@ -272,8 +272,11 @@ struct HQCommands: Commands {
                 .keyboardShortcut(menu.cardsKeyboard ? KeyboardShortcut(.leftArrow, modifiers: .shift) : nil)
                 .disabled(!menu.sessionLeft)
             Divider()
+            Button("Start Again") { if let session { model.startAgain(session) } }
+                .disabled(!menu.sessionCanStartAgain)
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)
+                .help(menu.sessionNotReporting ? "Removes the card; its Claude keeps running in its tab, where /exit quits it" : "")
             Button(menu.teamOpenCount > 0 ? "Close Team (\(menu.teamOpenCount) sessions)…" : "Close Team…") {
                 if let session { model.closeTeam(session) }
             }

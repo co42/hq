@@ -61,8 +61,88 @@ enum Ghostty {
     /// A new tab in the window of the terminal on `beside` (a child session opens in its parent's window), else in the
     /// front window (or a new window), in `directory`, with `command` typed into the shell and run, so the shell stays
     /// when the command exits. Ghostty pastes `initial input`, and fish never runs a pasted newline: the command is
-    /// typed, then Return is pressed. It waits for the shell to start: Ghostty gets longer to answer.
-    nonisolated static func newTab(in directory: String, command: String, beside tty: String? = nil) throws(Failure) {
+    /// typed, then Return is pressed. It waits for the shell to start: Ghostty gets longer to answer. `behind`: the window
+    /// keeps the tab it showed and Ghostty isn't brought forward (a session started by another, T-488).
+    @discardableResult
+    nonisolated static func newTab(in directory: String, command: String, beside tty: String? = nil, behind: Bool = false) throws(Failure) -> String? {
+        let front = behind ? NSWorkspace.shared.frontmostApplication : nil
+        let script = behind ? behindTabScript(in: directory, command: command, beside: tty) : newTabScript(in: directory, command: command, beside: tty)
+        let made = try run(script, timeout: 10)
+        // Ghostty may still have taken the front: it goes back to the app that had it.
+        if let front, front.bundleIdentifier != bundleID, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID {
+            front.activate()
+        }
+        return made.stringValue
+    }
+
+    /// A tab opened behind (T-488): Ghostty's own new-tab action on a terminal of that window (its `new tab` command
+    /// brings Ghostty forward), the tab the window showed shown again, then the command typed in the new tab's folder.
+    nonisolated static func behindTabScript(in directory: String, command: String, beside tty: String?) -> String {
+        let path = (directory as NSString).expandingTildeInPath
+        let window = tty.map { tty in """
+                try
+                    repeat with candidate in windows
+                        set found to (terminals of candidate whose tty is "\(escape(tty))")
+                        if (count of found) > 0 then
+                            set target to contents of candidate
+                            set source to item 1 of found
+                            exit repeat
+                        end if
+                    end repeat
+                end try
+            """ } ?? ""
+        return """
+        tell application id "\(bundleID)"
+            set target to missing value
+            set source to missing value
+            \(window)
+            if target is missing value then
+                if (count of windows) is 0 then
+                    set made to new window with configuration {initial working directory:"\(escape(path))"}
+                    set term to focused terminal of selected tab of made
+                    \(waitForShell)
+                    input text "\(escape(command))" to term
+                    send key "enter" to term
+                    return tty of term
+                end if
+                set target to front window
+                set source to focused terminal of selected tab of target
+            end if
+            set shown to selected tab of target
+            set known to id of every tab of target
+            perform action "new_tab" on source
+            set made to missing value
+            repeat 40 times
+                repeat with candidate in tabs of target
+                    if known does not contain (id of candidate) then set made to contents of candidate
+                end repeat
+                if made is not missing value then exit repeat
+                delay 0.05
+            end repeat
+            if made is missing value then error "Ghostty opened no tab"
+            set term to focused terminal of made
+            select tab shown
+            \(waitForShell)
+            input text "\(escape("cd \(AppModel.shellQuoted(path)) && \(command)"))" to term
+            send key "enter" to term
+            return tty of term
+        end tell
+        """
+    }
+
+    /// Up to 5 s for the new terminal's shell to start before the command is typed (T-507), then a moment for its prompt.
+    nonisolated static let waitForShell = """
+        repeat 50 times
+                        try
+                            if (pid of term) > 0 then exit repeat
+                        end try
+                        delay 0.1
+                    end repeat
+                    delay 0.3
+        """
+
+    /// The script `newTab` runs in front: Ghostty's `new tab`, then Ghostty brought forward.
+    nonisolated static func newTabScript(in directory: String, command: String, beside tty: String?) -> String {
         let path = (directory as NSString).expandingTildeInPath
         // That terminal's window, when a window still has it; any failure there falls back to the front window.
         let window = tty.map { tty in """
@@ -75,7 +155,7 @@ enum Ghostty {
                     end repeat
                 end try
             """ } ?? ""
-        try run("""
+        return """
         tell application id "\(bundleID)"
             set config to {initial working directory:"\(escape(path))"}
             set target to missing value
@@ -89,12 +169,13 @@ enum Ghostty {
                 end if
             end if
             set term to focused terminal of target
-            delay 0.4
+            \(waitForShell)
             input text "\(escape(command))" to term
             send key "enter" to term
             activate
+            return tty of term
         end tell
-        """, timeout: 10)
+        """
     }
 
     /// Types text and Return into the terminal on `tty` (Close Session's `/exit`); with `interrupting`, Escape first and a

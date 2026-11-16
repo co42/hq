@@ -256,7 +256,8 @@ private struct NoticeRow: View {
     private var reminder: Bool { notice.kind == .reminder }
 
     var body: some View {
-        let toggle = cut || expanded
+        let replaced = notice.replaced ?? []
+        let toggle = cut || expanded || !replaced.isEmpty
         HStack(alignment: .top, spacing: Space.sm) {
             avatar
             VStack(alignment: .leading, spacing: Metric.lineGap) {
@@ -271,6 +272,16 @@ private struct NoticeRow: View {
                     if toggle { MoreToggle(expanded: $expanded, anchor: "more:\(notice.id.uuidString)") }
                 }
                 NoticeBody(text: notice.text, expanded: expanded, selectable: selected, struck: reminder && done, cut: $cut)
+                // Open, what its newer texts replaced, newest first (T-511).
+                if expanded, !replaced.isEmpty {
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        ForEach(Array(replaced.enumerated()), id: \.offset) { _, text in
+                            Text(text).kitType(.secondary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.top, Space.xs)
+                    .uiTestAnchor("replaced:\(notice.id.uuidString)")
+                }
                 let links = notice.links.compactMap(ModalRoute.init(noticeKey:)).filter { $0 != source }
                 if !links.isEmpty { ChipLine(routes: links, notice: notice).padding(.top, Space.xs) }
             }

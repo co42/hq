@@ -347,16 +347,48 @@ enum AppLog {
             written[name, default: 0] += 1
             return print("  log \(name): \(line)")
         }
-        let directory = URL.libraryDirectory.appending(path: "Logs/HQ", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let file = directory.appending(path: name)
-        let entry = Data("\(Date.now.formatted(.iso8601)) \(line)\n".utf8)
-        if let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: entry)
-        } else {
-            try? entry.write(to: file)
+        let file = URL.libraryDirectory.appending(path: "Logs/HQ/\(name)")
+        let now = Date.now
+        queue.async { record(line, at: now, in: file) }
+    }
+
+    /// A log past this many bytes keeps its newest half (T-512: one line repeated filled 26 MB in a day).
+    nonisolated static let cap = 1_000_000
+    /// Each log's last line, and how many times it came again since it was written.
+    nonisolated(unsafe) private static var last: [URL: (line: String, again: Int)] = [:]
+    nonisolated private static let queue = DispatchQueue(label: "hq.logs", qos: .utility)
+
+    /// Waits for the lines written so far: HQ quits.
+    nonisolated static func flush() { queue.sync {} }
+
+    /// One line in `file`, on the logs' queue: a line that repeats the one before is counted, and written once as
+    /// "(the line above N more times)" when another comes.
+    nonisolated static func record(_ line: String, at date: Date, in file: URL) {
+        if last[file]?.line == line {
+            last[file]?.again += 1
+            return
         }
+        var text = ""
+        if let again = last[file]?.again, again > 0 { text += "\(date.formatted(.iso8601)) (the line above \(again) more time\(again == 1 ? "" : "s"))\n" }
+        last[file] = (line, 0)
+        text += "\(date.formatted(.iso8601)) \(line)\n"
+        append(Data(text.utf8), to: file)
+    }
+
+    /// Appends to `file`; past `cap` it keeps its newest half, from a line's start.
+    nonisolated static func append(_ entry: Data, to file: URL, cap: Int = AppLog.cap) {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard let handle = try? FileHandle(forUpdating: file) else {
+            try? entry.write(to: file)
+            return
+        }
+        defer { try? handle.close() }
+        let size = Int((try? handle.seekToEnd()) ?? 0)
+        try? handle.write(contentsOf: entry)
+        guard size + entry.count > cap else { return }
+        try? handle.seek(toOffset: UInt64(size + entry.count - cap / 2))
+        guard var tail = try? handle.readToEnd() else { return }
+        if let newline = tail.firstIndex(of: UInt8(ascii: "\n")) { tail = tail[(newline + 1)...] }
+        try? Data("(older lines dropped: past \(cap / 1_000_000) MB)\n".utf8 + tail).write(to: file, options: .atomic)
     }
 }

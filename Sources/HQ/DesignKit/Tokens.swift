@@ -142,6 +142,8 @@ enum Ink {
     static let secondaryTextNS = NSColor.secondaryLabelColor
     static let quietMarkNS = NSColor.tertiaryLabelColor
     static let accentNS = NSColor.controlAccentColor
+    /// A markdown table's hairline between rows: SwiftUI's Divider color.
+    static let separatorNS = NSColor.separatorColor
     static let rowSelectionNS = NSColor.controlAccentColor.withAlphaComponent(0.2)
     static let rowSelection = Color(nsColor: rowSelectionNS)
     /// A selected session card: the selected row's tint over the card.
@@ -191,6 +193,8 @@ enum Ink {
 
 /// Sizes.
 nonisolated enum Metric {
+    /// A markdown table's hairline between rows, as thick as SwiftUI's Divider at any zoom.
+    static let tableRule: CGFloat = 1
     /// Status glyphs: one size and one stroke for the whole family.
     static var glyph: CGFloat { 14 * Zoom.factor }
     static var glyphSlot: CGFloat { 16 * Zoom.factor }

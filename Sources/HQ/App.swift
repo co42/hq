@@ -169,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.flushNoteWrites()
         if !Store.isOverridden, let mainWindow { WindowFrame.save(mainWindow) }
         Prefs.forget()
+        AppLog.flush()
         if SelfTest.requested || UITest.requested { exit(SelfTest.exitCode) }
     }
 
@@ -184,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mainWindow = window
         LaunchLog.mark("window")
         model.window = window
+        PerfOpen.start(model)
         window.delegate = self
         if Store.isOverridden {
             Store.moveToTestScreen(window)

@@ -59,7 +59,7 @@ hq task edit T-12 --replace "until 14:30" --with "until 15:00"   # an exact text
 
 ## Fields and the tree
 
-The tree is the user's map of the work: few tasks, each one the user would want to see on its own. A step, a finding or a follow-up is a line in a description, not another task.
+The tree is the user's map of the work: few tasks, each one the user would want to see on its own. A step, a finding or a follow-up is a line in a description, not another task. A bug found while working is the exception: a task right away, under the story being worked on (`--parent`), not fixed unasked.
 
 - **Titles**: a few words saying what it delivers ("Dedup layers on push"). No status, dates, keys or explanations: the description holds them.
 - **Status**: `todo`, `doing`, `done`. `hq task move T-n backlog` is todo in the Backlog; `hq task move T-n todo --list tasks` brings it back. There is no review status.
@@ -79,7 +79,7 @@ A task you create, or move to doing, shows this session's face on its card. Note
 
 Nothing notifies when a turn ends. Tell them when they should look:
 
-- **`hq notify "…" --task T-12`** (Updates): work they asked for is ready, a write-up or page is done, a PR waits for them, a decision of theirs unblocks you. What's ready, then what to check: `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west looks fine."` Without `--task` or `--link` it links this session's open tasks and what it made since its last notification. Not at every turn end, nor while a build runs: when the result is there.
+- **`hq notify "…" --task T-12`** (Updates): work they asked for is ready, a write-up or page is done, a PR waits for them, a decision of theirs unblocks you. What's ready, then what to check: `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west looks fine."` Without `--task` or `--link` it links this session's open tasks and what it made since its last notification. While your last one is unread, a new one replaces it (the user can still open the old text): say in each everything that still holds. Not at every turn end, nor while a build runs: when the result is there.
 - **`--important`** (Needs You, with a banner): a ping. "Ping me" always means `hq notify --important`, sent when what they wait for happens. Also when you can't go on without them and a question doesn't fit ("unlock the screen"). A ping covers the thing it was asked for; the next notification is an update again.
 - **`hq remind "…" --at "tomorrow 9:00"`**: the user asks to be reminded (`--important`), or a follow-up needs them later. `--at` takes `16:00`, `in 2h`, `tomorrow at 15:00`, `friday 3pm`, `next week`. A task's reminders show in `hq task show`.
 - One that no longer holds: `hq notification done <id>` or `hq notification delete <id>`; the id starts the line `notify` printed.
@@ -110,7 +110,7 @@ A list cut at its page ends with a line like `50 of 112: --limit 200`. The text 
 
 ## Sessions you start
 
-`hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists. It starts on its role's model and effort; `--model opus --effort medium` picks others (efforts: low, medium, high, xhigh, max).
+`hq session new "T-12 Short name" --task T-12` starts a Claude session sent to the task, in a tab of your Ghostty window and this session's folder (`--cwd` for another). It's yours: it sits under you on the page and reports to you, and its message wakes you; answer it with SendMessage, to its name. `hq ctx` lists your sessions with their role, state and task, and names the session that started you. One that shows "Didn't start" never reported from its tab within 30 s: `hq session close` it and start it again ("Not reporting": its Claude runs without HQ's hooks; tell the user). `--role Worker` gives it a role, whose text arrives on its own at its start: `hq ls roles` first, to pick one that exists. It starts on its role's model and effort; `--model opus --effort medium` picks others (efforts: low, medium, high, xhigh, max).
 
 When a session you started has finished its task, close it: `hq session close <session>` (its input emptied, then /exit; one waiting on the user is refused). `hq session resume <session>` reopens it, conversation and all, in your Ghostty window, in its place in your team. Both act only on the sessions you started and theirs; `hq ctx` lists them, closed ones too.
 

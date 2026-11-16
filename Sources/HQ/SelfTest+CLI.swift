@@ -135,6 +135,10 @@ extension SelfTest {
         check("a text not there is not found", failure(agent("task edit", ["task": key(story), "replace": "absent words", "with": "x"]))?.code == "not_found")
         check("--with alone is refused", failure(agent("task edit", ["task": key(story), "with": "x"]))?.code == "usage")
         check("an edit that changes nothing says so", (agent("task edit", ["task": key(story), "project": "Registry"])["note"] as? String)?.hasPrefix("Nothing changed") == true)
+        let reparented = agent("task edit", ["task": key(other), "parent": key(child)])["note"] as? String ?? ""
+        check("task edit --parent says the parent changed (T-506)", reparented.hasPrefix("Changed: parent \(key(story)) → \(key(child))"), reparented)
+        let back = agent("task edit", ["task": key(other), "parent": key(story)])["note"] as? String ?? ""
+        check("and back", back.hasPrefix("Changed: parent \(key(child)) → \(key(story))"), back)
 
         // Moves between lists; notifications about a task.
         let later = agent("task add", ["title": "CLI later", "backlog": "true"])
@@ -146,6 +150,22 @@ extension SelfTest {
         check("notify and remind take --task", (told["links"] as? [JSONObject])?.first?["id"] as? String == key(story)
               && (set["links"] as? [JSONObject])?.first?["id"] as? String == key(story), "\(told) \(set)")
         for row in [told, set] { if let rowID = (row["id"] as? String).flatMap({ UUID(uuidString: $0) }) { model.removeNotice(rowID) } }
+        // A session's second notify replaces its unread one, and says so; a ping gets its own row (T-511).
+        let speaker = "cli-speaker-session"
+        model.put(SessionItem(id: speaker, customName: "CLI speaker", status: SessionStatus(state: .idle, since: .now), cwd: "/tmp", repo: "cli", branch: "main",
+                              started: .now, order: model.nextGridOrder))
+        func notifyRaw(_ args: [String: String]) -> JSONObject {
+            (try? JSONSerialization.jsonObject(with: AgentRouter.handle(JSON.data(["command": "notify", "args": args.merging(["_session": speaker]) { a, _ in a }])))) as? JSONObject ?? [:]
+        }
+        let first = notifyRaw(["text": "Retry budget ready to check"])
+        let second = notifyRaw(["text": "Retry budget merged"])
+        let pinged = notifyRaw(["text": "Need your call", "important": "true"])
+        check("a session's second notify says it replaced its unread one; the first doesn't",
+              (first["warnings"] as? [String] ?? []).isEmpty
+              && (second["warnings"] as? [String])?.first?.hasPrefix("replaced your unread notification “Retry budget ready to check”") == true
+              && (pinged["warnings"] as? [String] ?? []).isEmpty, "\(second["warnings"] ?? "none")")
+        model.notices.removeAll { $0.source == speaker }
+        model.sessions.removeAll { $0.id == speaker }
 
         // A session's view: its project first, a stale write refused, a needless --not-mine said.
         let session = "5e550000-0000-4000-8000-00000000c71a"
@@ -180,7 +200,7 @@ extension SelfTest {
         check("--force writes over it", body(key(mine)) == "Forced.")
         let needless = (try? JSONSerialization.jsonObject(with: AgentRouter.handle(JSON.data(["command": "task edit", "args":
             ["task": key(mine), "add-tag": "cli", "not-mine": "true", "_session": session]])))) as? JSONObject ?? [:]
-        check("a needless --not-mine is said, and the command runs", (needless["warnings"] as? [String])?.first == "\(key(mine)) is yours already: drop --not-mine"
+        check("a needless --not-mine is said as done, not as a failure (T-510), and the command runs", (needless["warnings"] as? [String])?.first == "done: \(key(mine)) is yours already, so --not-mine wasn't needed"
               && model.task(id(mine))?.tags.contains("cli") == true, "\(needless["warnings"] ?? "none")")
         check("every reply names the build that runs", needless["app"] as? String == AgentVersion.atLaunch)
         agent("hook", ["event": "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"\(session)\",\"reason\":\"other\"}"])
@@ -213,6 +233,20 @@ extension SelfTest {
               && worker["parent"] as? String == lead && model.ghosttyLog.count == log + 1
               && model.ghosttyLog.last?.hasPrefix("new tab in the window of /dev/ttys077, in \(folder): claude --session-id \(workerID)") == true
               && (worker["started"] as? String)?.contains("it reports to you") == true, "\(worker) \(model.ghosttyLog.last ?? "-")")
+        check("a session started by another opens its tab behind: Ghostty keeps the front and its window the tab it showed (T-488)",
+              model.ghosttyLog.last?.hasSuffix("(behind)") == true, model.ghosttyLog.last ?? "-")
+        let behind = Ghostty.behindTabScript(in: folder, command: "claude", beside: "/dev/ttys077")
+        let front = Ghostty.newTabScript(in: folder, command: "claude", beside: nil)
+        check("behind, the tab comes from Ghostty's new-tab action, the window's tab shown again, the command typed in its folder, Ghostty never activated; in front, activated",
+              behind.contains("perform action \"new_tab\"") && behind.contains("select tab shown") && behind.contains("input text \"cd '\((folder as NSString).standardizingPath)' && claude\" to term")
+              && !behind.contains("activate") && front.contains("activate") && !front.contains("select tab shown"), behind)
+        check("both wait for the new shell before typing (T-507)", behind.contains("pid of term") && front.contains("pid of term"))
+        func compiles(_ script: String) -> String? {
+            var error: NSDictionary?
+            return NSAppleScript(source: script)?.compileAndReturnError(&error) == true ? nil : "\(error ?? [:])"
+        }
+        let broken = [behind, front, Ghostty.behindTabScript(in: folder, command: "claude", beside: nil)].compactMap(compiles)
+        check("both scripts compile against Ghostty's dictionary", broken.isEmpty, broken.joined(separator: "; "))
         let beside = agent("session new", ["name": "CLI handoff", "beside": "true", "_session": workerID])
         check("--beside starts it at the caller's level: under the caller's parent", model.session(beside["id"] as? String)?.parent == lead, "\(beside)")
         let top = agent("session new", ["name": "CLI top", "parent": "none", "_session": lead])

@@ -6,6 +6,8 @@
 #          PERF_BUSY=10         a session's tool calls come in meanwhile, 10 hook events a second
 #          PERF_STATES=1        each tool call a question: the session goes from working to waiting and back
 #          PERF_SAMPLE=<file>   a call tree of the measured seconds, from sample(1)
+#          PERF_OPEN=<title>    opens that note, scrolls it to its end and back, closes it, round after round; prints
+#                               each round's times (perf open lines)
 #        tools/perf.sh --check  the budgets below, on the seed: at rest, then with tool calls coming in. Exit code 1
 #                               over any. Each run adds a line to ~/Library/Developer/HQ/perf-history.tsv.
 set -u
@@ -43,6 +45,7 @@ measure() {
   rm -f $store $store-shm $store-wal $store.sock $log
   rm -rf $vault && mkdir -p $vault
   local env=(--env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_GITHUB=fixtures --env HQ_LAUNCH_LOG=1)
+  [[ -n ${PERF_OPEN:-} ]] && env+=(--env "HQ_PERF_OPEN=$PERF_OPEN")
   if [[ ${PERF_SEED:-0} == 1 ]]; then
     mkdir -p $vault/hq/tasks $vault/hq/files
     env+=(--env APP_SEED=1)

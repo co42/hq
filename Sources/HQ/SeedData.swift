@@ -139,7 +139,7 @@ enum SeedData {
             Row(id: 48, title: "A 503 on multipart complete retries once", status: .done, parent: 13, order: 2),
             Row(id: 49, title: "Canary on registry-staging, 30 minutes green", status: .doing, parent: 13, order: 3),
             Row(id: 16, title: "Move CDN workers to machine identities", status: .doing, type: .chore, project: "CDN", tags: ["security"], order: 2,
-                body: "CDN workers read a static `SECRETS_TOKEN` nobody rotates.\n\n- [x] Plan: *machine identities for CDN workers*\n- [ ] One identity per pool, in Terraform\n- [ ] Drop the static secret",
+                body: "CDN workers read a static `SECRETS_TOKEN` nobody rotates.\n\n- [x] Plan: *machine identities for CDN workers*\n- [ ] One identity per pool, in Terraform\n- [ ] Drop the static secret\n\n| Pool | Identity | Workers |\n|:--|:--|--:|\n| `edge-eu` | [cdn-edge](https://example.com/edge) | 12 |\n| origin | none yet | 4 |",
                 sessions: [s2], links: [gh + "infra-secrets/pull/44"]),
             Row(id: 50, title: "One identity per worker pool, in Terraform", status: .doing, parent: 16, order: 1, sessions: [s2]),
             Row(id: 51, title: "Universal auth in the worker init container", parent: 16, order: 2),
@@ -197,7 +197,7 @@ enum SeedData {
                      tags: ["meeting"]),
         ]
         model.fileDrafts = [
-            model.files[0].id: "# Retry budget plan\nOne budget per upload, shared by its parts, so a slow part cannot starve the others.\n\n- 3 attempts per part, **full jitter**, base 100 ms, cap 2 s\n- A `503` on complete retries once\n\n```mermaid\ngraph LR\n  push[Upload part] -->|503| retry{Budget left?}\n  retry -->|yes| push\n  retry -->|no| fail[Return the error]\n```\n\n```\nlet budget = RetryBudget::new(3).with_jitter(Jitter::Full);\n```\n",
+            model.files[0].id: "# Retry budget plan\nOne budget per upload, shared by its parts, so a slow part cannot starve the others.\n\n- 3 attempts per part, **full jitter**, base 100 ms, cap 2 s\n- A `503` on complete retries once\n\n| Step | Attempts | Cap |\n|:--|--:|:-:|\n| `upload part` | 3 | 2 s |\n| Complete | 1 | none |\n| Read the [budget](https://example.com/budget) | 0 | — |\n\n```mermaid\ngraph LR\n  push[Upload part] -->|503| retry{Budget left?}\n  retry -->|yes| push\n  retry -->|no| fail[Return the error]\n```\n\n```\nlet budget = RetryBudget::new(3).with_jitter(Jitter::Full);\n```\n",
             model.files[1].id: "# Machine identities for CDN workers\nWorkers read `SECRETS_TOKEN` from a secret nobody rotates. Machine identities give each pool **short-lived** credentials.\n\n## Steps\n1. One identity per pool, in Terraform\n2. Universal auth in the worker init container\n3. Drop the static secret once every pool runs on an identity\n",
             model.files[2].id: "# image-sync pull/push perf\nPulls wait on single ranges; pushes spend their time hashing.\n\n- Pull: 8 ranges in flight\n- Push: hash while uploading\n",
             model.files[3].id: "# Weekly infra sync\n- Registry: retry budget in review\n- CDN: machine identities next\n- Chunks: cache eviction plan\n",

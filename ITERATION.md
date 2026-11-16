@@ -5,7 +5,7 @@ How a version of HQ goes from the user's list to their `/Applications`. Read it 
 ## The story
 
 - An iteration is a story task, "HQ - Iteration vN" (project HQ), and its subtasks are the work. The user adds subtasks while you work, terse and in their words: `hq task show` the story between tasks and take the new ones in.
-- Only the user adds to an iteration, or says yes to a proposal. A bug you find on the way goes in your notification, or becomes a task in Tasks when they asked you to note it.
+- Only the user adds work to an iteration, or says yes to a proposal. A bug found while working becomes a task right away, under the story being worked on (a Worker tells its leader), and is not fixed unasked.
 - Order: what changes how the work is done (a doc, a check) first, then what blocks the user's day (a crash, something unusable), then the rest grouped by area, so each group ships as a batch they can try.
 
 ## Start

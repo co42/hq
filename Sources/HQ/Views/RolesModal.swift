@@ -323,7 +323,7 @@ private struct RoleDetail: View {
                 .background(EditOnDoubleClick { _ in model.beginRoleEdit(.text) })
                 .uiTestAnchor("role-text")
         } else {
-            MarkdownView(blocks: Markdown.blocks(role.text))
+            MarkdownView(role.text)
                 .background(EditOnDoubleClick { point in
                     model.editorCaret = point
                     model.beginRoleEdit(.text)

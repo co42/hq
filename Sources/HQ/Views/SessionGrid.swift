@@ -1478,8 +1478,12 @@ struct SessionMenu: View {
             RunMenus(session: session)
         }
         Divider()
-        if session.isRunning, session.tty != nil {
+        if session.startTrouble == .didntStart {
+            Button("Start Again") { model.startAgain(session.id) }
+        }
+        if (session.isRunning && session.tty != nil) || session.startTrouble != nil {
             Button("Close Session") { model.closeSession(session.id) }
+                .help(session.startTrouble == .notReporting ? "Removes the card; its Claude keeps running in its tab, where /exit quits it" : "")
         }
         if top && !team.isEmpty, case let count = model.openSessions(ofTeam: session.id).count, count > 0 {
             Button("Close Team (\(count) session\(count == 1 ? "" : "s"))…") { model.closeTeam(session.id) }

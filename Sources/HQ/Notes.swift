@@ -765,6 +765,40 @@ extension AppModel {
         return fileDrafts[id] ?? "# \(files.first { $0.id == id }?.title ?? "")\n\nSample text.\n"
     }
 
+    /// The note parsed and measured for the viewer, once per change of its text (T-460). A short note at once; a long one
+    /// off the main thread, its last version (or nil) shown meanwhile.
+    func fileMarkdown(_ id: FileItem.ID) -> [ViewerBlock]? {
+        _ = notesPrepared
+        guard let text = fileBody(id) else { return nil }
+        let prepared = preparedNotes[id]
+        if let prepared, prepared.text == text { return prepared.blocks }
+        if text.utf8.count < Self.notePreparedAtOnce {
+            let blocks = ViewerBlock.prepare(Markdown.blocks(text), style: .current)
+            keepPrepared(id, text, blocks)
+            return blocks
+        }
+        if !preparingNotes.contains(id) {
+            preparingNotes.insert(id)
+            let style = MarkdownTableLayout.Style.current
+            Task {
+                let blocks = await Task.detached(priority: .userInitiated) { ViewerBlock.prepare(Markdown.blocks(text), style: style) }.value
+                preparingNotes.remove(id)
+                keepPrepared(id, text, blocks)
+                notesPrepared += 1
+            }
+        }
+        return prepared?.blocks
+    }
+
+    /// Notes longer than this, in bytes, are prepared off the main thread (about 10 ms of parsing).
+    static let notePreparedAtOnce = 16_000
+
+    /// The last few notes shown stay prepared.
+    private func keepPrepared(_ id: FileItem.ID, _ text: String, _ blocks: [ViewerBlock]) {
+        if preparedNotes[id] == nil, preparedNotes.count >= 4, let other = preparedNotes.keys.first { preparedNotes[other] = nil }
+        preparedNotes[id] = (text, blocks)
+    }
+
     /// The note's text for a CLI call, which waits for its reply on the main thread: what's in, else read now.
     func fileBodyNow(_ id: FileItem.ID) -> String {
         if let text = fileBody(id) { return text }

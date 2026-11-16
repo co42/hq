@@ -938,11 +938,11 @@ struct FileModal: View {
                            setPinned: { model.setFileLabels(file.id, pinned: $0) })
             }
             let text = model.fileBody(file.id)
-            let blocks = text.map(Markdown.blocks) ?? []
-            if case .heading(1, _) = blocks.first {} else {
+            let blocks = model.fileMarkdown(file.id)
+            if case .block(.heading(1, _)) = blocks?.first {} else {
                 Text(file.title).kitType(.heading1)
             }
-            if text == nil {
+            if text == nil || (blocks == nil && model.editingFile != file.id) {
                 LoadingLine(title: "Loading the note…")
                     .uiTestAnchor("file-loading")
             } else if model.editingFile == file.id {
@@ -954,7 +954,7 @@ struct FileModal: View {
                     .onDisappear { editorHeight = 0 }
                     .uiTestAnchor("file-editor")
             } else {
-                MarkdownView(blocks: blocks) { index in model.toggleFileCheckbox(file.id, at: index) }
+                MarkdownView(prepared: blocks ?? []) { index in model.toggleFileCheckbox(file.id, at: index) }
                     .background(EditOnDoubleClick { point in
                         model.editorCaret = point
                         model.beginFileEdit(file.id)

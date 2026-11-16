@@ -616,6 +616,20 @@ extension UITest {
         await check("and three lines again", abs(height() - rest) < 1, "\(rest) → \(height())")
         model.notices.removeAll { $0.id == long.id }
         model.noticeSelection = nil
+        // A session's next word replaces its unread one, kept under it; a ping is never folded into an update (T-511).
+        _ = model.notify("Retry budget ready to check", level: .update, source: "uitest-replaced")
+        let merged = model.notify("Retry budget merged, canary green", level: .update, source: "uitest-replaced")
+        let ping = model.notify("Need your call on the canary", level: .important, source: "uitest-replaced")
+        await ui.settle(0.4)
+        await check("a session's second update replaces its first in one row, the first kept; its ping is a row of its own",
+                    merged.count == 2 && merged.replaced == ["Retry budget ready to check"] && ping.id != merged.id && ping.count == 1
+                    && model.notices.filter { $0.source == "uitest-replaced" }.count == 2, "\(model.notices.filter { $0.source == "uitest-replaced" }.map(\.text))")
+        await check("its row shows its toggle; the earlier text shows only open", ui.anchor("more:\(merged.id.uuidString)") != nil
+                    && ui.anchor("replaced:\(merged.id.uuidString)") == nil)
+        await ui.click(await ui.steadyAnchor("more:\(merged.id.uuidString)"), inSheet: true)
+        await check("open, it shows the text the update replaced", ui.anchor("replaced:\(merged.id.uuidString)") != nil)
+        model.notices.removeAll { $0.source == "uitest-replaced" }
+        await ui.settle(0.2)
         if let other = model.notices(in: .updates).first(where: { $0.readAt == nil }) {
             // Selected, as a click or the arrows select it: its Read shows.
             model.noticeSelection = other.id.uuidString
@@ -1986,6 +2000,39 @@ extension UITest {
         model.hideDone = []
         model.setStatus(b, bStatus)
         await ui.settle(0.3)
+        await endUndoGroup(model)
+        // The same key twice while the rows still slide, with motion as the user sees it: every card stays on its row (T-503).
+        let wasStill = Motion.still
+        Motion.still = false
+        // The second key: the same, held (a repeat), or ← folding the moved task.
+        let twice: [(String, Int, Driver.Key, Driver.Key, NSEvent.ModifierFlags, Bool)] = [
+            ("an open task", a, .down, .down, .shift, false), ("a task past an open one", new, .up, .up, .shift, false),
+            ("a subtask", a2, .up, .up, .shift, false), ("a subtask", a1, .down, .down, .shift, false),
+            ("a task", new, .right, .right, .shift, false), ("a subtask", a2, .left, .left, .shift, false),
+            ("a task, the key then held", new, .up, .up, .shift, true), ("an open task, then folded", a, .down, .left, [], false),
+        ]
+        let shape = { "\(tree().top(.overview)) \(tree().children(of: a)) \(tree().children(of: b))" }
+        let base = shape()
+        for (kind, id, key, then, flags, held) in twice {
+            let before = tree().top(.overview)
+            coordinator.select(id)
+            await ui.settle(0.3)
+            await ui.key(key, .shift)
+            await ui.key(then, flags, held: held)
+            await ui.settle(0.8)
+            let broken = outline.brokenRows()
+            await check("\(kind) moved twice quickly (⇧\(key)) keeps its card and every other on its row", broken.isEmpty && model.selectedTasks == [id],
+                        "\(broken) \(before) → \(tree().top(.overview)) \(state())")
+            await endUndoGroup(model)
+            for _ in 0..<4 where shape() != base {
+                model.undoManager?.undo()
+                await ui.settle(0.3)
+            }
+        }
+        model.setFold(a, .all)
+        await ui.settle(0.3)
+        Motion.still = wasStill
+        await check("undo puts the quick moves back", shape() == base, "\(shape()) not \(base)")
 
         // In a title: Shift-Right at its end indents, Shift-Left at its start outdents; the title stays edited.
         coordinator.beginEditing(new)
@@ -2155,6 +2202,22 @@ extension UITest {
         } else {
             skip("a real double-click on a description edits it")
         }
+        // A table in a description: a click on a cell's text is the card's, on its link the link's (T-460).
+        let body = model.task(b)?.body ?? ""
+        model.changeTask(b, "Edit Task") { $0.body = "| Name | Link |\n|:--|:--|\n| plain words | [docs](https://example.com/docs) |" }
+        await ui.settle(0.6)
+        if let table = ui.find(MarkdownTableView.self, in: outline),
+           let plain = table.view(atColumn: 0, row: 1, makeIfNecessary: false), let link = table.view(atColumn: 1, row: 1, makeIfNecessary: false) {
+            func start(_ cell: NSView) -> NSPoint { cell.convert(NSPoint(x: cell.bounds.minX + Space.xs, y: cell.bounds.midY), to: nil) }
+            let onText = ui.hitView(start(plain)), onLink = ui.hitView(start(link))
+            await check("in a card, a table's text lets a click through to the card; its link takes it",
+                        !(onText is MarkdownCell) && !(onText is MarkdownTableView) && onLink is MarkdownCell,
+                        "text hits \(onText.map { String(describing: type(of: $0)) } ?? "none"), link hits \(onLink.map { String(describing: type(of: $0)) } ?? "none")")
+        } else {
+            await check("a table shows in a card's description", false)
+        }
+        model.changeTask(b, "Edit Task") { $0.body = body }
+        await ui.settle(0.3)
 
         // To the Backlog and back: the task above takes the selection.
         await ui.editTitle(b)
@@ -2716,6 +2779,36 @@ extension UITest {
         await check("a move with 500 tasks takes under two frames, none over 100 ms (debug ×1.5)", move.median < Stall.budget(34) && move.worst < Stall.budget(100), "\(move)")
         await check("scrolling the page with 500 tasks stays within a frame, rare steps at two, none at three (debug ×1.5)",
               scrolls.median < Stall.budget(17) && scrolls.hitches <= scrolls.steps.count / 100 && scrolls.worst < Stall.budget(50), "\(scrolls)")
+        await bigTable(model, ui)
+    }
+
+    /// A note with a 1,100-row table, as a session's report: it opens at once and scrolls within a frame (T-460).
+    static func bigTable(_ model: AppModel, _ ui: Driver) async {
+        let header = "| # | Namespace | Kind | Plan | Endpoints | Calls | Status | Last call |\n|--:|:--|:--|:--|--:|--:|:--|:--|\n"
+        let rows = (1...1100).map { "| \($0) | `namespace-\($0)` | org | free | \($0 % 7 + 1) | \(1_000_000 / $0) | **succeed** | 2026-11-12 13:\($0 % 60) |" }
+        guard let file = model.addFile(title: "Big table", body: "# Big table\n\nEvery caller, sorted by calls.\n\n" + header + rows.joined(separator: "\n") + "\n") else {
+            return await check("the note with a big table", false)
+        }
+        await model.loadFileBody(file.id)
+        var scroll: NSScrollView?
+        let open = await Stall.measure([{ model.open(.file(file.id)) }], gap: 1.5)
+        await ui.until(3) {
+            scroll = PerfOpen.sheetScroll(model)
+            return (scroll?.documentView?.frame.height ?? 0) > 20_000
+        }
+        guard let scroll else { return await check("the note with a big table shows", false) }
+        let end = min(max((scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height, 0), 4000)
+        let steps = Array(stride(from: 0, through: end, by: 40))
+        let glide = await Stall.measure((steps + steps.reversed()).map { y in {
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        } }, gap: 0.017)
+        print("  perf: big table open \(open.worst) ms; scroll \(glide)")
+        await check("a note with a 1,100-row table opens holding the main thread under 150 ms (debug ×1.5)", open.worst < Stall.budget(150), "\(open)")
+        await check("and scrolls 40 pt a frame within a frame, none over 50 ms (debug ×1.5)",
+                    glide.median < Stall.budget(17) && glide.worst < Stall.budget(50), "\(glide)")
+        model.closeModal()
+        await ui.settle(0.3)
     }
 }
 

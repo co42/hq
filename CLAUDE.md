@@ -18,7 +18,7 @@ Native macOS app (SwiftUI, AppKit where needed) that runs the user's day with Cl
 ## Working with the user
 
 - A question gets an answer, not a change ("answer no fix"). Act once they say so.
-- Do what was asked, no more: fix the data when they ask to fix data, not the app; add no task they didn't ask for (a bug you find goes in your notification).
+- Do what was asked, no more: fix the data when they ask to fix data, not the app; add no task they didn't ask for, except a bug you find: it becomes a task right away, under the story being worked on (a Worker tells its leader), and is not fixed unasked.
 - A question to them says what it means for them, in their words: never a type, a flag or an internal name they'd have to look up. Ask every open decision at once, each with your recommendation.
 - They add subtasks and edit the task while you work: `hq task show` between pieces and take the new ones in.
 - Time-box: before a hunt that takes more than a few builds (a perf bisect, profiling rounds), say what you found, what's left and whether it's worth it, and let them choose (T-260).
@@ -60,7 +60,7 @@ bama's template conventions. Its plugin is installed for this checkout (`claude 
   - A test copy has its own preferences, emptied at launch and kept beside its store in /tmp (`Prefs`), its own store, vault and log, and no motion (`Motion.still`; the `storyFlow` group keeps it). A watchdog stops one that stays silent 45 s and writes its main thread's stack into its log.
   - A test copy's window opens on the user's second screen when one is connected, narrowed and shortened to fit it (snapshots there show a page's top 950 pt), and lets real clicks through to their windows. Test runs never reach Ghostty: they record the calls in `ghosttyLog`.
   - UI checks: each group starts on the same seed (`scenario`), adds what it needs and passes alone or in any shard; `check` waits until its condition holds, `settle()` until the windows hold still (before a check that something did *not* happen), a click until its anchor shows (a missing one fails); `wait` only for what is measured in time; look a row's cell up again after every action; a check's condition looks up what it judges (a value read before the check never changes while it polls); a flaky check is fixed at its cause, never retried around; a perf check measures a median with margin.
-- `tools/perf.sh` measures a test copy at rest on copies of the user's store and vault (`PERF_BUSY=10`, `PERF_STATES=1`, `PERF_SAMPLE=<file>`); `tools/launch.sh` traces a launch's memory and timing. `tools/perf.sh --check` holds the seed to budgets: part of `check.sh --release`.
+- `tools/perf.sh` measures a test copy at rest on copies of the user's store and vault (`PERF_BUSY=10`, `PERF_STATES=1`, `PERF_SAMPLE=<file>`, `PERF_OPEN=<note title>`: opens, scrolls and closes that note in rounds, its times in `perf open` lines); `tools/launch.sh` traces a launch's memory and timing. `tools/perf.sh --check` holds the seed to budgets: part of `check.sh --release`.
 - A change under `plugin/` reaches Claude sessions only after a version bump in `plugin/.claude-plugin/plugin.json` and `tools/install-plugin.sh` (`build.sh` reminds you); sessions already running keep the old skills.
 - Snapshots, seed data and the self-test only run with `APP_STORE` in `/tmp`. Never touch the real store or the real vault in tests: `HQ_VAULT` points them at a copy.
 

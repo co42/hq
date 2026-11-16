@@ -508,6 +508,7 @@ enum SelfTest {
         model.open(id)
         check("Resume opens a Ghostty tab and puts the card at the end", model.ghosttyLog.count == before + 1
               && model.ghosttyLog.last?.contains("claude --resume \(id)") == true && model.gridSessions.last?.id == id)
+        check("HQ's own Resume brings Ghostty forward with the new tab (T-488)", model.ghosttyLog.last?.hasSuffix("(behind)") == false, model.ghosttyLog.last ?? "-")
         hook("SessionStart", id, #","source":"resume""#)
         check("a resumed session runs again", model.session(id)?.isRunning == true && model.session(id)?.closedAt == nil)
         // Running in no terminal HQ knows: focusing it opens its modal, which says so, instead of nothing.

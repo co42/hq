@@ -374,8 +374,8 @@ private struct Elbow: View {
 struct SessionStatePill: View {
     let session: SessionItem
 
-    private var needsYou: Bool { session.isRunning && session.status.needsYou }
-    private var failed: Bool { session.status.state == .failed }
+    private var needsYou: Bool { (session.isRunning && session.status.needsYou) || session.startTrouble != nil }
+    private var failed: Bool { session.status.state == .failed || session.startTrouble != nil }
 
     private var tone: (text: AnyShapeStyle, fill: AnyShapeStyle) {
         if needsYou { return failed ? (AnyShapeStyle(Ink.failedText), AnyShapeStyle(Ink.failedFill)) : (AnyShapeStyle(Ink.needsYouText), AnyShapeStyle(Ink.needsYouFill)) }
@@ -386,7 +386,7 @@ struct SessionStatePill: View {
 
     var body: some View {
         HStack(spacing: Space.xs + 2) {
-            SessionGlyph(kind: session.isRunning ? SessionGlyphKind(session.status) : .ended)
+            SessionGlyph(kind: session.startTrouble != nil ? .failed : session.isRunning ? SessionGlyphKind(session.status) : .ended)
             Text(session.stateWords)
                 .kitType(.secondary)
                 .fontWeight(needsYou ? .semibold : .medium)
@@ -404,6 +404,7 @@ struct SessionStatePill: View {
 extension SessionItem {
     /// "Working", "Asks a question", "Done", as its card says: what it asks is in the tooltip and its terminal.
     var stateWords: String {
+        if let startTrouble { return startTrouble.title }
         guard isRunning else { return "Ended" }
         return status.state == .waiting(.question) ? "Asks a question" : status.title
     }

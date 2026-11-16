@@ -532,6 +532,28 @@ final class TaskOutlineView: NSOutlineView {
 
     /// The cards' layers, for the UI test.
     var cardsView: CardsView { cards }
+
+    /// Task rows whose card isn't drawn on its row: a row view off its row or faded out, a card cell missing, hidden,
+    /// for another task or outside its row (T-503).
+    func brokenRows() -> [String] {
+        var broken: [String] = []
+        enumerateAvailableRowViews { rowView, row in
+            guard row >= 0, row < numberOfRows, let id = (item(atRow: row) as? OutlineNode)?.task else { return }
+            let rect = rect(ofRow: row)
+            if abs(rowView.frame.minY - rect.minY) > 0.5 || abs(rowView.frame.height - rect.height) > 0.5 {
+                broken.append("T-\(id) row at y \(rowView.frame.minY) h \(rowView.frame.height), not \(rect.minY) h \(rect.height)")
+            }
+            if rowView.isHidden || rowView.alphaValue < Motion.dimmedOpacity - 0.01 { broken.append("T-\(id) row hidden or faded (\(rowView.alphaValue))") }
+            guard let cell = rowView.view(atColumn: 1) as? TaskCell else { return broken.append("T-\(id) no card cell") }
+            if cell.id != id { broken.append("T-\(id) card shows T-\(cell.id ?? 0)") }
+            if cell.isHiddenOrHasHiddenAncestor || cell.alphaValue < 0.99 { broken.append("T-\(id) card hidden (\(cell.alphaValue))") }
+            let want = rowView.convert(frameOfCell(atColumn: 1, row: row), from: self)
+            if abs(cell.frame.minY - want.minY) > 0.5 || abs(cell.frame.minX - want.minX) > 0.5 || abs(cell.frame.height - want.height) > 0.5 {
+                broken.append("T-\(id) card at \(cell.frame), not \(want)")
+            }
+        }
+        return broken
+    }
     /// A row placed while the rows change was logged once.
     static var staleRowLogged = false
     /// The tasks the selection lights, as the cards were last placed: a row made while scrolling fades as its card.
@@ -953,6 +975,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         // Rows hold still until AppKit ends the drag: it closes the drop gap on the rows it had, after the drop elsewhere
         // and after a refused drag's image slides back, with the button already up (T-353).
         guard dragged.isEmpty else { return holdUntilDragEnds() }
+        // Rows still slide from the last change: AppKit would lose a second change over the first and leave rows off their place
+        // (T-503). The rows take what changed meanwhile when they land.
+        guard Date.now >= rowsSlideUntil else { return refreshWhenLanded() }
         // No rows before the outline has its width: they'd be laid out and measured at another.
         guard let outline, !refreshing, width > 0 else { return }
         // Made at another zoom, it's on its way out: its rows hold still in the frame SwiftUI gave them until it goes.
@@ -966,6 +991,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         }
 
         let next = OutlineSnapshot.make(model, root: root)
+        slideStarted = false
         replan()
         // The first tasks come in one reload, their stories open: row by row, AppKit would leave them shut.
         if outline.numberOfRows == 0 || (!snapshot.hasTasks && next.hasTasks) {
@@ -978,7 +1004,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         refreshVisibleCells()
         if remeasure {
             remeasure = false
-            outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows))
+            noteAllHeights()
         } else {
             noteDescriptionHeights()
         }
@@ -1204,6 +1230,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let changed = shown.symmetricDifference(incoming).count
         let still = changed > 24 || landing
         landing = false
+        slideStarted = !still && (changed > 0 || old.children != next.children)
+        if slideStarted {
+            rowsSlideUntil = .now.addingTimeInterval(Motion.rowsSeconds)
+            checkWhenLanded()
+        }
         let effect: NSTableView.AnimationOptions = still ? [] : .effectFade
         let selection = captureSelection()
         // Most rows at once (a search keystroke over hundreds of tasks): one reload costs less than each row in turn.
@@ -1551,10 +1582,20 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         replan()
         guard remeasure, let outline else { return }
         remeasure = false
-        outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows))
         // The cards and trays slide with the rows AppKit animates.
-        outline.placeCards(animated: true)
+        outline.placeCards(animated: noteAllHeights())
         reportHeight()
+    }
+
+    /// Every row's height noted again: sliding with this refresh's moves, or alone when nothing slides, at once while
+    /// rows still slide (T-503). Returns whether it animates.
+    @discardableResult
+    private func noteAllHeights() -> Bool {
+        guard let outline else { return false }
+        let animated = slideStarted || Date.now >= rowsSlideUntil
+        if animated { rowsSlideUntil = max(rowsSlideUntil, .now.addingTimeInterval(Motion.rowsSeconds)) }
+        Motion.appKit(still: !animated) { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outline.numberOfRows)) }
+        return animated
     }
 
     /// Folding a task whose subtask is selected selects the task.
@@ -2081,6 +2122,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private(set) var proposedOnto: Int?
     /// A drop moved rows: the next update puts them in place without animating the move.
     private var landing = false
+    /// Rows slide until then: a refresh before it waits for them to land.
+    private var rowsSlideUntil = Date.distantPast
+    private var landingRefresh: Task<Void, Never>?
+    private var landingCheck: Task<Void, Never>?
+    /// This refresh started the rows sliding: its heights slide with them.
+    private var slideStarted = false
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         let outline = outlineView as? TaskOutlineView
@@ -2282,6 +2329,31 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     static var buttonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
 
     /// A drag whose end never comes (its source gone) holds the rows until the button has been up 3 s.
+    /// Once the rows land, the cards are placed again and each must be on its row: one that isn't is logged (T-503).
+    private func checkWhenLanded() {
+        guard landingCheck == nil else { return }
+        landingCheck = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Motion.rowsSeconds + 0.1))
+            guard let self else { return }
+            self.landingCheck = nil
+            guard Date.now >= self.rowsSlideUntil else { return self.checkWhenLanded() }
+            // Cells placed while their rows slid sit where those rows were then: they take their places again.
+            self.outline?.placeCards()
+            let broken = self.outline?.brokenRows() ?? []
+            if !broken.isEmpty { AppLog.write("outline: rows off their place after a change: \(broken.prefix(3))", to: "outline.log") }
+        }
+    }
+
+    private func refreshWhenLanded() {
+        guard landingRefresh == nil else { return }
+        let wait = rowsSlideUntil.timeIntervalSinceNow + 0.02
+        landingRefresh = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            self?.landingRefresh = nil
+            self?.refresh()
+        }
+    }
+
     private func holdUntilDragEnds() {
         guard dragWatch == nil else { return }
         dragWatch = Task { [weak self] in

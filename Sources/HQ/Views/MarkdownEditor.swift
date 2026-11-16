@@ -449,7 +449,7 @@ enum MarkdownStyle {
     private static var lineHeights: [String: CGFloat] = [:]
 
     /// A line exactly `height` tall, `before` below the one above; wrapped lines start at `indent`.
-    static func line(_ height: CGFloat, before: CGFloat = 0, indent: CGFloat = 0) -> NSParagraphStyle {
+    nonisolated static func line(_ height: CGFloat, before: CGFloat = 0, indent: CGFloat = 0) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = height
         style.maximumLineHeight = height

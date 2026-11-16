@@ -46,6 +46,7 @@ extension AppModel {
             Self.applyTitles(TranscriptTitle.read(path), to: &item)
             Self.applyUsage(ClaudeModel.usage(path), to: &item)
         }
+        startReported(&item)
         if let pid = event.pid { item.pid = pid }
         if let tty = event.tty { item.tty = tty }
         if let inGhostty = event.inGhostty { item.inGhostty = inGhostty }
@@ -1003,15 +1004,18 @@ extension AppModel {
 
     /// A new Ghostty tab running `claude --resume`, in the session's directory and its parent's Ghostty window when that one
     /// runs there; a top-level card joins the end of the grid, a team's session keeps its place in the team.
-    func resume(_ id: SessionItem.ID) {
+    func resume(_ id: SessionItem.ID, behind: Bool = false) {
         guard var item = session(id), !item.isRunning else { return }
         let before = (closedAt: item.closedAt, order: item.order)
         let parent = parentSession(of: id)?.id
         item.closedAt = nil
+        item.startTrouble = nil
+        item.startedBySession = behind
         if parent == nil { item.order = nextGridOrder }
         put(item)
         // No tab: the card goes back where it was.
-        newTab(in: item.cwd, command: item.resumeCommand, beside: windowTTY(forChildOf: parent)) { [weak self] started in
+        newTab(in: item.cwd, command: item.resumeCommand, beside: windowTTY(forChildOf: parent), behind: behind) { [weak self] started, tty in
+            if started { self?.awaitStart(id, tty: tty) }
             guard !started, var back = self?.session(id), !back.isRunning else { return }
             (back.closedAt, back.order) = before
             self?.put(back)
@@ -1023,7 +1027,7 @@ extension AppModel {
     @discardableResult
     func startSession(named name: String, in directory: String, task taskID: Int? = nil, pullRequest: String? = nil, message: String = "",
                       parent: SessionItem.ID? = nil, role: String? = nil, history: SessionItem.ID? = nil, model: String? = nil,
-                      effort: String? = nil, done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
+                      effort: String? = nil, behind: Bool = false, done: @escaping (Bool) -> Void = { _ in }) -> SessionItem.ID {
         let id = UUID().uuidString.lowercased()
         var item = newSession(id, named: name, in: directory)
         // A review session shows on its PR from the start.
@@ -1031,6 +1035,9 @@ extension AppModel {
         item.parent = session(parent)?.id
         item.role = role
         (item.model, item.effort) = (model, effort)
+        item.startRequest = StartRequest(name: name, directory: directory, task: taskID, pullRequest: pullRequest, message: message, parent: parent,
+                                         role: role, history: history, model: model, effort: effort)
+        item.startedBySession = behind
         put(item)
         if let taskID, task(taskID) != nil { link(task: taskID, session: id) }
         var command = "claude --session-id \(id) --name \(Self.shellQuoted(name))"
@@ -1043,8 +1050,8 @@ extension AppModel {
         if !text.isEmpty, let file = writePrompt(text, id: id) {
             command += " \"$(cat \(Self.shellQuoted(file.path)))\""
         }
-        newTab(in: directory, command: command, beside: windowTTY(forChildOf: item.parent)) { [weak self] started in
-            if !started { self?.sessions.removeAll { $0.id == id } }
+        newTab(in: directory, command: command, beside: windowTTY(forChildOf: item.parent), behind: behind) { [weak self] started, tty in
+            if started { self?.awaitStart(id, tty: tty) } else { self?.sessions.removeAll { $0.id == id } }
             done(started)
         }
         return id
@@ -1101,25 +1108,92 @@ extension AppModel {
     }
 
     /// Ghostty waits for the new shell, so the call runs off the main thread.
-    private func newTab(in directory: String, command: String, beside tty: String? = nil, done: @escaping (Bool) -> Void) {
+    private func newTab(in directory: String, command: String, beside tty: String? = nil, behind: Bool, done: @escaping (Bool, String?) -> Void) {
         if Store.isOverridden {
-            ghosttyLog.append("new tab \(tty.map { "in the window of \($0), " } ?? "")in \(directory): \(command)")
-            done(!ghosttyFails)
+            ghosttyLog.append("new tab \(tty.map { "in the window of \($0), " } ?? "")in \(directory): \(command)\(behind ? " (behind)" : "")")
+            done(!ghosttyFails, nil)
             if ghosttyFails { problem = .ghosttyUnreachable }
             return
         }
         Task {
-            let failure = await Task.detached { () -> Ghostty.Failure? in
+            let outcome = await Task.detached { () -> Result<String?, Ghostty.Failure> in
                 do throws(Ghostty.Failure) {
-                    try Ghostty.newTab(in: directory, command: command, beside: tty)
-                    return nil
+                    return .success(try Ghostty.newTab(in: directory, command: command, beside: tty, behind: behind))
                 } catch {
-                    return error
+                    return .failure(error)
                 }
             }.value
-            ghostty { if let failure { throw failure } }
-            done(failure == nil)
+            ghostty { if case .failure(let failure) = outcome { throw failure } }
+            if case .success(let made) = outcome { done(true, made) } else { done(false, nil) }
         }
+    }
+
+    // MARK: A start that doesn't report (T-507)
+
+    /// Seconds a tab HQ opened has for its Claude to report.
+    static var startDeadline: TimeInterval = Store.isOverridden ? 600 : 30
+    /// A test copy's answer to "does Claude run on its terminal?".
+    static var claudeRunsInTest = false
+
+    /// HQ opened its tab: its Claude has `startDeadline` to report, else it didn't start, or runs without reporting.
+    private func awaitStart(_ id: SessionItem.ID, tty: String?) {
+        guard var item = session(id) else { return }
+        let since = Date.now
+        item.awaitingStart = since
+        if let tty, item.tty == nil { item.tty = tty }
+        put(item)
+        AppLog.write("\(id.prefix(8)) \(item.name): its tab opened\(tty.map { " on \($0)" } ?? ""), waiting for Claude", to: "sessions.log")
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.startDeadline))
+            await self?.judgeStart(id, since: since)
+        }
+    }
+
+    private func judgeStart(_ id: SessionItem.ID, since: Date) async {
+        guard let start = session(id), start.awaitingStart == since else { return }
+        let tty = start.tty ?? ""
+        let runs = Store.isOverridden ? Self.claudeRunsInTest : await Task.detached { Self.claudeRuns(on: tty) }.value
+        guard var item = session(id), item.awaitingStart == since else { return }
+        let trouble: StartTrouble = runs ? .notReporting : .didntStart
+        item.awaitingStart = nil
+        item.startTrouble = trouble
+        put(item)
+        AppLog.write("\(id.prefix(8)) \(item.name): \(trouble.because), \(Int(Self.startDeadline)) s after its tab opened", to: "sessions.log")
+        let text = "“\(item.name)” \(trouble.because)." + (trouble == .didntStart ? " Start Again from its card." : "")
+        _ = notify(text, level: item.startedBySession ? .update : .important, source: id, links: ["session:\(id)"])
+    }
+
+    /// A `claude` process runs on the terminal `tty` (/dev/ttys012): off the main thread.
+    nonisolated static func claudeRuns(on tty: String) -> Bool {
+        guard tty.hasPrefix("/dev/") else { return false }
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-t", String(tty.dropFirst(5)), "-o", "comm="]
+        let pipe = Pipe()
+        ps.standardOutput = pipe
+        ps.standardError = FileHandle.nullDevice
+        guard (try? ps.run()) != nil else { return false }
+        let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        ps.waitUntilExit()
+        return out.split(separator: "\n").contains { ($0 as Substring).split(separator: "/").last?.hasPrefix("claude") == true }
+    }
+
+    /// A session that reported: whatever HQ judged of its start no longer holds.
+    func startReported(_ item: inout SessionItem) {
+        guard item.awaitingStart != nil || item.startTrouble != nil else { return }
+        let after = item.awaitingStart.map { String(format: " %.1f s after its tab opened", Date.now.timeIntervalSince($0)) } ?? ", late"
+        AppLog.write("\(item.id.prefix(8)) \(item.name): Claude reported\(after)", to: "sessions.log")
+        item.awaitingStart = nil
+        item.startTrouble = nil
+    }
+
+    /// Start Again on a session that didn't start: a fresh tab as it was asked for, its card replaced; a resume, resumed again.
+    func startAgain(_ id: SessionItem.ID) {
+        guard let item = session(id), item.startTrouble == .didntStart else { return }
+        guard let ask = item.startRequest else { return resume(id, behind: item.startedBySession) }
+        forget(id)
+        startSession(named: ask.name, in: ask.directory, task: ask.task, pullRequest: ask.pullRequest, message: ask.message, parent: ask.parent,
+                     role: ask.role, history: ask.history, model: ask.model, effort: ask.effort, behind: item.startedBySession)
     }
 
     /// Folders for Start a session: the project's own, the task's sessions', the project's sessions', then recent ones.

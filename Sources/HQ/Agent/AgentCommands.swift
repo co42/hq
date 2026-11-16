@@ -261,7 +261,7 @@ enum AgentCommands {
             }
             return model.importArtifact(url, title: title, published: date, task: task).agentJSON
         },
-        AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center: work ready to check, a write-up done. --important for a ping they asked for, or when you can't go on without them.",
+        AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center: work ready to check, a write-up done. --important for a ping they asked for, or when you can't go on without them. While this session's last one at that level is unread, a new one replaces it and says so: say in each everything that still holds.",
                      params: [.init(name: "text", required: true, positional: true, help: "what they should know, in a sentence or two: what is ready and what to check"),
                               .init(name: "important", kind: .boolean, help: "Needs You, with a banner: they asked to be pinged, or you are blocked on them"),
                               .init(name: "link", list: true, help: "what to open, comma-separated: T-12, a URL, a file, an artifact (default: this session's open tasks and what it made since its last notification)"),
@@ -273,6 +273,11 @@ enum AgentCommands {
             let links = try linked(args, model) ?? session.map { model.defaultLinks(forSession: $0) } ?? []
             let level: Notice.Level = try args.bool("important") == true ? .important : .update
             let row = model.notify(text, level: level, source: session, links: links)
+            // One unread row per session and level: the session learns its last one was replaced (T-511).
+            if row.count > 1, let previous = row.replaced?.first {
+                let short = previous.count > 60 ? previous.prefix(60) + "…" : Substring(previous)
+                AgentRouter.warn("replaced your unread notification “\(short)”: one row per session, so say in it everything that still holds")
+            }
             return model.noticeJSON(row, section: model.section(of: row))
         },
         AgentCommand(name: "remind", summary: "Set a reminder in HQ's notification center: it shows in Later, then comes back at its time.",
@@ -308,7 +313,7 @@ enum AgentCommands {
             return ["deleted": row.id.uuidString, "text": row.text]
         },
         AgentCommand(name: "session new", summary: "Start a fresh, named Claude session. Started from a session, it's yours: it sits under you, "
-                        + "opens in your Ghostty window and reports to you. With --task it works on that task and is linked to it.",
+                        + "opens behind in your Ghostty window (Ghostty keeps the front) and reports to you. With --task it works on that task and is linked to it.",
                      params: [.init(name: "name", required: true, positional: true, help: "the session's name, short: \"T-12 Dedup layers\""),
                               .init(name: "task", help: "T-12: the task the new session works on"),
                               .init(name: "role", help: "a role's name (hq ls roles): the text the session starts with, again on resume and after a compact"),
@@ -328,7 +333,7 @@ enum AgentCommands {
                      example: "hq session edit 41ccc6 --parent 8092a3", output: sessionOutput + "; note") { args, model in
             try editSessionCommand(args, model)
         },
-        AgentCommand(name: "session show", summary: "Show a session: its state, name, folder and the tasks it works on.",
+        AgentCommand(name: "session show", summary: "Show a session: its state, name, folder and the tasks it works on. Didn't start: HQ opened its tab but its Claude never reported within 30 s (Not reporting: Claude runs there without HQ's hooks); hq session close removes it.",
                      params: [.init(name: "session", required: true, positional: true, help: "its id, or the start of it (6 characters or more)")],
                      example: "hq session show 5e55a1", output: sessionOutput, readOnly: true) { args, model in
             let ref = try args.required("session").trimmingCharacters(in: .whitespaces)
@@ -447,7 +452,7 @@ enum AgentCommands {
         guard let session = args.string(sessionArg), model.session(session) != nil else { return }
         let mine = ([task.id] + model.taskTree.ancestors(of: task.id)).contains { model.task($0)?.sessions.contains(session) == true }
         if try args.bool("not-mine") == true {
-            if mine { AgentRouter.warn("\(task.key) is yours already: drop --not-mine") }
+            if mine { AgentRouter.warn("done: \(task.key) is yours already, so --not-mine wasn't needed") }
             return
         }
         guard mine else {
@@ -467,7 +472,7 @@ enum AgentCommands {
         }
         guard let session = args.string(sessionArg), model.session(session) != nil else { return row }
         if try args.bool("not-mine") == true {
-            if row.source == session { AgentRouter.warn("“\(row.text)” is from this session already: drop --not-mine") }
+            if row.source == session { AgentRouter.warn("done: “\(row.text)” is from this session already, so --not-mine wasn't needed") }
             return row
         }
         guard row.source == session else {
@@ -704,9 +709,10 @@ enum AgentCommands {
 
 extension SessionItem {
     func agentJSON(_ model: AppModel) -> JSONObject {
-        var json: JSONObject = ["id": id, "name": name, "state": status.title, "since": JSON.date(status.since),
+        var json: JSONObject = ["id": id, "name": name, "state": startTrouble?.title ?? status.title, "since": JSON.date(status.since),
                                 "cwd": cwd, "branch": branch, "tasks": model.tasks(of: id).map(\.key)]
         if let reason { json["reason"] = reason }
+        if let startTrouble { json["reason"] = "It " + startTrouble.because }
         if let closedAt {
             json["closed"] = true
             json["closedAt"] = JSON.date(closedAt)
@@ -1101,7 +1107,8 @@ extension AgentCommands {
         }
         let added = tags(args.string("add-tag"))
         let removed = Set(tags(args.string("remove-tag")))
-        let before = model.task(task.id) ?? task
+        // As read before any change: --parent has moved it already.
+        let before = task
         model.changeTask(task.id, "Edit Task") { task in
             if let body { task.body = body }
             if let project = args.string("project") { task.project = project.isEmpty ? nil : project }

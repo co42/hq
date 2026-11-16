@@ -41,7 +41,7 @@ extension AgentCommands {
             throw AgentError.usage("--effort \(effort): one of \(ClaudeModel.efforts.joined(separator: ", "))")
         }
         let id = model.startSession(named: name, in: directory, task: task?.id, message: message, parent: parent?.id, role: role, history: history?.id,
-                                    model: args.string("model") ?? roleItem?.model, effort: effort)
+                                    model: args.string("model") ?? roleItem?.model, effort: effort, behind: true)
         var json = model.session(id)?.agentJSON(model) ?? ["id": id]
         var started = window != nil ? "a new tab in the Ghostty window of “\(parent?.name ?? "")”" : "a new Ghostty tab in \(directory)"
         if let parent { started += parent.id == caller?.id ? ", under this session: it reports to you" : ", under “\(parent.name)”" }

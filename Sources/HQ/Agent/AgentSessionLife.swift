@@ -41,7 +41,7 @@ extension AgentCommands {
             throw AgentError.invalid("“\(session.name)” (\(short)) never started: it has no conversation to resume. hq session new starts a fresh one")
         }
         let window = model.windowTTY(forChildOf: model.parentSession(of: session.id)?.id)
-        model.resume(session.id)
+        model.resume(session.id, behind: true)
         var json = (model.session(session.id) ?? session).agentJSON(model)
         json["note"] = "Resuming “\(session.name)”: claude --resume in a new tab of " + (window == nil ? "Ghostty's front window" : "its parent's Ghostty window")
             + ", its place in your team kept" + (model.role(named: session.role).map { ", its \($0.name) text sent again" } ?? "")

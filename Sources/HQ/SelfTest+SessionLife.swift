@@ -98,8 +98,8 @@ extension SelfTest {
         let order = model.session(worker)?.order
         log = model.ghosttyLog.count
         let resumed = resume(worker)
-        check("session resume opens claude --resume in a new tab of its parent's Ghostty window, its place in the team kept",
-              model.ghosttyLog.count == log + 1 && model.ghosttyLog.last == "new tab in the window of /dev/ttys081, in \(folder): claude --resume \(worker)"
+        check("session resume opens claude --resume in a new tab of its parent's Ghostty window, behind (T-488), its place in the team kept",
+              model.ghosttyLog.count == log + 1 && model.ghosttyLog.last == "new tab in the window of /dev/ttys081, in \(folder): claude --resume \(worker) (behind)"
               && model.session(worker)?.closedAt == nil && model.session(worker)?.order == order && model.session(worker)?.parent == lead
               && (resumed["note"] as? String)?.hasPrefix("Resuming “Life worker”: claude --resume in a new tab of its parent's Ghostty window") == true,
               "\(model.ghosttyLog.suffix(1)) \(resumed)")

@@ -609,7 +609,7 @@ final class TaskCell: NSTableCellView {
     private(set) var descriptionHost: NSHostingView<AnyView>?
     /// The task's PRs, issues, files, artifacts, Slack messages and web pages, at the line's end.
     let links = LinkTokensView()
-    private var id: Int?
+    private(set) var id: Int?
     private weak var coordinator: OutlineCoordinator?
     private weak var model: AppModel?
     private(set) var stack = Stack()

@@ -113,8 +113,12 @@ enum AgentCLI {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? JSONObject else {
             throw AgentError.invalid("the app sent no answer")
         }
-        for line in object["warnings"] as? [String] ?? [] { note(line) }
         checkBuild(running: object["app"] as? String)
+        // After the result: a note never reads as the command's failure (T-510).
+        defer {
+            fflush(stdout)
+            for line in object["warnings"] as? [String] ?? [] { note("note: " + line) }
+        }
         if object["ok"] as? Bool == true {
             let result = object["result"] ?? [:]
             if quiet, let keys = keys(result) {

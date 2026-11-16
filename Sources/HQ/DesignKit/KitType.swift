@@ -40,6 +40,8 @@ enum KitType {
     case heading1, heading2, heading3
     /// A markdown table's header row: Callout 12 semibold.
     case tableHeader
+    /// Inline code in a markdown table's header row: Callout 12 semibold monospaced.
+    case tableHeaderCode
     /// A top-level task, heading its story: Title 3 15 bold.
     case storyTitle
 
@@ -63,6 +65,7 @@ enum KitType {
         case .pageTitle: (.title1, .semibold, .default)
         case .heading1: (.title2, .semibold, .default)
         case .tableHeader: (.callout, .semibold, .default)
+        case .tableHeaderCode: (.callout, .semibold, .monospaced)
         case .storyTitle: (.title3, .bold, .default)
         }
     }
@@ -109,6 +112,9 @@ enum KitType {
         let small = Self.size(.subheadline)
         switch self {
         case .field: return .systemFont(ofSize: Self.size(.title2))
+        case .callout: return .systemFont(ofSize: Self.size(.callout))
+        case .tableHeader: return .systemFont(ofSize: Self.size(.callout), weight: .semibold)
+        case .tableHeaderCode: return .monospacedSystemFont(ofSize: Self.size(.callout), weight: .semibold)
         case .titleStrong: return .systemFont(ofSize: body, weight: .semibold)
         case .titleBold: return .systemFont(ofSize: body, weight: .bold)
         case .secondary: return .systemFont(ofSize: small)

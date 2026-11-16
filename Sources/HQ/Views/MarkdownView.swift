@@ -5,7 +5,7 @@ import SwiftUI
 /// Markdown drawn natively: headings, paragraphs, lists and task lists, quotes, tables, code
 /// with Copy, and Mermaid diagrams. `[[links]]` open the note in Obsidian.
 struct MarkdownView: View {
-    let blocks: [MarkdownBlock]
+    let blocks: [ViewerBlock]
     /// Ticks a checkbox in the source; without it, checkboxes are read-only.
     var toggle: ((Int) -> Void)?
     /// Text selectable for copying; off where a click selects and a double-click edits.
@@ -13,18 +13,20 @@ struct MarkdownView: View {
     @Environment(AppModel.self) private var model
 
     init(_ text: String, selectable: Bool = true, toggle: ((Int) -> Void)? = nil) {
-        blocks = Markdown.blocks(text)
+        blocks = ViewerBlock.prepare(Markdown.blocks(text), style: .current)
         self.selectable = selectable
         self.toggle = toggle
     }
 
-    init(blocks: [MarkdownBlock], toggle: ((Int) -> Void)? = nil) {
+    /// Blocks prepared before: a note's, off the main thread.
+    init(prepared blocks: [ViewerBlock], toggle: ((Int) -> Void)? = nil) {
         self.blocks = blocks
         self.toggle = toggle
     }
 
     var body: some View {
         selection(MarkdownBlocks(blocks: blocks))
+            .environment(\.markdownSelectable, selectable)
             .environment(\.checkboxToggle, toggle.map(CheckboxToggle.init))
             .environment(\.openURL, OpenURLAction { url in
                 if let name = Markdown.noteName(url) {
@@ -43,8 +45,46 @@ extension MarkdownView {
     }
 }
 
+/// Parsed markdown ready to draw: each table measured (T-460).
+nonisolated enum ViewerBlock: Sendable {
+    /// A heading, paragraph, code block or rule.
+    case block(MarkdownBlock)
+    case list(ordered: Bool, start: Int, items: [ViewerItem])
+    case quote([ViewerBlock])
+    case table(MarkdownTableLayout)
+
+    static func prepare(_ blocks: [MarkdownBlock], style: MarkdownTableLayout.Style) -> [ViewerBlock] {
+        blocks.map { block in
+            switch block {
+            case .list(let ordered, let start, let items):
+                .list(ordered: ordered, start: start, items: items.map {
+                    ViewerItem(checked: $0.checked, taskIndex: $0.taskIndex, blocks: prepare($0.blocks, style: style), spoken: spoken($0.blocks))
+                })
+            case .quote(let blocks): .quote(prepare(blocks, style: style))
+            case .table(let alignments, let rows): .table(MarkdownTableLayout(alignments: alignments, rows: rows, style: style))
+            default: .block(block)
+            }
+        }
+    }
+
+    /// A list item's first line, for VoiceOver.
+    private static func spoken(_ blocks: [MarkdownBlock]) -> String {
+        for block in blocks {
+            if case .paragraph(let text) = block { return String(text.characters) }
+        }
+        return ""
+    }
+}
+
+nonisolated struct ViewerItem: Sendable {
+    let checked: Bool?
+    let taskIndex: Int?
+    let blocks: [ViewerBlock]
+    let spoken: String
+}
+
 private struct MarkdownBlocks: View {
-    let blocks: [MarkdownBlock]
+    let blocks: [ViewerBlock]
     /// Tighter inside a list item, so a nested list stays with its item.
     var spacing = Space.md
 
@@ -59,17 +99,17 @@ private struct MarkdownBlocks: View {
 }
 
 private struct MarkdownBlockView: View {
-    let block: MarkdownBlock
+    let block: ViewerBlock
     @Environment(\.checkboxToggle) private var toggle
 
     var body: some View {
         switch block {
-        case .heading(let level, let text):
+        case .block(.heading(let level, let text)):
             Text(text)
                 .kitType(level == 1 ? .heading1 : level == 2 ? .heading2 : .heading3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level <= 2 ? Space.xs : 0)
-        case .paragraph(let text):
+        case .block(.paragraph(let text)):
             Text(text)
                 .kitType(.body)
                 .fixedSize(horizontal: false, vertical: true)
@@ -77,7 +117,7 @@ private struct MarkdownBlockView: View {
             VStack(alignment: .leading, spacing: Space.xs) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
-                        marker(ordered: ordered, number: start + index, checked: item.checked, task: item.taskIndex, text: Self.spoken(item.blocks))
+                        marker(ordered: ordered, number: start + index, checked: item.checked, task: item.taskIndex, text: item.spoken)
                         // A done item steps back (T-368).
                         MarkdownBlocks(blocks: item.blocks, spacing: Space.xs)
                             .foregroundStyle(item.checked == true ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
@@ -90,16 +130,18 @@ private struct MarkdownBlockView: View {
                 MarkdownBlocks(blocks: blocks).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
-        case .code(let language, let text):
+        case .block(.code(let language, let text)):
             if language == "mermaid" {
                 MermaidDiagram(source: text)
             } else {
                 CodeBlock(text: text, copies: true)
             }
-        case .table(let alignments, let rows):
-            MarkdownTable(alignments: alignments, rows: rows)
-        case .rule:
+        case .table(let layout):
+            MarkdownTable(layout: layout)
+        case .block(.rule):
             Divider()
+        case .block:
+            EmptyView()
         }
     }
 
@@ -124,50 +166,6 @@ private struct MarkdownBlockView: View {
             Text("\(number).").kitType(.body).monospacedDigit().foregroundStyle(.secondary)
         } else {
             Text("•").kitType(.body).foregroundStyle(.secondary)
-        }
-    }
-}
-
-extension MarkdownBlockView {
-    /// A list item's first line, for VoiceOver.
-    static func spoken(_ blocks: [MarkdownBlock]) -> String {
-        for block in blocks {
-            if case .paragraph(let text) = block { return String(text.characters) }
-        }
-        return ""
-    }
-}
-
-/// A table: a semibold header row, hairlines between rows.
-private struct MarkdownTable: View {
-    let alignments: [MarkdownAlignment]
-    let rows: [[AttributedString]]
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: Space.lg, verticalSpacing: Space.sm) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    if index > 0 { Divider() }
-                    GridRow {
-                        ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                            Text(cell)
-                                .kitType(index == 0 ? .tableHeader : .callout)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .gridColumnAlignment(alignment(column))
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, Space.xs)
-        }
-        .scrollIndicators(.automatic)
-    }
-
-    private func alignment(_ column: Int) -> HorizontalAlignment {
-        switch alignments.indices.contains(column) ? alignments[column] : .leading {
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
         }
     }
 }
@@ -252,7 +250,7 @@ struct EditOnDoubleClick: NSViewRepresentable {
         static func covered(_ catcher: NSView, by hit: NSView) -> Bool {
             for view in sequence(first: hit, next: \.superview) {
                 if catcher.isDescendant(of: view) { return false }
-                if view is NSTableView { return true }
+                if view is NSTableView, !(view is MarkdownTableView) { return true }
             }
             return true
         }

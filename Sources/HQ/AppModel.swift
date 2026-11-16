@@ -342,6 +342,11 @@ final class AppModel {
     var descriptionEditorHeight: CGFloat = 0
     /// Where a double-click landed on rendered markdown, from its top-left: the next editor puts the caret there.
     @ObservationIgnored var editorCaret: CGPoint?
+    /// Notes parsed and measured for the viewer, each with the text it was made from (T-460).
+    @ObservationIgnored var preparedNotes: [FileItem.ID: (text: String, blocks: [ViewerBlock])] = [:]
+    @ObservationIgnored var preparingNotes: Set<FileItem.ID> = []
+    /// Counts the notes prepared off the main thread: a view showing one is drawn again when it lands.
+    var notesPrepared = 0
     /// Tasks whose subtasks are hidden or shown by the user's choice, by key; a task not in it shows them.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
         didSet { FoldMode.remember(fold) }
@@ -770,6 +775,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var allDone = false
     @Published private(set) var sessionCanFocus = false
     @Published private(set) var sessionClosable = false
+    @Published private(set) var sessionCanStartAgain = false
+    @Published private(set) var sessionNotReporting = false
     @Published private(set) var hasClosed = false
     @Published private(set) var github = false
     @Published private(set) var reviewFilter = ReviewFilter.notApproved
@@ -827,7 +834,9 @@ final class MenuState: ObservableObject {
         set(\.session, session?.id)
         set(\.sessionRunning, session?.isRunning ?? false)
         set(\.sessionCanFocus, session.map { !$0.isRunning || $0.tty != nil } ?? false)
-        set(\.sessionClosable, session.map { $0.isRunning && $0.tty != nil } ?? false)
+        set(\.sessionClosable, session.map { ($0.isRunning && $0.tty != nil) || $0.startTrouble != nil } ?? false)
+        set(\.sessionCanStartAgain, session?.startTrouble == .didntStart)
+        set(\.sessionNotReporting, session?.startTrouble == .notReporting)
         let tree = model.sessionTree
         let root = session.map { tree.root(of: $0.id) }
         set(\.sessionHasTeam, root.map { !tree.rows(under: $0).isEmpty } ?? false)

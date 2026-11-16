@@ -25,6 +25,8 @@ nonisolated struct Notice: Codable, Hashable, Identifiable, Sendable {
     var anchor: String?
     /// A PR's or an issue's title, as it was when it notified: the row shows it after the reference (T-360).
     var title: String?
+    /// The texts this row had before newer ones of the same source replaced them, newest first (T-511).
+    var replaced: [String]?
 }
 
 /// Where a row shows in the center.
@@ -246,6 +248,9 @@ extension AppModel {
 
     // MARK: Adding
 
+    /// How many replaced texts a row keeps.
+    static let replacedKept = 9
+
     /// A session (`hq notify`) or HQ tells the user something. A session's unread row at that level takes it in.
     /// `at`: when it happened, a GitHub review's or comment's own time; a session's notification happens now.
     @discardableResult
@@ -253,6 +258,7 @@ extension AppModel {
                 count: Int = 1, at happened: Date = .now, anchor: String? = nil, title: String? = nil) -> Notice {
         if kind != .reminder, source != nil, let index = notices.firstIndex(where: { $0.kind == kind && $0.source == source && $0.level == level && unread($0) && $0.dueAt == nil }) {
             var row = notices[index]
+            if row.text != text { row.replaced = Array(([row.text] + (row.replaced ?? [])).prefix(Self.replacedKept)) }
             row.text = text
             row.count += count
             row.links = links + row.links.filter { !links.contains($0) }
