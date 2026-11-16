@@ -2003,6 +2003,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         guard row >= 0, let id = task(atRow: row), model.editingDescription != id,
               let host = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.descriptionHost,
               let hit = window.contentView?.superview?.hitTest(event.locationInWindow), hit.isDescendant(of: host) else { return event }
+        // A diagram takes its own double-click: it expands (T-490).
+        if event.clickCount >= 2, hit is DiagramImageView { return event }
         guard event.clickCount >= 2 else {
             DispatchQueue.main.async { [weak self] in self?.select(id) }
             return event

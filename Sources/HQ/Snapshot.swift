@@ -1,4 +1,5 @@
 import AppKit
+import HQKit
 import IOKit.pwr_mgt
 import SwiftUI
 import WebKit
@@ -28,6 +29,23 @@ enum Snapshot {
     /// The seed's clock, the same for every page of a run.
     private static let seeded = Date.now
 
+    /// A 14-day error table, 84 rows of ten columns, one note long enough to wrap: an expanded table's page (T-490).
+    static let wideTable: String = {
+        let regions = ["us-east-1", "eu-west-1", "ap-south-1"], buckets = ["blobs-01", "blobs-02"]
+        var lines = ["| Region | Bucket | Day | Requests | 5xx | 503 on complete | Retries | Retry share | p95 complete | Notes |",
+                     "|---|---|---|--:|--:|--:|--:|--:|--:|---|"]
+        for day in 1...14 {
+            for (index, (region, bucket)) in regions.flatMap({ region in buckets.map { (region, $0) } }).enumerated() {
+                let requests = 12_000 + (day * 431 + index * 977) % 9_000
+                let errors = 8 + (day * 7 + index * 13) % 40
+                let note = day == 9 && index == 2 ? "Complete timed out behind a slow S3 shard; the budget held and the client saw one 503" : ""
+                lines.append("| \(region) | \(bucket) | Nov \(day) | \(requests.formatted()) | \(errors) | \(errors / 3) | \(errors / 2) | "
+                             + "\(String(format: "%.2f", Double(errors / 2) / Double(requests) * 100))% | \(900 + errors * 9) ms | \(note) |")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }()
+
     static func pages(_ model: AppModel) -> [Page] {
         func copySlackLink() {
             SlackClipboard.testText = SlackService.fixtureLink
@@ -35,6 +53,7 @@ enum Snapshot {
         }
         func reset(_ model: AppModel) {
             model.closeModal()
+            model.showBlockControls = false
             // Each page on the same seed: a page that empties Needs You leaves it full for the next ones.
             SeedData.fill(model, now: seeded)
             if SeedData.large { SeedData.fillLarge(model, now: seeded) }
@@ -287,6 +306,28 @@ enum Snapshot {
             Page(name: "modal-file-edit", capture: .sheet) { model in
                 reset(model)
                 if let file = model.files.first { model.open(.file(file.id)); model.beginFileEdit(file.id) }
+            },
+            // T-490: a wide table in place, cut and fading, Expand in its corner as under the pointer.
+            Page(name: "modal-file-wide", capture: .sheet) { model in
+                reset(model)
+                if let file = model.addFile(title: "Errors by region, last 14 days", body: "One row per region, bucket and day.\n\n" + wideTable) {
+                    model.showBlockControls = true
+                    model.open(.file(file.id))
+                }
+            },
+            // T-490: a table and a diagram expanded over the note.
+            Page(name: "modal-expanded-table", capture: .sheet) { model in
+                reset(model)
+                if let file = model.files.first { model.open(.file(file.id)) }
+                if case .table(let layout)? = ViewerBlock.prepare(Markdown.blocks(wideTable), style: .current).first {
+                    model.expand(ExpandedBlock(heading: "Errors by region, last 14 days", content: .table(layout)))
+                }
+            },
+            Page(name: "modal-expanded-diagram", capture: .sheet) { model in
+                reset(model)
+                if let file = model.files.first { model.open(.file(file.id)) }
+                model.expand(ExpandedBlock(heading: "The retry path", content: .diagram(
+                    "graph LR\n  push[Upload part] -->|503| retry{Budget left?}\n  retry -->|yes| push\n  retry -->|no| fail[Return the error]")))
             },
             Page(name: "modal-artifact", capture: .sheet) { model in reset(model); if let artifact = model.artifacts.first { model.open(.artifact(artifact.id)) } },
             Page(name: "modal-pr", capture: .sheet) { reset($0); $0.open(.github(pr)) },

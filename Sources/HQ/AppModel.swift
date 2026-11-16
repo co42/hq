@@ -30,6 +30,8 @@ enum ModalRoute: Hashable {
     case archivedTask(Int)
     /// The Roles modal (T-415): the roles' list beside the one picked.
     case roles
+    /// A table or a diagram expanded to the whole sheet (T-490), over the note or task it's in.
+    case block(ExpandedBlock)
 }
 
 /// The Start a session form, before it starts.
@@ -400,6 +402,13 @@ final class AppModel {
     }
     /// What Back returns to, newest last.
     var modalStack: [ModalRoute] = [] { didSet { syncMenu(); archiveFollowsModal() } }
+    /// An expanded diagram's zoom (T-490).
+    let diagramZoom = DiagramZoom()
+    /// Snapshots and UI checks: the blocks' Expand shows as under the pointer, which they can't move.
+    var showBlockControls = false
+    /// How far each modal page was scrolled, and the one Back returns to, scrolled there again (T-490).
+    @ObservationIgnored var pageOffsets: [ModalRoute: CGFloat] = [:]
+    @ObservationIgnored var restoreScroll: ModalRoute?
     /// The Archive's window (T-471): its search, the index it shows, read when it opens, and whether HQ holds it.
     var archiveQuery = ""
     /// The story selected in the Archive: kept while an archived task's window is over it.
@@ -579,6 +588,8 @@ final class AppModel {
 
     /// Zoom In and Zoom Out: the next step of View › Zoom, if there is one.
     func zoom(by step: Int) {
+        // An expanded diagram takes View › Zoom while it shows, as Preview's page does (T-490).
+        if diagramShown { return diagramZoom.step(step) }
         let steps = Zoom.steps
         let index = steps.firstIndex(of: zoom) ?? steps.firstIndex(of: 1) ?? 0
         let next = min(max(index + step, 0), steps.count - 1)
@@ -595,6 +606,7 @@ final class AppModel {
     /// From the page or Next: a fresh modal. From inside it: pushed, so Back returns.
     /// `replacing`: in the open modal's place, what Back goes to kept (Next Review, T-456).
     func open(_ route: ModalRoute, push: Bool = false, replacing: Bool = false) {
+        restoreScroll = nil
         // A web page opens in the browser, a Slack link in Slack: HQ shows its own items only.
         if case .web(let url) = route {
             if let address = URL(string: url) { NSWorkspace.shared.open(address) }
@@ -623,6 +635,7 @@ final class AppModel {
     func back() {
         saveModalEdits()
         guard let previous = modalStack.popLast() else { return closeModal() }
+        restoreScroll = previous
         modal = previous
     }
 
@@ -789,6 +802,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var editorFind = false
     /// A markdown editor itself has the keyboard: Format's items and their keys.
     @Published private(set) var editorFormat = false
+    /// An expanded diagram shows: View › Zoom acts on it, Zoom to Fit is on.
+    @Published private(set) var diagram = false
     /// The open item's way out of HQ ("Open on GitHub"), its web link, and what a PR's modal allows.
     @Published private(set) var outside: String?
     @Published private(set) var link: String?
@@ -863,10 +878,11 @@ final class MenuState: ObservableObject {
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })
         set(\.taskStatus, targets.count == 1 ? task?.status : nil)
         set(\.editorFind, model.findEditor() != nil)
-        let editor = model.keyboardEditor() != nil
-        if editor != editorFormat {
+        let editor = model.keyboardEditor() != nil, diagram = model.diagramShown
+        if editor != editorFormat || diagram != self.diagram {
             editorFormat = editor
-            // SwiftUI rebuilds a menu's items only as it opens: Format's keys and theirs follow the editor now.
+            self.diagram = diagram
+            // SwiftUI rebuilds a menu's items only as it opens: Format's and View › Zoom's keys follow the keyboard now.
             DispatchQueue.main.async {
                 for item in NSApp.mainMenu?.items ?? [] { if let menu = item.submenu { menu.delegate?.menuNeedsUpdate?(menu) } }
             }

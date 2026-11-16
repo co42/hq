@@ -92,6 +92,7 @@ extension ModalRoute {
         case .notifications: "notifications"
         case .archive: "archive"
         case .archivedTask(let id): "archived:\(id)"
+        case .block(let block): "block:\(block.id.uuidString)"
         }
     }
 }

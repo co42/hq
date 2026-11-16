@@ -648,7 +648,7 @@ extension AppModel {
             resolveSlack(url)
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask, .block: break
         }
     }
 
@@ -664,7 +664,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask, .block: break
         }
     }
 
@@ -676,7 +676,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: false
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask, .block: false
         }
     }
 

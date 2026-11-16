@@ -50,6 +50,7 @@ struct ModalHost: View {
                 case .notifications: NotificationCenterView()
                 case .archive: ArchiveView()
                 case .archivedTask(let id): ArchivedTaskView(id: id).id(id)
+                case .block(let block): ExpandedBlockView(block: block).id(block.id)
                 case nil: EmptyView()
                 }
             }
@@ -66,6 +67,7 @@ struct ModalHost: View {
             }
         }
         .environment(\.inModal, true)
+        .environment(\.modalRoute, route)
         .onPreferenceChange(OwnsEscape.self) { contentEscapes = $0 }
         .noInitialFocus()
         .handCursors()
@@ -99,6 +101,8 @@ struct ModalHost: View {
 extension EnvironmentValues {
     /// Inside the modal: a row selects there, not on the page.
     @Entry var inModal = false
+    /// The modal's item: its page keeps its scroll for Back (T-490).
+    @Entry var modalRoute: ModalRoute?
 }
 
 /// The modal's content takes Escape itself (a form's Cancel goes back, an inline editor cancels): the header's Close doesn't.
@@ -118,14 +122,16 @@ private struct ModalHeader: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        // An expanded block over a note or a task: Escape goes back to it, as a form over an item does (T-490).
+        let escapesBack: Bool = if case .block = route, !stack.isEmpty { escapes } else { false }
         HStack(spacing: Space.sm) {
             Button("Close", icon: .close) { model.closeModal() }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .clickable()
-                .keyboardShortcut(escapes ? .cancelAction : nil)
-                .help(escapes ? "Close (Escape)" : "Close")
+                .keyboardShortcut(escapes && !escapesBack ? .cancelAction : nil)
+                .help(escapes && !escapesBack ? "Close (Escape)" : "Close")
                 .uiTestAnchor("modal-close")
             if let previous = stack.last {
                 Button { model.back() } label: {
@@ -136,7 +142,8 @@ private struct ModalHeader: View {
                     .frame(maxWidth: 220)
                 }
                 .buttonStyle(.glass)
-                .help("Back to \(model.title(of: previous)) (⌘[)")
+                .keyboardShortcut(escapesBack ? .cancelAction : nil)
+                .help("Back to \(model.title(of: previous)) (\(escapesBack ? "Escape" : "⌘["))")
                 .uiTestAnchor("modal-back")
             }
             Text(title)
@@ -174,6 +181,7 @@ private struct ModalHeader: View {
         case .notifications: "Notifications"
         case .archive: "Archive"
         case .archivedTask(let id): "T-\(id)"
+        case .block(let block): block.title
         case nil: ""
         }
     }
@@ -338,8 +346,48 @@ private struct ModalActions: View {
             .clickable()
             .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
             .uiTestAnchor("unarchive-task")
+        case .block(let block):
+            ExpandedActions(block: block)
         case .archive, .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
             EmptyView()
+        }
+    }
+}
+
+/// An expanded block's actions (T-490): a table's row count and Copy, a diagram's zoom and Copy Source.
+private struct ExpandedActions: View {
+    let block: ExpandedBlock
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch block.content {
+        case .table(let layout):
+            let rows = layout.cells.count - 1
+            Text(rows == 1 ? "1 row" : "\(rows.formatted()) rows").kitType(.secondary).foregroundStyle(.secondary)
+                .uiTestAnchor("expanded-rows")
+            CopyButton(text: { layout.markdown }, title: "Copy", icon: .copy, done: "Copied", help: "Copy the table as markdown", anchor: "copy-table")
+        case .diagram(let source):
+            let zoom = model.diagramZoom
+            Button("Zoom Out", icon: .zoomOut) { zoom.step(-1) }
+                .labelStyle(.iconOnly)
+                .clickable()
+                .help("Zoom Out (⌘−)")
+            Button { zoom.fit() } label: {
+                // As wide at every zoom: the glass doesn't move.
+                ZStack {
+                    Text("400%").hidden()
+                    Text("\(Int((zoom.scale * 100).rounded()))%")
+                }
+                .monospacedDigit()
+            }
+            .clickable()
+            .help("Zoom to Fit (⌘9)")
+            .uiTestAnchor("diagram-zoom")
+            Button("Zoom In", icon: .zoomIn) { zoom.step(1) }
+                .labelStyle(.iconOnly)
+                .clickable()
+                .help("Zoom In (⌘+)")
+            CopyButton(text: { source }, title: "Copy Source", icon: .copy, done: "Copied", help: "Copy the diagram’s Mermaid source", anchor: "copy-source")
         }
     }
 }

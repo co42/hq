@@ -121,14 +121,18 @@ struct HQCommands: Commands {
             Toggle("Show Drafts in Reviews", isOn: Binding(get: { menu.reviewDrafts }, set: { model.reviewDrafts = $0 }))
             Toggle("Pinned Files and Artifacts Only", isOn: Binding(get: { menu.pinnedOnly }, set: { model.pinnedOnly = $0 }))
             Divider()
+            // An expanded diagram takes them while it shows (T-490).
             Button("Zoom In") { model.zoom(by: 1) }
                 .keyboardShortcut("+")
-                .disabled(menu.zoom >= (Zoom.steps.last ?? 1))
+                .disabled(!menu.diagram && menu.zoom >= (Zoom.steps.last ?? 1))
             Button("Zoom Out") { model.zoom(by: -1) }
                 .keyboardShortcut("-")
-                .disabled(menu.zoom <= (Zoom.steps.first ?? 1))
-            Button("Actual Size") { model.zoom = 1 }
-                .disabled(menu.zoom == 1)
+                .disabled(!menu.diagram && menu.zoom <= (Zoom.steps.first ?? 1))
+            Button("Zoom to Fit") { model.diagramZoom.fit() }
+                .keyboardShortcut("9")
+                .disabled(!menu.diagram)
+            Button("Actual Size") { if menu.diagram { model.diagramZoom.set(1) } else { model.zoom = 1 } }
+                .disabled(!menu.diagram && menu.zoom == 1)
             Divider()
             Button("Reload Page") { model.artifactReloads += 1 }
                 .keyboardShortcut("r")

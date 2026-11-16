@@ -98,21 +98,35 @@ private struct MarkdownBlocks: View {
     var spacing = Space.md
     /// The first block, a `# Title`, is the note's title.
     var title = false
+    /// The heading these blocks sit under: an expanded table or diagram is named by it.
+    var section: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
+        var sections: [String?] = []
+        var current = section
+        for block in blocks {
+            sections.append(current)
+            if let heading = Self.heading(block) { current = heading }
+        }
+        return VStack(alignment: .leading, spacing: spacing) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
-                MarkdownBlockView(block: block, title: title && index == 0)
+                MarkdownBlockView(block: block, title: title && index == 0, section: sections[index])
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private static func heading(_ block: ViewerBlock) -> String? {
+        if case .block(.heading(_, let text)) = block { String(text.characters) } else { nil }
     }
 }
 
 private struct MarkdownBlockView: View {
     let block: ViewerBlock
     var title = false
+    var section: String?
     @Environment(\.checkboxToggle) private var toggle
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         switch block {
@@ -136,7 +150,7 @@ private struct MarkdownBlockView: View {
                     HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                         marker(ordered: ordered, number: start + index, checked: item.checked, task: item.taskIndex, text: item.spoken)
                         // A done item steps back (T-368).
-                        MarkdownBlocks(blocks: item.blocks, spacing: Space.xs)
+                        MarkdownBlocks(blocks: item.blocks, spacing: Space.xs, section: section)
                             .foregroundStyle(item.checked == true ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                     }
                 }
@@ -144,17 +158,17 @@ private struct MarkdownBlockView: View {
         case .quote(let blocks):
             HStack(alignment: .top, spacing: Space.md) {
                 Rectangle().fill(Ink.quoteBar).frame(width: Metric.quoteBar)
-                MarkdownBlocks(blocks: blocks).foregroundStyle(.secondary)
+                MarkdownBlocks(blocks: blocks, section: section).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .block(.code(let language, let text)):
             if language == "mermaid" {
-                MermaidDiagram(source: text)
+                MermaidDiagram(source: text) { model.expand(ExpandedBlock(heading: section, content: .diagram(text))) }
             } else {
                 CodeBlock(text: text, copies: true)
             }
         case .table(let layout):
-            MarkdownTable(layout: layout)
+            MarkdownTable(layout: layout) { model.expand(ExpandedBlock(heading: section, content: .table(layout))) }
         case .block(.rule):
             Divider()
         case .block:
@@ -191,19 +205,28 @@ private struct MarkdownBlockView: View {
 /// can't read shows its source and why.
 struct MermaidDiagram: View {
     let source: String
+    /// Opens it to the whole sheet (T-490).
+    var expand: (() -> Void)?
     @Environment(\.colorScheme) private var scheme
+    @Environment(AppModel.self) private var model
     @State private var result: MermaidRenderer.Result?
+    /// Drawn at less than 80% of its size: Expand shows under the pointer.
+    @State private var scaled = false
+    @State private var hovering = false
 
     var body: some View {
         Group {
             switch MermaidRenderer.shared.cached(source, dark: scheme == .dark) ?? result {
             case .image(let image):
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                DiagramImage(image: image, expand: expand)
+                    .aspectRatio(image.size, contentMode: .fit)
                     .frame(maxWidth: image.size.width)
+                    .onGeometryChange(for: Bool.self) { $0.size.width < image.size.width * 0.8 } action: { scaled = $0 }
+                    .overlay(alignment: .topTrailing) {
+                        if let expand, scaled, hovering || model.showBlockControls { ExpandCorner(expand: expand) }
+                    }
                     .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Diagram")
+                    .onHover { hovering = $0 }
             case .failed(let message):
                 VStack(alignment: .leading, spacing: Space.xs) {
                     CodeBlock(text: source, copies: true)
@@ -218,11 +241,67 @@ struct MermaidDiagram: View {
             }
         }
         .contextMenu {
+            if let expand { Button("Expand", action: expand) }
             Button("Copy Diagram Source") { Pasteboard.copy(source) }
         }
         .task(id: "\(scheme)\n\(source)") {
             result = await MermaidRenderer.shared.render(source, dark: scheme == .dark)
         }
+    }
+}
+
+/// Expand in a block's top-right corner, under the pointer (T-490): where a code block has Copy.
+struct ExpandCorner: View {
+    let expand: () -> Void
+
+    var body: some View {
+        Button("Expand", icon: .expand, action: expand)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .controlSize(.small)
+            .clickable()
+            .help("Expand to the whole sheet")
+            .padding(Space.xs)
+            .uiTestAnchor("expand-block")
+    }
+}
+
+/// A diagram drawn by AppKit, sharp at any size: a double-click expands it (T-490), wherever a double-click would edit the
+/// text; other clicks go to what's under it, a task's card in the outline.
+private struct DiagramImage: NSViewRepresentable {
+    let image: NSImage
+    let expand: (() -> Void)?
+
+    func makeNSView(context: Context) -> DiagramImageView { DiagramImageView() }
+
+    func updateNSView(_ view: DiagramImageView, context: Context) {
+        if view.image !== image {
+            view.image = image
+            view.needsDisplay = true
+        }
+        view.expand = expand
+    }
+}
+
+final class DiagramImageView: NSView {
+    var image: NSImage?
+    var expand: (() -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel("Diagram")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) { image?.draw(in: bounds) }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2, let expand { return expand() }
+        super.mouseDown(with: event)
     }
 }
 
@@ -268,6 +347,8 @@ struct EditOnDoubleClick: NSViewRepresentable {
             for view in sequence(first: hit, next: \.superview) {
                 if catcher.isDescendant(of: view) { return false }
                 if view is NSTableView, !(view is MarkdownTableView) { return true }
+                // A diagram takes its own double-click: it expands (T-490).
+                if view is DiagramImageView { return true }
             }
             return true
         }

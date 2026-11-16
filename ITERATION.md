@@ -20,7 +20,8 @@ How a version of HQ goes from the user's list to their `/Applications`. Read it 
 
 - Doing when you start it, before reading its code; each subtask too.
 - Its Done when lists every place the change applies (all the rows, all the faces, all the buttons), not only the one the user named.
-- Finished means: its check fails on the code before and passes after; the docs say what the app now does (same commit); `tools/check.sh` passes. The task stays doing: the user moves it to done once they've tried it.
+- While developing, run only the checks the change touches, as fast as they go: the build or `tools/check.sh --fast`, the UI group you're changing (`UITEST_ONLY=group`), the self-test or HQKit test you touch (2026-11-16).
+- Finished means: its check fails on the code before and passes after; the docs say what the app now does (same commit); the full `tools/check.sh` passes, run once when the whole feature is done. A failure there is fixed and rerun with its group alone, then the full suite once more. The task stays doing: the user moves it to done once they've tried it.
 
 ## Release (a batch the user can try)
 

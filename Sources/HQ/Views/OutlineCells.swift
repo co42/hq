@@ -1798,6 +1798,7 @@ extension AppModel {
         case .importArtifact: "Import an Artifact"
         case .archive: "Archive"
         case .archivedTask(let id): archiveShown?.index.entry(id)?.title ?? "T-\(id)"
+        case .block(let block): block.title
         }
     }
 

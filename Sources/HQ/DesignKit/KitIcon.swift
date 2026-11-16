@@ -61,6 +61,10 @@ enum KitIcon: String, CaseIterable {
     case allReviewed = "checkmark.seal.fill"
     // Actions
     case copy = "document.on.document"
+    /// A table or a diagram to the whole sheet, and an expanded diagram's zoom (T-490).
+    case expand = "arrow.up.left.and.arrow.down.right"
+    case zoomIn = "plus.magnifyingglass"
+    case zoomOut = "minus.magnifyingglass"
     case openExternal = "arrow.up.right.square"
     case close = "xmark"
     case back = "chevron.backward"

@@ -371,6 +371,10 @@ nonisolated enum Metric {
     /// top: a 600 pt column, about 90 characters a line.
     static var noteCard: CGFloat { 680 * Zoom.factor }
     static var noteInset: CGFloat { 40 * Zoom.factor }
+    /// An expanded table's column at its widest before its cells wrap (T-490).
+    static var expandedColumn: CGFloat { 320 * Zoom.factor }
+    /// A table cut by its column fades this far into the card at the cut (T-490).
+    static var cutFade: CGFloat { 24 * Zoom.factor }
     /// Labels in the task modal's property grid.
     static var propertyLabel: CGFloat { 72 * Zoom.factor }
     static var boxRow: CGFloat { 32 * Zoom.factor }

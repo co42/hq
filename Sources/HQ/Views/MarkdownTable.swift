@@ -108,19 +108,53 @@ nonisolated final class MarkdownTableLayout: @unchecked Sendable {
 /// Wider than the text, it scrolls sideways.
 struct MarkdownTable: View {
     let layout: MarkdownTableLayout
+    /// Opens it to the whole sheet (T-490).
+    var expand: (() -> Void)?
+    @Environment(AppModel.self) private var model
+    @State private var edges = CutEdges()
+    @State private var hovering = false
 
     var body: some View {
         ScrollView(.horizontal) {
-            MarkdownTableHost(layout: layout)
+            MarkdownTableHost(layout: layout, expand: expand)
                 .frame(width: layout.width, height: layout.height)
                 .padding(.vertical, Space.xs)
         }
         .scrollIndicators(.automatic)
+        // Cut sideways, its cut edges fade into the card: more this way (T-490).
+        .onScrollGeometryChange(for: CutEdges.self) { geometry in
+            CutEdges(leading: geometry.contentOffset.x > 0.5,
+                     trailing: geometry.contentOffset.x + geometry.containerSize.width < geometry.contentSize.width - 0.5)
+        } action: { _, cut in edges = cut }
+        .overlay(alignment: .leading) { if edges.leading { fade(from: .trailing, to: .leading).uiTestAnchor("table-fade-leading") } }
+        .overlay(alignment: .trailing) { if edges.trailing { fade(from: .leading, to: .trailing).uiTestAnchor("table-fade-trailing") } }
+        .overlay(alignment: .topTrailing) {
+            if let expand, edges.leading || edges.trailing || layout.cells.count > Self.longRows + 1, hovering || model.showBlockControls {
+                ExpandCorner(expand: expand)
+            }
+        }
+        .onHover { hovering = $0 }
     }
+
+    /// Longer than this, a table offers Expand even when it fits sideways.
+    static let longRows = 25
+
+    private func fade(from start: UnitPoint, to end: UnitPoint) -> some View {
+        LinearGradient(colors: [Ink.card.opacity(0), Ink.card], startPoint: start, endPoint: end)
+            .frame(width: Metric.cutFade)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Which sides of a table are cut by its column.
+private struct CutEdges: Equatable {
+    var leading = false
+    var trailing = false
 }
 
 private struct MarkdownTableHost: NSViewRepresentable {
     let layout: MarkdownTableLayout
+    let expand: (() -> Void)?
     @Environment(\.openURL) private var openURL
     @Environment(\.markdownSelectable) private var selectable
 
@@ -128,6 +162,7 @@ private struct MarkdownTableHost: NSViewRepresentable {
 
     func updateNSView(_ view: MarkdownTableView, context: Context) {
         view.open = { openURL($0) }
+        view.expand = expand
         view.show(layout, selectable: selectable)
     }
 
@@ -141,6 +176,7 @@ final class MarkdownTableView: NSTableView, NSTableViewDataSource, NSTableViewDe
     private(set) var layout: MarkdownTableLayout?
     private var selectable = true
     var open: (URL) -> Void = { _ in }
+    var expand: (() -> Void)?
 
     init() {
         super.init(frame: .zero)
@@ -169,6 +205,30 @@ final class MarkdownTableView: NSTableView, NSTableViewDataSource, NSTableViewDe
         let hit = super.hitTest(point)
         return selectable || hit is MarkdownCell ? hit : nil
     }
+
+    /// Expand and Copy Table (T-490).
+    override func menu(for event: NSEvent) -> NSMenu? { blockMenu(text: nil) }
+
+    /// The table's menu; a cell's selected words add Copy first.
+    func blockMenu(text: NSTextView?) -> NSMenu? {
+        guard let layout else { return nil }
+        let menu = NSMenu()
+        if let text, text.selectedRange().length > 0 {
+            menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "").target = text
+            menu.addItem(.separator())
+        }
+        func add(_ title: String, _ run: @escaping () -> Void) {
+            let item = NSMenuItem(title: title, action: #selector(runChoice(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = DropChoice(run)
+            menu.addItem(item)
+        }
+        if let expand { add("Expand", expand) }
+        add("Copy Table") { Pasteboard.copy(layout.markdown) }
+        return menu
+    }
+
+    @objc private func runChoice(_ item: NSMenuItem) { (item.representedObject as? DropChoice)?.run() }
 
     func show(_ layout: MarkdownTableLayout, selectable: Bool) {
         guard layout !== self.layout || selectable != self.selectable else { return }
@@ -254,6 +314,13 @@ final class MarkdownCell: NSTextView, NSTextViewDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Out of the key view loop: a sheet's first focus would land in a cell and scroll its table sideways to it. A click
+    /// still selects its text.
+    override var canBecomeKeyView: Bool { false }
+
+    /// A cell never scrolls what's around it: a right-aligned cell's caret, off to the side, slid the table sideways.
+    override func scrollToVisible(_ rect: NSRect) -> Bool { false }
+
     func show(_ text: NSAttributedString, selectable: Bool, link: NSColor, opens: @escaping (URL) -> Void) {
         self.opens = opens
         isSelectable = selectable
@@ -272,6 +339,12 @@ final class MarkdownCell: NSTextView, NSTextViewDelegate {
     override func mouseDown(with event: NSEvent) {
         if !isSelectable, let url = link(at: convert(event.locationInWindow, from: nil)) { return opens(url) }
         super.mouseDown(with: event)
+    }
+
+    /// In a note's table, its table's menu: Expand and Copy Table, Copy first over selected words.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let table = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? MarkdownTableView }.first
+        return table?.blockMenu(text: self) ?? super.menu(for: event)
     }
 
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {

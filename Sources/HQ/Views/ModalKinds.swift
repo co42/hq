@@ -2,10 +2,14 @@ import AppKit
 import HQKit
 import SwiftUI
 
-/// The modal's text column: a readable width, centered, scrolling.
+/// The modal's text column: a readable width, centered, scrolling. Back to it from an expanded block, it's scrolled where
+/// it was (T-490).
 struct ModalPage<Content: View>: View {
     var width = Metric.pageWidth
     @ViewBuilder let content: Content
+    @Environment(AppModel.self) private var model
+    @Environment(\.modalRoute) private var route
+    @State private var position = ScrollPosition(edge: .top)
 
     var body: some View {
         ScrollView {
@@ -15,7 +19,25 @@ struct ModalPage<Content: View>: View {
                 .padding(.vertical, Space.xl)
                 .frame(maxWidth: .infinity)
         }
+        .scrollPosition($position)
+        .onScrollGeometryChange(for: ScrollPlace.self) { ScrollPlace(offset: $0.contentOffset.y, reach: $0.contentSize.height - $0.containerSize.height) } action: { _, place in
+            guard let route else { return }
+            // Back to it: its first layout scrolls where it was, before anything new is kept.
+            if model.restoreScroll == route {
+                guard place.reach > 0 else { return }
+                model.restoreScroll = nil
+                if let target = model.pageOffsets[route] { position.scrollTo(y: min(target, place.reach)) }
+                return
+            }
+            model.pageOffsets[route] = place.offset
+        }
     }
+}
+
+/// How far a page is scrolled, and how far it can be.
+private struct ScrollPlace: Equatable {
+    let offset: CGFloat
+    let reach: CGFloat
 }
 
 // MARK: Task

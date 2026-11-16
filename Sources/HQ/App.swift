@@ -98,6 +98,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let key = event.charactersIgnoringModifiers?.lowercased()
             // ⌘B, ⌘I and ⌘K mark a markdown editor's selection before the menus and the views see them (T-513).
             if let editor = self?.model.keyboardEditor(), editor.format(key) { return nil }
+            // An expanded diagram's zoom, whatever state the menus were built in (T-490).
+            if self?.model.diagramShown == true, let zoom = self?.model.diagramZoom {
+                switch key {
+                case "+", "=": zoom.step(1); return nil
+                case "-": zoom.step(-1); return nil
+                case "9": zoom.fit(); return nil
+                default: break
+                }
+            }
             switch key {
             case "p": self?.toggleQuickOpen()
             case "=": self?.model.zoom(by: 1)

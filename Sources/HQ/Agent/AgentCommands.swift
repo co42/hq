@@ -829,7 +829,7 @@ extension AppModel {
         case .session(let id): ["kind": "session", "id": id, "title": title(of: route)]
         case .web(let url): ["kind": "web", "title": title(of: route), "url": url]
         case .slack(let url): ["kind": "slack", "title": title(of: route), "url": url]
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: ["kind": "other", "title": title(of: route)]
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask, .block: ["kind": "other", "title": title(of: route)]
         }
     }
 

@@ -74,7 +74,7 @@ enum UITest {
             let groups: [(String, @MainActor (AppModel, Driver) async -> Void)] = [
                 ("idle", idle), ("grid", grid), ("pageSelection", pageSelection), ("outlineKeys", outlineKeys), ("outlineDrops", outlineDrops),
                 ("outlineLooks", outlineLooks), ("modal", modal), ("performance", performance), ("lateChecks", lateChecks),
-                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("storyFlow", storyFlow),
+                ("foldedParentOpens", foldedParentOpens), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("markdownWide", markdownWide), ("storyFlow", storyFlow),
                 ("slackLinks", slackLinks),
                 ("pageFixes", pageFixes),
                 ("rolesAndForms", rolesAndForms),
