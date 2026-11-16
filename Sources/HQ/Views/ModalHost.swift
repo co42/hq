@@ -197,6 +197,7 @@ private struct ModalActions: View {
                 // The rare ones in More, with their keys; the main action last and prominent, as a session's and a PR's (2026-11-11).
                 Menu {
                     Button(task.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
+                    if task.parent == nil { Button("Archive") { model.archive([id]) } }
                     Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
                     Divider()
                     Button("Delete") { model.deleteTasks([id]) }

@@ -55,6 +55,7 @@ enum SelfTest {
             await sessionChecks(model)
             await sessionFixChecks(model)
             await vaultChecks(model)
+            await archiveChecks(model)
             await cliChecks(model)
             await cliFixChecks(model)
             await roleChecks(model)
@@ -415,7 +416,11 @@ enum SelfTest {
     /// A command through the socket's router, as `hq` sends it.
     @discardableResult
     static func agent(_ command: String, _ args: [String: String]) -> JSONObject {
-        let reply = AgentRouter.handle(JSON.data(["command": command, "args": args]))
+        // As the socket does: what the call reads of the Archive first, then the call (T-471).
+        let request = JSON.data(["command": command, "args": args])
+        let done = AgentArchive.prepare(request)
+        defer { done?() }
+        let reply = AgentRouter.handle(request)
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? JSONObject
         return object?["result"] as? JSONObject ?? object ?? [:]
     }
@@ -676,7 +681,8 @@ enum SelfTest {
             (1, "---\ntitle: Backlog idea\nstatus: todo\naliases: [idea]\nlist: backlog\norder: 1\n---\nKeep this **body**.\n"),
             (2, "---\ntitle: Next up\nstatus: todo\ntags: [registry]\nlist: backlog\norder: 2\n---\n"),
             (3, "---\ntitle: In progress\nstatus: doing\nsessions: [abc]\nlist: overview\norder: 5\n---\nBody.\n\n**2026-11-03 16:12 · Claude**: a note.\n"),
-            (4, "---\ntitle: Finished\nstatus: done\nlist: backlog\norder: 4\ndone: 2026-11-01T10:00\n---\n"),
+            // Done today: the Archive takes a done story on its own only past its delay.
+            (4, "---\ntitle: Finished\nstatus: done\nlist: backlog\norder: 4\ndone: \(NoteDate.minute(.now))\n---\n"),
         ]
         for (id, text) in old { try? text.write(to: tasks.appending(path: "T-\(id).md"), atomically: true, encoding: .utf8) }
         model.tasks = []

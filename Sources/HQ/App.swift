@@ -60,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         SessionFace.click = { [weak model] id, view in if let menu = model?.faceMenu(id) { FaceMenu.showUnder(view, menu, id) } }
         // The socket lives with the app, not the window: hooks reach HQ even while its window is closed.
         AgentRouter.model = model
-        AgentSocket.listen { AgentRouter.handle($0) }
+        AgentSocket.listen(prepare: AgentArchive.prepare) { AgentRouter.handle($0) }
         // What sessions did while HQ was off; again a moment later for a hook that just missed the socket.
         model.replayPendingHooks()
         Task { [weak model] in

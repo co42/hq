@@ -23,6 +23,7 @@ extension AppModel {
         setup.vaultPath = vault.root.deletingLastPathComponent().path
         vaultRead = false
         vaultDownloading = 0
+        ArchiveStore.shared.use(file: Store.directory.appending(path: "archive.json"), vault: vault)
         vaultWatcher = VaultWatcher(vault.root) { [weak self] in self?.rescanVault() }
         rescanVault()
     }
@@ -36,7 +37,7 @@ extension AppModel {
         }
     }
 
-    /// Each scan first moves the board's notes to the cockpit's lists, after a backup (PLAN.md §5).
+    /// Each scan first moves the two lists' notes to one list, once, after a backup (PLAN.md §5).
     func rescanVault() {
         guard let vault else { return }
         guard !vaultScanning else {
@@ -93,6 +94,8 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
+            // Done stories due for the Archive go on their own once the notes are all in (T-471).
+            archiveDue()
             // A session whose tasks are still in iCloud isn't empty.
             if !vaultLoading { forgetEmptySessions() }
             // A note read too early (mid-write) keeps its last read: read it again soon. So does one still coming from iCloud.
@@ -276,7 +279,8 @@ extension AppModel {
     /// task's links never pass to a new one.
     var nextTaskID: Int {
         let named = tasks.flatMap { [$0.id] + $0.related + $0.blockedBy + $0.after } + files.flatMap(\.tasks) + artifacts.flatMap(\.tasks)
-        return (named.max() ?? 0) + 1
+        // An archived key is never given again (T-471).
+        return max(named.max() ?? 0, archivedHighestKey) + 1
     }
 
     /// A new task note, placed by the tree. Undo moves the note to the Trash.

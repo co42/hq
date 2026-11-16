@@ -225,6 +225,10 @@ final class AppModel {
         didSet { remember(showDone, as: "tasks.showDone"); syncMenu() }
     }
     var taskShow: TaskShow { TaskShow(backlog: showBacklog, done: showDone) }
+    /// Settings › General's delay before a done story goes to the Archive, in days (T-471); a shorter one applies at once.
+    var archiveDelay = Prefs.defaults.object(forKey: "archive.delayDays") as? Int ?? TaskArchive.defaultDelay {
+        didSet { remember(archiveDelay, as: "archive.delayDays"); archiveDue() }
+    }
     /// Each list's own search, in its header.
     var taskSearch = ""
     /// Files and Artifacts' own search, by title.
@@ -472,6 +476,8 @@ final class AppModel {
     /// Notes' and plans' text read in the background, by path, with the date it was read for.
     var diskTexts: [String: DiskText] = [:]
     @ObservationIgnored var tasksVersion = 0
+    /// When the clock last asked for the done stories due for the Archive.
+    @ObservationIgnored var archiveCheckedAt = Date.now
     /// The last search's tasks and their parents, by tasks' version and words.
     @ObservationIgnored var foundCache: (key: String, found: Set<Int>)?
     @ObservationIgnored var treeCache: (version: Int, tree: TaskTree)?
@@ -529,6 +535,11 @@ final class AppModel {
             MainActor.assumeIsolated {
                 self?.settleActivity()
                 self?.now = date
+                // Every hour, the done stories due for the Archive (T-471), with nothing else to start a vault read.
+                if let self, date.timeIntervalSince(self.archiveCheckedAt) >= 3600 {
+                    self.archiveCheckedAt = date
+                    self.archiveDue()
+                }
             }
         }
         reviveSessions()
@@ -714,6 +725,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var task: Int?
     @Published private(set) var taskIsDone = false
     @Published private(set) var taskInBacklog = false
+    /// A top-level task is among the ones the Task menu acts on: Archive applies.
+    @Published private(set) var taskIsTop = false
     @Published private(set) var session: String?
     @Published private(set) var sessionRunning = false
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
@@ -823,6 +836,7 @@ final class MenuState: ObservableObject {
         set(\.taskDescriptionShown, task.map { model.descriptionShownInOutline($0.id) } ?? false)
         set(\.taskBlocked, task?.blocked ?? false)
         let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []
+        set(\.taskIsTop, targets.contains { model.taskTree.parent(of: $0) == nil && model.task($0) != nil })
         set(\.tasks, targets)
         set(\.tasksToBacklog, targets.contains { model.task($0)?.status != .backlog })
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })

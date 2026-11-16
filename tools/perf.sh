@@ -3,6 +3,7 @@
 # originals stay untouched) or on the seed. It runs beside your own HQ.
 # Usage: tools/perf.sh [seconds measured, 30] [seconds to settle first, 20]
 #          PERF_SEED=1          the seed data
+#          PERF_ARCHIVE=10000   with the seed, an Archive of that many tasks (T-471): --check runs with 10,000
 #          PERF_BUSY=10         a session's tool calls come in meanwhile, 10 hook events a second
 #          PERF_STATES=1        each tool call a question: the session goes from working to waiting and back
 #          PERF_SAMPLE=<file>   a call tree of the measured seconds, from sample(1)
@@ -49,6 +50,14 @@ measure() {
   if [[ ${PERF_SEED:-0} == 1 ]]; then
     mkdir -p $vault/hq/tasks $vault/hq/files
     env+=(--env APP_SEED=1)
+    if [[ -n ${PERF_ARCHIVE:-} ]]; then
+      # An Archive of PERF_ARCHIVE tasks, stories of five (T-471): launch reads none of them.
+      mkdir -p $vault/hq/tasks/archive
+      perl -e 'for my $i (1..$ARGV[0]) { my $n = 100000 + $i; my $story = 100000 + $i - ($i % 5 || 5) + 1;
+        my $up = $n == $story ? "archived: 2026-11-01T10:00" : "parent: T-$story";
+        open my $f, ">", "$ARGV[1]/T-$n.md" or die;
+        print $f "---\ntitle: Archived task $i\nstatus: done\n$up\norder: $i\ndone: 2026-10-20T10:00\n---\nA description.\n"; close $f }' $PERF_ARCHIVE $vault/hq/tasks/archive
+    fi
   else
     sqlite3 "$HOME/Library/Application Support/HQ/HQ.store" ".backup $store"
     cp -R "$notes/hq" $vault/
@@ -112,11 +121,11 @@ if [[ ${1:-} == --check ]]; then
     if (( $2 > $3 )); then failed=1; printf 'FAIL %s: %.1f %s, over %s\n' $1 $2 $4 $3
     else printf 'PASS %s: %.1f %s (budget %s)\n' $1 $2 $4 $3; fi
   }
-  export PERF_SEED=1
+  export PERF_SEED=1 PERF_ARCHIVE=10000
   unset PERF_BUSY PERF_STATES PERF_SAMPLE
   measure 15 10
   rest_cpu=$cpu rest_memory=$memory rest_peak=$peak rest_gpu=$gpu
-  verdict "launch to the window with its tasks" $launch $budget_launch s
+  verdict "launch to the window with its tasks, 10,000 archived" $launch $budget_launch s
   verdict "CPU at rest" $rest_cpu $budget_rest_cpu %
   verdict "memory at rest" $rest_memory $budget_memory MB
   verdict "memory peak since launch" $rest_peak $budget_peak MB

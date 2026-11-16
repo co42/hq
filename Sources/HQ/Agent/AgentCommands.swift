@@ -25,6 +25,7 @@ enum AgentCommands {
                               .init(name: "tree", kind: .boolean, help: "sessions: the top-level ones, each with the sessions it started under it, indented; with --all, closed ones in their teams"),
                               .init(name: "backlog", kind: .boolean, help: "tasks: backlog ones too, as the page's Backlog toggle shows them"),
                               .init(name: "search", help: "tasks: only those whose title, key, project or #tags have every word, whatever their status"),
+                              .init(name: "archived", kind: .boolean, help: "tasks: the Archive's stories, the newest archived first; with --search, those with every word in them or in a task under them"),
                               .init(name: "parent", help: "tasks: T-12's subtasks, the whole tree under it"),
                               .init(name: "project", help: "tasks: only this project"),
                               .init(name: "tag", help: "tasks: only with this tag"),
@@ -69,6 +70,13 @@ enum AgentCommands {
                               .init(name: "body", help: "the description in markdown; - reads stdin"), notMine],
                      example: "hq task add \"Dedup layers on push\" --project Registry --link https://github.com/acme/registry/pull/418 -q",
                      output: taskOutput) { args, model in try addCommand(args, model) },
+        AgentCommand(name: "task archive", summary: "Archive a top-level task with every task under it, as Archive (⌃⌘A) does in HQ: out of the list and out of what HQ reads; "
+                        + "hq task unarchive brings it back. Only when the user asks: done stories go on their own.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12, a top-level task"), notMine],
+                     example: "hq task archive T-12", output: "{id, title, status, project, tags, archived, note}") { args, model in try archiveCommand(args, model) },
+        AgentCommand(name: "task unarchive", summary: "Bring an archived story back, with its tasks, at the end of the list, as Unarchive does in HQ.",
+                     params: [.init(name: "task", required: true, positional: true, help: "T-12, an archived story"), notMine],
+                     example: "hq task unarchive T-12", output: "{id, title, status, project, tags, note}") { args, model in try unarchiveCommand(args, model) },
         AgentCommand(name: "task move", summary: "Set a task's status: backlog, todo, doing or done, at any level; nothing moves in the list. "
                         + "When the user must check something, keep it doing and tell them with hq notify.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"),
@@ -428,9 +436,7 @@ enum AgentCommands {
 
     private static func findTask(_ args: Args, _ model: AppModel) throws -> TaskItem {
         let ref = try args.required("task")
-        guard let task = model.task(TaskItem.key(ref)) else {
-            throw AgentError.notFound("no task \(ref). Run `hq ls tasks`")
-        }
+        guard let task = model.task(TaskItem.key(ref)) else { throw missing(ref) }
         return task
     }
 
@@ -445,7 +451,7 @@ enum AgentCommands {
     }
 
     /// The check every command that changes a task goes through, a parent for a new subtask included; a needless --not-mine is told.
-    private static func own(_ task: TaskItem, _ args: Args, _ model: AppModel) throws {
+    static func own(_ task: TaskItem, _ args: Args, _ model: AppModel) throws {
         guard let session = args.string(sessionArg), model.session(session) != nil else { return }
         let mine = ([task.id] + model.taskTree.ancestors(of: task.id)).contains { model.task($0)?.sessions.contains(session) == true }
         if try args.bool("not-mine") == true {
@@ -916,9 +922,9 @@ extension AgentCommands {
     static func listCommand(_ args: Args, _ model: AppModel) throws -> Any {
         let kind = args.string("kind") ?? "sessions"
         // Each filter applies to some kinds only: given to another, it's a mistake, not a no-op.
-        let takes: [String: Set<String>] = ["sessions": ["all", "here", "tree"], "tasks": ["backlog", "search", "parent", "project", "tag", "all"],
+        let takes: [String: Set<String>] = ["sessions": ["all", "here", "tree"], "tasks": ["backlog", "search", "archived", "parent", "project", "tag", "all"],
                                             "prs": ["all"], "notifications": ["all"], "reminders": ["all"]]
-        for flag in ["here", "tree", "backlog", "search", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
+        for flag in ["here", "tree", "backlog", "search", "archived", "parent", "project", "tag", "all"] where args.values[flag] != nil && takes[kind]?.contains(flag) != true {
             let kinds = takes.filter { $0.value.contains(flag) }.keys.sorted().joined(separator: ", ")
             guard ["sessions", "tasks", "prs", "files", "artifacts", "projects", "notifications", "reminders", "roles"].contains(kind) else { break }
             throw AgentError.usage("--\(flag) is for \(kinds), not \(kind)")
@@ -946,7 +952,13 @@ extension AgentCommands {
                 return json
             }
         case "tasks":
-            // As the page shows them at rest: todo and doing; --backlog adds the backlog, --all every status (T-471).
+            // As the page shows them at rest: todo and doing; --backlog adds the backlog, --all every status; --archived the
+            // Archive (T-471).
+            if try args.bool("archived") == true {
+                items = archivedList(args, model)
+                narrowed = args.string("search") != nil
+                break
+            }
             let tree = model.taskTree
             let backlog = try args.bool("backlog") ?? false
             let words = (args.string("search") ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
@@ -1013,7 +1025,11 @@ extension AgentCommands {
         let (body, brief, deep) = (try args.bool("body") == true, try args.bool("brief") == true, try args.bool("deep") == true)
         let view: String? = body ? "body" : brief ? "brief" : deep ? "deep" : nil
         let shown = try refs.map { ref -> JSONObject in
-            guard let task = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
+            guard let task = model.task(TaskItem.key(ref)) else {
+                // An archived task shows from the Archive, read only (T-471).
+                if let id = TaskItem.key(ref), let archived = archivedShow(id, view: view) { return archived }
+                throw missing(ref)
+            }
             return show(task, view: view, args, model)
         }
         if shown.count == 1 { return shown[0] }
@@ -1035,7 +1051,7 @@ extension AgentCommands {
         let placed: (TaskTree.Placement, changes: [Int: TaskTree.Placement])?
         var project = args.string("project")
         if let ref = args.string("parent") {
-            guard let parent = model.task(TaskItem.key(ref)) else { throw AgentError.notFound("no task \(ref). Run `hq ls tasks`") }
+            guard let parent = model.task(TaskItem.key(ref)) else { throw missing(ref) }
             try own(parent, args, model)
             placed = tree.placeNew(in: .task(parent.id))
             // As in HQ: a subtask is written in the project in effect there.

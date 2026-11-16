@@ -196,6 +196,10 @@ struct HQCommands: Commands {
             }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(task == nil)
+            // A top-level task with everything under it (T-471); Mail's key.
+            Button(several ? "Archive \(menu.tasks.count)" : "Archive") { model.archive(menu.tasks) }
+                .keyboardShortcut("a", modifiers: [.command, .control])
+                .disabled(!menu.taskIsTop)
             Button("Move Up") { model.shiftTasks(menu.tasks, by: -1) }
                 .keyboardShortcut(rows ? KeyboardShortcut(.upArrow, modifiers: .shift) : nil)
                 .disabled(task == nil)

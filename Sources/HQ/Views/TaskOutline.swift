@@ -1678,6 +1678,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (49, []), (34, .command): model.open(.task(first), push: root != nil)
         // In a task's window too, the selected subtask moves, not the window's task.
         case (11, [.command, .shift]): model.toggleBacklog(ids)
+        case (0, [.command, .control]): model.archive(ids)
         // Escape unselects: nothing stays dimmed.
         case (53, []): outline?.deselectAll(nil)
         case (51, []), (117, []), (51, .command): model.deleteTasks(ids)
@@ -1816,6 +1817,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (11, [.command, .shift]):
             commitTitle(field)
             model.toggleBacklog([id])
+        case (0, [.command, .control]):
+            commitTitle(field)
+            model.archive([id])
         case (34, .command):
             commitTitle(field)
             model.open(.task(id))
@@ -2476,6 +2480,7 @@ struct TaskMenu: View {
             }
             Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }
             Button(model.task(id)?.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
+            if model.taskTree.parent(of: id) == nil { Button("Archive") { model.archive([id]) } }
             Button("Remind Me…") { model.beginReminder(about: .task(id)) }
             Divider()
             Button("Copy") { model.copy([.task(id)]) }

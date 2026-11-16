@@ -35,8 +35,10 @@ nonisolated enum AgentSocket {
 
     // MARK: App side
 
-    /// Starts listening. `handle` runs on the main actor for each request.
-    static func listen(handle: @escaping @MainActor @Sendable (Data) -> Data) {
+    /// Starts listening. `prepare` runs first on the request's own thread, for what it reads off the main thread (the
+    /// Archive), and returns what lets it go; `handle` then runs on the main actor.
+    static func listen(prepare: @escaping @Sendable (Data) -> (@Sendable () -> Void)? = { _ in nil },
+                       handle: @escaping @MainActor @Sendable (Data) -> Data) {
         // The build that runs, fixed now: `hq` compares it with its own.
         _ = (AgentVersion.atLaunch, AgentVersion.launchedAt)
         let path = self.path
@@ -56,15 +58,18 @@ nonisolated enum AgentSocket {
             while true {
                 let client = accept(server, nil, nil)
                 guard client >= 0 else { continue }
-                Thread.detachNewThread { serve(client, handle: handle) }
+                Thread.detachNewThread { serve(client, prepare: prepare, handle: handle) }
             }
         }
     }
 
-    private static func serve(_ client: Int32, handle: @escaping @MainActor @Sendable (Data) -> Data) {
+    private static func serve(_ client: Int32, prepare: @Sendable (Data) -> (@Sendable () -> Void)?,
+                              handle: @escaping @MainActor @Sendable (Data) -> Data) {
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let request = readLine(client)
+        let done = prepare(request)
+        defer { done?() }
         let reply = DispatchQueue.main.sync { MainActor.assumeIsolated { handle(request) } }
         write(client, reply + Data("\n".utf8))
         close(client)

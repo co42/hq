@@ -37,6 +37,17 @@ extension AppModel {
         }
     }
 
+    /// One job on the background writer for several notes (a story moving to or from the Archive): until it lands, a
+    /// vault scan keeps HQ's copy of each.
+    func writeNotes(_ paths: [String], _ write: @escaping @Sendable () throws -> Void) {
+        for path in paths { pendingWrites[path, default: 0] += 1 }
+        NoteWriter.run(write) { [weak self] failure in
+            Task { @MainActor in
+                for (index, path) in paths.enumerated() { self?.noteWritten(path, failure: index == 0 ? failure : nil) }
+            }
+        }
+    }
+
     private func noteWritten(_ path: String?, failure: String?) {
         if let path {
             vaultWrites[path] = .now

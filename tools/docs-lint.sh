@@ -74,7 +74,7 @@ lint='
     %moves = map { $_ => 1 } qw(todo doing done backlog);
     %skill = map { $_ => 1 } split / /, $ENV{SKILLS};
     # The filters each kind of hq ls takes; --limit and --offset go with any.
-    %filters = (sessions => "all here tree", tasks => "backlog search parent project tag all", prs => "all", notifications => "all", reminders => "all");
+    %filters = (sessions => "all here tree", tasks => "backlog search archived parent project tag all", prs => "all", notifications => "all", reminders => "all");
     @retired = split /\t/, $ENV{RETIRED};
     $count = 0;
   }

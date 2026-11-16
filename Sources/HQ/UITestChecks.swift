@@ -2245,6 +2245,18 @@ extension UITest {
         await ui.settle(0.4)
         await check("and out of the backlog, back in its place", model.task(b)?.status == .todo && model.taskTree.top() == place)
 
+        // ⌃⌘A archives a story: out of the list, the selection on another row; ⌘Z puts it back in its place (T-471).
+        coordinator.select(c)
+        await ui.settle(0.3)
+        await ui.chord("a", [.command, .control], code: 0)
+        await ui.settle(0.5)
+        await check("Control-Command-A archives the selected story: out of the list, another row selected, the keyboard kept",
+                    model.task(c) == nil && outline.row(forItem: coordinator.node(.task(c))) < 0 && !model.selectedTasks.isEmpty && rows(), state())
+        model.undoManager?.undo()
+        await ui.until(3) { model.task(c) != nil }
+        await check("⌘Z puts it back in its place", model.taskTree.top() == place, "\(model.taskTree.top()) for \(place)")
+        await ui.settle(0.3)
+
         // Folding a task whose subtask is selected selects the task.
         coordinator.select(a2)
         coordinator.fold([a], .hidden)

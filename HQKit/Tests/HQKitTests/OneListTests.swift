@@ -136,6 +136,18 @@ private func sampleIndex() -> ArchiveIndex {
     #expect(try JSONDecoder().decode(ArchiveIndex.self, from: data) == index)
 }
 
+@Test func archiveIndexRebuildsStoriesFromTheNotes() {
+    let notes: [ArchiveIndex.Entry] = [
+        .init(id: 10, root: 0, title: "Story", status: .done, archived: now, modified: now),
+        .init(id: 11, root: 0, parent: 10, title: "Step", status: .done, archived: now, modified: now),
+        .init(id: 12, root: 0, parent: 11, title: "Deeper", status: .done, archived: now, modified: now),
+        .init(id: 20, root: 0, parent: 99, title: "Parent not archived", status: .backlog, archived: now, modified: now),
+    ]
+    let rebuilt = ArchiveIndex.rebuilt(notes)
+    #expect(rebuilt.map(\.root) == [10, 10, 10, 20])
+    #expect(rebuilt.first { $0.id == 20 }?.parent == nil && ArchiveIndex(entries: rebuilt).stories.map(\.id).sorted() == [10, 20])
+}
+
 @Test func archiveSearchOverTenThousandIsQuick() {
     var entries: [ArchiveIndex.Entry] = []
     for story in 0..<2_000 {

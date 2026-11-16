@@ -72,6 +72,21 @@ public struct ArchiveIndex: Codable, Sendable, Equatable {
         entries.append(contentsOf: new)
     }
 
+    /// The index read back from the archived notes themselves, when it's missing or a note changed: each entry's story is
+    /// the top of its parents among the archived notes (a parent that isn't archived, or a loop, makes it a story).
+    public static func rebuilt(_ notes: [Entry]) -> [Entry] {
+        let byID = Dictionary(notes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return notes.map { note in
+            var entry = note
+            var seen: Set<Int> = [note.id]
+            var top = note.id
+            while let parent = byID[top]?.parent, byID[parent] != nil, seen.insert(parent).inserted { top = parent }
+            entry.root = top
+            if top == note.id { entry.parent = nil }
+            return entry
+        }
+    }
+
     /// Takes a story and everything under it out: it was unarchived or deleted.
     public mutating func remove(story root: Int) {
         entries.removeAll { $0.root == root }

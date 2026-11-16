@@ -10,6 +10,10 @@ nonisolated struct Vault: Sendable {
     var tasksDirectory: URL { root.appending(path: "tasks", directoryHint: .isDirectory) }
     var filesDirectory: URL { root.appending(path: "files", directoryHint: .isDirectory) }
     var rolesDirectory: URL { root.appending(path: "roles", directoryHint: .isDirectory) }
+    /// Archived stories' notes (T-471): the scan reads `tasks/` alone, never this folder.
+    var archiveDirectory: URL { tasksDirectory.appending(path: "archive", directoryHint: .isDirectory) }
+    func liveURL(_ id: Int) -> URL { tasksDirectory.appending(path: "T-\(id).md") }
+    func archivedURL(_ id: Int) -> URL { archiveDirectory.appending(path: "T-\(id).md") }
 
     init(vault: URL) {
         root = vault.resolvingSymlinksInPath().appending(path: "hq", directoryHint: .isDirectory)
@@ -276,8 +280,9 @@ nonisolated struct Vault: Sendable {
         optional(&note, "project", task.project)
         if !task.tags.isEmpty || note.has("tags") { note.set("tags", list: task.tags) }
         optional(&note, "parent", task.parent.map { "T-\($0)" })
-        // One list since v16: the old `list` key goes once the task is written again.
+        // One list since v16: the old `list` key goes once the task is written again; a live task has no `archived`.
         optional(&note, "list", nil)
+        optional(&note, "archived", nil)
         note.set("order", Self.number(task.order))
         // Review was a status: its keys go once the task is written again.
         optional(&note, "review", nil)
@@ -406,6 +411,83 @@ nonisolated struct Vault: Sendable {
     func hasRoleNote(_ name: String) -> Bool {
         let names = Set(((try? FileManager.default.contentsOfDirectory(atPath: rolesDirectory.path)) ?? []).map { $0.lowercased() })
         return names.contains("\(name).md".lowercased()) || names.contains(".\(name).md.icloud".lowercased())
+    }
+
+    // MARK: The Archive (T-471)
+
+    /// Moves a story's notes to the Archive's folder, its top note first given `archived:` with the time; their index
+    /// entries, each with its note's date once moved. Off the main thread, on the note writer.
+    func archive(story: TaskItem, under: [TaskItem], at date: Date) throws -> [ArchiveIndex.Entry] {
+        try FileManager.default.createDirectory(at: archiveDirectory, withIntermediateDirectories: true)
+        var entries: [ArchiveIndex.Entry] = []
+        for task in [story] + under {
+            let from = liveURL(task.id), to = archivedURL(task.id)
+            guard FileManager.default.fileExists(atPath: from.path) else { continue }
+            if task.id == story.id {
+                var note = try Self.existing(from.path)
+                note.set("archived", NoteDate.minute(date))
+                try write(note, to: from)
+            }
+            if FileManager.default.fileExists(atPath: to.path) { try FileManager.default.removeItem(at: to) }
+            try FileManager.default.moveItem(at: from, to: to)
+            entries.append(ArchiveIndex.Entry(id: task.id, root: story.id, parent: task.id == story.id ? nil : task.parent, title: task.title,
+                                              status: task.status, project: task.project, tags: task.tags, done: task.done,
+                                              archived: date, modified: Self.modified(to)))
+        }
+        return entries
+    }
+
+    /// Archived notes, read where they are (iCloud asked for them all first), each with the path it takes back.
+    func readArchived(_ ids: [Int]) -> [TaskItem] {
+        let urls = ids.map(archivedURL)
+        for url in urls where Self.isEvicted(url) { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
+        return urls.compactMap { url in
+            guard var item = Self.task(at: url, modified: Self.modified(url)) else { return nil }
+            item.path = liveURL(item.id).path
+            return item
+        }
+    }
+
+    /// Moves an archived note back to the list's folder; the story's top note drops its `archived:` key.
+    func unarchive(_ id: Int, top: Bool) throws {
+        let from = archivedURL(id), to = liveURL(id)
+        guard FileManager.default.fileExists(atPath: from.path) else { return }
+        if top {
+            var note = try Self.existing(from.path)
+            note.set("archived", nil)
+            try write(note, to: from)
+        }
+        try FileManager.default.moveItem(at: from, to: to)
+    }
+
+    /// The Archive's notes as index entries, read from the notes: those `known` already, at the same date, aren't read
+    /// again; a note iCloud evicted keeps its known entry. For a missing index, or one a note changed under.
+    func archiveEntries(known: [ArchiveIndex.Entry]) -> [ArchiveIndex.Entry] {
+        let byID = Dictionary(known.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var read: [ArchiveIndex.Entry] = []
+        var archivedAt: [Int: Date] = [:]
+        for url in Self.notes(in: archiveDirectory, recursive: false) {
+            guard let id = Self.taskNumber(url) else { continue }
+            let modified = Self.modified(url)
+            if let entry = byID[id], abs(entry.modified.timeIntervalSince(modified)) < 1 {
+                read.append(entry)
+                continue
+            }
+            guard !Self.isEvicted(url), let text = Self.read(url), let item = Self.task(text, at: url, modified: modified) else {
+                if let entry = byID[id] { read.append(entry) } else { try? FileManager.default.startDownloadingUbiquitousItem(at: url) }
+                continue
+            }
+            if let date = FrontMatter(text).string("archived").flatMap(NoteDate.parse) { archivedAt[id] = date }
+            read.append(ArchiveIndex.Entry(id: id, root: id, parent: item.parent, title: item.title, status: item.status, project: item.project,
+                                           tags: item.tags, done: item.done, archived: archivedAt[id] ?? modified, modified: modified))
+        }
+        var entries = ArchiveIndex.rebuilt(read)
+        // A task under a story takes the story's archived date.
+        let stories = Dictionary(entries.filter { $0.id == $0.root }.map { ($0.id, archivedAt[$0.id] ?? $0.archived) }, uniquingKeysWith: { a, _ in a })
+        for index in entries.indices where entries[index].id != entries[index].root {
+            if let date = stories[entries[index].root] { entries[index].archived = date }
+        }
+        return entries
     }
 
     // MARK: Migration

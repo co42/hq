@@ -105,6 +105,21 @@ struct GeneralSettings: View {
             Text("Tasks live in hq/tasks/ and files in hq/files/. HQ writes only the properties it owns.")
                 .foregroundStyle(.secondary)
         }
+        // T-471: done stories leave the list for the Archive on their own.
+        Section {
+            @Bindable var model = model
+            Picker("Archive done stories after", selection: $model.archiveDelay) {
+                ForEach(TaskArchive.delayChoices, id: \.self) { days in
+                    Text(days == 1 ? "1 day" : days == 7 ? "1 week" : days == 14 ? "2 weeks" : days == 30 ? "1 month" : "\(days) days").tag(days)
+                }
+            }
+            .uiTestAnchor("archive-delay")
+        } header: {
+            Text("Archive")
+        } footer: {
+            Text("A story done this long, with everything under it done, goes to the Archive: out of the list and out of what HQ reads at launch. Archive (⌃⌘A) takes any story now.")
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
@@ -260,7 +275,7 @@ struct KeysSettings: View {
         ("New File…", "⌃⌘N"),
         ("New Session…", "⇧⌘N"),
         ("Quick Open", "⌘K  ⌘P"),
-        ("Show or hide the Backlog", "⌃⌘B"),
+        ("Show or hide the backlog in Tasks", "⌃⌘B"),
         ("Show the HQ window", "⌘0"),
         ("Zoom in, zoom out", "⌘+  ⌘−"),
         ("Back, in the modal", "⌘["),
@@ -287,7 +302,8 @@ struct KeysSettings: View {
         ("Unselect: nothing dimmed", "Escape"),
         ("Open the task", "Space  ⌘I, or double-click the row"),
         ("Block or unblock, blocked by, after", "B  ⇧B  A"),
-        ("To the Backlog or to Tasks", "⇧⌘B"),
+        ("To the backlog or out of it", "⇧⌘B"),
+        ("Archive a story", "⌃⌘A"),
         ("Start Session…", "⌥⌘Return"),
         ("Delete", "⌫  ⌘⌫"),
     ]
@@ -305,7 +321,7 @@ struct KeysSettings: View {
         ("Back to the rows", "Escape  ↑  ↓"),
         ("Outdent at its start, indent at its end", "⇧←  ⇧→"),
         ("Next status", "⌘Return"),
-        ("Open, to the Backlog or Tasks, Start Session…", "⌘I  ⇧⌘B  ⌥⌘Return"),
+        ("Open, to the backlog or out of it, Archive, Start Session…", "⌘I  ⇧⌘B  ⌃⌘A  ⌥⌘Return"),
         ("Delete", "⌘⌫"),
     ]
     static let descriptionKeys: [(String, String)] = [

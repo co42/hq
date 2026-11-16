@@ -792,6 +792,7 @@ final class TaskCell: NSTableCellView {
             ("Add Subtask", { [weak self] in self?.addSubtask() }),
             ("Remind Me…", { model.beginReminder(about: .task(id)) }),
             (model.task(id)?.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog", { model.toggleBacklog([id]) }),
+            ("Archive", { model.archive([id]) }),
             ("Start Session…", { model.beginStart(task: id) }),
             ("Delete", { model.deleteTasks([id]) }),
         ]
