@@ -367,6 +367,10 @@ nonisolated enum Metric {
     static var modalEdge: CGFloat { (modalHeader - modalButton) / 2 }
     /// The modal's text column.
     static var pageWidth: CGFloat { 760 * Zoom.factor }
+    /// A note's card (T-470): at most this wide, its text this far in from its sides and bottom, `Space.section` from its
+    /// top: a 600 pt column, about 90 characters a line.
+    static var noteCard: CGFloat { 680 * Zoom.factor }
+    static var noteInset: CGFloat { 40 * Zoom.factor }
     /// Labels in the task modal's property grid.
     static var propertyLabel: CGFloat { 72 * Zoom.factor }
     static var boxRow: CGFloat { 32 * Zoom.factor }

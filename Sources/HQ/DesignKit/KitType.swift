@@ -107,28 +107,17 @@ enum KitType {
         sizes = [:]
     }
 
+    /// The same style, weight and design as the role's SwiftUI font, so AppKit text draws as SwiftUI's.
     private func makeFont() -> NSFont {
-        let body = Self.size(.body)
-        let small = Self.size(.subheadline)
-        switch self {
-        case .field: return .systemFont(ofSize: Self.size(.title2))
-        case .callout: return .systemFont(ofSize: Self.size(.callout))
-        case .tableHeader: return .systemFont(ofSize: Self.size(.callout), weight: .semibold)
-        case .tableHeaderCode: return .monospacedSystemFont(ofSize: Self.size(.callout), weight: .semibold)
-        case .titleStrong: return .systemFont(ofSize: body, weight: .semibold)
-        case .titleBold: return .systemFont(ofSize: body, weight: .bold)
-        case .secondary: return .systemFont(ofSize: small)
-        case .meta: return .monospacedDigitSystemFont(ofSize: small, weight: .regular)
-        case .key: return .monospacedSystemFont(ofSize: small, weight: .regular)
-        case .groupLabel: return .systemFont(ofSize: small, weight: .semibold)
-        case .editor: return .monospacedSystemFont(ofSize: body, weight: .regular)
-        case .code: return .monospacedSystemFont(ofSize: Self.size(.callout), weight: .regular)
-        case .section, .heading2: return .systemFont(ofSize: Self.size(.title3), weight: .semibold)
-        case .heading1: return .systemFont(ofSize: Self.size(.title2), weight: .semibold)
-        case .heading3: return .systemFont(ofSize: body, weight: .bold)
-        case .storyTitle: return .systemFont(ofSize: Self.size(.title3), weight: .bold)
-        default: return .systemFont(ofSize: body)
+        let parts = parts
+        let size = Self.size(parts.style)
+        let weight: NSFont.Weight = switch parts.weight {
+        case .semibold: .semibold
+        case .bold: .bold
+        default: .regular
         }
+        if self == .meta { return .monospacedDigitSystemFont(ofSize: size, weight: weight) }
+        return parts.design == .monospaced ? .monospacedSystemFont(ofSize: size, weight: weight) : .systemFont(ofSize: size, weight: weight)
     }
 }
 

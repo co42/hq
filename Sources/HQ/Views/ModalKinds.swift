@@ -4,12 +4,13 @@ import SwiftUI
 
 /// The modal's text column: a readable width, centered, scrolling.
 struct ModalPage<Content: View>: View {
+    var width = Metric.pageWidth
     @ViewBuilder let content: Content
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.xl) { content }
-                .frame(maxWidth: Metric.pageWidth, alignment: .leading)
+                .frame(maxWidth: width, alignment: .leading)
                 .padding(.horizontal, Space.xxl)
                 .padding(.vertical, Space.xl)
                 .frame(maxWidth: .infinity)
@@ -397,7 +398,7 @@ private struct DescriptionCard: View {
     var body: some View {
         @Bindable var model = model
         let editing = model.modalEditingDescription
-        HStack(alignment: .top) {
+        TextCard(editing: editing) {
             if editing {
                 MarkdownEditor(text: $model.descriptionDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: "Description",
                                onHeight: { editorHeight = $0 },
@@ -416,14 +417,6 @@ private struct DescriptionCard: View {
             } else {
                 Text("No description yet. Double-click to write one.").kitType(.callout).foregroundStyle(.secondary)
                     .background(EditOnDoubleClick { _ in edit(at: nil) })
-            }
-        }
-        .padding(Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .surface(radius: Radius.card)
-        .overlay {
-            if editing {
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(Ink.accent).allowsHitTesting(false)
             }
         }
     }
@@ -926,8 +919,9 @@ struct FileModal: View {
 
     var body: some View {
         @Bindable var model = model
-        // Editing swaps only the text for the editor: the byline, labels and title stay where they are (T-368).
-        ModalPage {
+        // The text on a card at a readable width, the byline and labels above it (T-470). Editing swaps only the text for the
+        // editor: the card, byline, labels and title stay where they are (T-368).
+        ModalPage(width: Metric.noteCard) {
             VStack(alignment: .leading, spacing: Space.sm) {
                 Text(byLine).kitType(.secondary).foregroundStyle(.secondary)
                 ItemLabels(project: file.project, tags: file.tags, pinned: file.pinned,
@@ -937,29 +931,35 @@ struct FileModal: View {
             }
             let text = model.fileBody(file.id)
             let blocks = model.fileMarkdown(file.id)
-            if case .block(.heading(1, _)) = blocks?.first {} else {
-                Text(file.title).kitType(.heading1)
+            TextCard(size: .page, editing: model.editingFile == file.id) {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    // A note without a `# Title` shows its file's, as tall and as far above its text.
+                    if blocks != nil, !MarkdownView.hasTitle(blocks) {
+                        Text(file.title).kitType(.pageTitle).padding(.bottom, Space.md)
+                    }
+                    if text == nil || (blocks == nil && model.editingFile != file.id) {
+                        LoadingLine(title: "Loading the note…")
+                            .uiTestAnchor("file-loading")
+                    } else if model.editingFile == file.id {
+                        MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: file.title,
+                                       title: MarkdownView.hasTitle(blocks), onHeight: { editorHeight = $0 },
+                                       onCommit: { model.saveModalEdits() }, onCancel: { model.saveModalEdits() }, onEnd: {})
+                            .frame(height: max(editorHeight > 0 ? editorHeight : renderedHeight, MarkdownStyle.lineHeight(.body)))
+                            .onAppear { model.editorCaret = nil }
+                            .onDisappear { editorHeight = 0 }
+                            .uiTestAnchor("file-editor")
+                    } else {
+                        MarkdownView(prepared: blocks ?? [], title: true) { index in model.toggleFileCheckbox(file.id, at: index) }
+                            .background(EditOnDoubleClick { point in
+                                model.editorCaret = point
+                                model.beginFileEdit(file.id)
+                            })
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
+                            .uiTestAnchor("file-text")
+                    }
+                }
             }
-            if text == nil || (blocks == nil && model.editingFile != file.id) {
-                LoadingLine(title: "Loading the note…")
-                    .uiTestAnchor("file-loading")
-            } else if model.editingFile == file.id {
-                MarkdownEditor(text: $model.fileDraft, focusOnAppear: true, caretPoint: model.editorCaret, label: file.title,
-                               onHeight: { editorHeight = $0 },
-                               onCommit: { model.saveModalEdits() }, onCancel: { model.saveModalEdits() }, onEnd: {})
-                    .frame(height: max(editorHeight > 0 ? editorHeight : renderedHeight, MarkdownStyle.lineHeight(.body)))
-                    .onAppear { model.editorCaret = nil }
-                    .onDisappear { editorHeight = 0 }
-                    .uiTestAnchor("file-editor")
-            } else {
-                MarkdownView(prepared: blocks ?? []) { index in model.toggleFileCheckbox(file.id, at: index) }
-                    .background(EditOnDoubleClick { point in
-                        model.editorCaret = point
-                        model.beginFileEdit(file.id)
-                    })
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { renderedHeight = $0 }
-                    .uiTestAnchor("file-text")
-            }
+            .uiTestAnchor("file-card")
         }
         .task(id: file.modified) { await model.loadFileBody(file.id) }
         .uiTestAnchor("file-page")

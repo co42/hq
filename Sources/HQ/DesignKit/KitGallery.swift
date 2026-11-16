@@ -108,6 +108,19 @@ struct KitGallery: View {
             section("Code") {
                 CodeBlock(text: "kubectl rollout restart deploy/registry-api", copies: true).frame(width: 480)
             }
+            section("Text cards: a note's, a description's, editing") {
+                HStack(alignment: .top, spacing: Space.xxl) {
+                    TextCard(size: .page) {
+                        MarkdownView("# Retry budget plan\n\nBlob uploads retry with no budget.", title: true)
+                    }
+                    .frame(width: Metric.noteCard)
+                    VStack(alignment: .leading, spacing: Space.lg) {
+                        TextCard { MarkdownView("At most **3 attempts** per part.") }
+                        TextCard(editing: true) { MarkdownView("At most **3 attempts** per part.") }
+                    }
+                    .frame(width: 360)
+                }
+            }
         }
         .padding(Space.xxl)
         .frame(maxWidth: .infinity, alignment: .leading)

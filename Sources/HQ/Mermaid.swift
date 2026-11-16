@@ -140,7 +140,7 @@ final class MermaidRenderer: NSObject, WKNavigationDelegate {
     private func draw(_ source: String, dark: Bool) async -> Result {
         guard let web = await page() else { return .failed(Self.hasScript ? "Its page didn’t load" : "mermaid.js isn’t in HQ’s bundle") }
         do {
-            let arguments: [String: Any] = ["source": source, "dark": dark, "background": Self.hex(Ink.editorNS, dark: dark)]
+            let arguments: [String: Any] = ["source": source, "dark": dark, "background": Self.hex(Ink.surfaceNS, dark: dark)]
             let size = try await web.callAsyncJavaScript(Self.script, arguments: arguments, contentWorld: .page) as? [Double]
             guard let size, size.count == 2, size[0] > 0, size[1] > 0 else { return .failed("The diagram is empty") }
             let rect = CGRect(x: 0, y: 0, width: size[0], height: size[1])

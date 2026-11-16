@@ -10,22 +10,31 @@ struct MarkdownView: View {
     var toggle: ((Int) -> Void)?
     /// Text selectable for copying; off where a click selects and a double-click edits.
     var selectable = true
+    /// A note's: a leading `# Title` is its title, in Title 1 (T-470).
+    var title = false
     @Environment(AppModel.self) private var model
 
-    init(_ text: String, selectable: Bool = true, toggle: ((Int) -> Void)? = nil) {
+    init(_ text: String, selectable: Bool = true, title: Bool = false, toggle: ((Int) -> Void)? = nil) {
         blocks = ViewerBlock.prepare(Markdown.blocks(text), style: .current)
         self.selectable = selectable
+        self.title = title
         self.toggle = toggle
     }
 
     /// Blocks prepared before: a note's, off the main thread.
-    init(prepared blocks: [ViewerBlock], toggle: ((Int) -> Void)? = nil) {
+    init(prepared blocks: [ViewerBlock], title: Bool = false, toggle: ((Int) -> Void)? = nil) {
         self.blocks = blocks
+        self.title = title
         self.toggle = toggle
     }
 
+    /// The blocks start with a `# Title`.
+    static func hasTitle(_ blocks: [ViewerBlock]?) -> Bool {
+        if case .block(.heading(1, _)) = blocks?.first { true } else { false }
+    }
+
     var body: some View {
-        selection(MarkdownBlocks(blocks: blocks))
+        selection(MarkdownBlocks(blocks: blocks, title: title))
             .environment(\.markdownSelectable, selectable)
             .environment(\.checkboxToggle, toggle.map(CheckboxToggle.init))
             .environment(\.openURL, OpenURLAction { url in
@@ -87,11 +96,13 @@ private struct MarkdownBlocks: View {
     let blocks: [ViewerBlock]
     /// Tighter inside a list item, so a nested list stays with its item.
     var spacing = Space.md
+    /// The first block, a `# Title`, is the note's title.
+    var title = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                MarkdownBlockView(block: block)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                MarkdownBlockView(block: block, title: title && index == 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -100,10 +111,16 @@ private struct MarkdownBlocks: View {
 
 private struct MarkdownBlockView: View {
     let block: ViewerBlock
+    var title = false
     @Environment(\.checkboxToggle) private var toggle
 
     var body: some View {
         switch block {
+        case .block(.heading(1, let text)) where title:
+            Text(text)
+                .kitType(.pageTitle)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, Space.md)
         case .block(.heading(let level, let text)):
             Text(text)
                 .kitType(level == 1 ? .heading1 : level == 2 ? .heading2 : .heading3)

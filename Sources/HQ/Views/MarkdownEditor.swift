@@ -14,6 +14,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var caretPoint: CGPoint?
     /// What VoiceOver calls it: "Description", "First message", the file's title.
     var label = "Markdown"
+    /// A note's: its first line `# Title` in Title 1, as the viewer draws it.
+    var title = false
     /// Around the text: none where it replaces rendered markdown in place, a box's padding elsewhere.
     var inset: CGFloat = 0
     /// The text's height as it changes: the box grows with it.
@@ -107,7 +109,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
         /// Styles the text and tells the box its height.
         func restyle(_ editor: NSTextView) {
-            if let storage = editor.textStorage { MarkdownStyle.apply(to: storage) }
+            if let storage = editor.textStorage { MarkdownStyle.apply(to: storage, title: parent.title) }
             editor.typingAttributes = MarkdownStyle.base
             reportHeight(editor)
         }
@@ -467,13 +469,16 @@ enum MarkdownStyle {
 
     /// What a source line is, for the room the viewer gives it.
     private enum Kind: Equatable {
-        case blank, text, itemText, heading(Int), item, quote, quoteBlank, fenceOpen, fenceClose, code, rule
+        case blank, text, itemText, heading(Int), title, item, quote, quoteBlank, fenceOpen, fenceClose, code, rule
     }
 
     /// Each line as tall as the viewer draws it and as far below the line above: 12 pt between blocks (the blank lines
     /// between them share it), 4 pt between list items, a heading's room above, a code box's padding taken from the space
-    /// around its fences. Only what the marks add (their own lines, longer lines) moves the text.
-    private static func space(_ storage: NSTextStorage) {
+    /// around its fences. Only what the marks add (their own lines, longer lines) moves the text. With `title`, a first line
+    /// `# Title` is the note's title, 12 pt more below it (T-470); its range comes back.
+    @discardableResult
+    private static func space(_ storage: NSTextStorage, title: Bool = false) -> NSRange? {
+        var titleLine: NSRange?
         let text = storage.string as NSString
         let body = lineHeight(.body), code = lineHeight(.code)
         var inFence = false
@@ -499,6 +504,7 @@ enum MarkdownStyle {
             if kind == .itemText && blanks.isEmpty { return 0 }
             if previous == .fenceClose { gap += Space.sm - code }
             if kind == .fenceOpen { gap += Space.sm - code }
+            if previous == .title { gap += Space.md }
             return max(gap, 0)
         }
         func width(_ prefix: String) -> CGFloat { (prefix as NSString).size(withAttributes: [.font: MarkdownStyle.body]).width }
@@ -517,7 +523,9 @@ enum MarkdownStyle {
                 blanks.append(enclosing)
                 return
             } else if let marks = headingLine.firstMatch(in: line, range: whole) {
-                kind = .heading((line as NSString).substring(with: marks.range(at: 1)).prefix { $0 == "#" }.count)
+                let level = (line as NSString).substring(with: marks.range(at: 1)).prefix { $0 == "#" }.count
+                kind = title && previous == nil && level == 1 ? .title : .heading(level)
+                if kind == .title { titleLine = enclosing }
             } else if rule.firstMatch(in: line, range: whole) != nil {
                 kind = .rule
             } else if let marker = item.firstMatch(in: line, range: whole) {
@@ -549,6 +557,7 @@ enum MarkdownStyle {
             }
             let height: CGFloat = switch kind {
             case .heading(let level): lineHeight(headingType(level))
+            case .title: lineHeight(.pageTitle)
             case .fenceOpen, .fenceClose, .code: code
             case .quoteBlank: Space.md
             default: body
@@ -561,6 +570,7 @@ enum MarkdownStyle {
             previous = kind
         }
         for blank in blanks { storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(body), range: blank) }
+        return titleLine
     }
 
     private static func pattern(_ text: String) -> NSRegularExpression {
@@ -581,8 +591,9 @@ enum MarkdownStyle {
     static let wiki = pattern(#"(\[\[)([^\]\n]+)(\]\])"#)
     static let address = pattern(#"(?<![(<\w])https?://[^\s)>\]]+"#)
 
-    /// Styles the whole text again: cheap enough on every keystroke for any note HQ keeps (a self-test times it).
-    static func apply(to storage: NSTextStorage) {
+    /// Styles the whole text again: cheap enough on every keystroke for any note HQ keeps (a self-test times it). With
+    /// `title`, a note's: a first line `# Title` in Title 1, as the viewer draws it.
+    static func apply(to storage: NSTextStorage, title: Bool = false) {
         let text = storage.string as NSString
         let all = NSRange(location: 0, length: text.length)
         storage.beginEditing()
@@ -607,7 +618,7 @@ enum MarkdownStyle {
             }
         }
         if let start = fence { fenced.insert(integersIn: start..<text.length) }
-        space(storage)
+        let titleLine = space(storage, title: title)
         func each(_ regex: NSRegularExpression, _ body: (NSTextCheckingResult) -> Void) {
             regex.enumerateMatches(in: storage.string, range: all) { match, _, _ in
                 guard let match, !fenced.intersects(integersIn: match.range.location..<max(NSMaxRange(match.range), match.range.location + 1)) else { return }
@@ -624,7 +635,8 @@ enum MarkdownStyle {
         each(headingLine) { match in
             let marks = match.range(at: 1)
             let level = text.substring(with: marks).prefix { $0 == "#" }.count
-            storage.addAttribute(.font, value: heading(level), range: text.paragraphRange(for: match.range))
+            let line = text.paragraphRange(for: match.range)
+            storage.addAttribute(.font, value: line == titleLine ? KitType.pageTitle.nsFont : heading(level), range: line)
             quiet(marks)
         }
         each(item) { match in

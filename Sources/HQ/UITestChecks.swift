@@ -1639,14 +1639,21 @@ extension UITest {
             model.open(.file(file.id))
             await ui.settle(1)
             if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
-                let rendered = frame("file-text")
+                let rendered = frame("file-text"), card = frame("file-card")
+                if let card, let rendered {
+                    await check("a note's text sits on its card, 40 pt in, the card at most 680 pt wide (T-470)",
+                                card.width <= Metric.noteCard + 0.5 && abs(rendered.minX - card.minX - Metric.noteInset) <= 0.5
+                                && abs(card.maxX - rendered.maxX - Metric.noteInset) <= 0.5, "card \(card), text \(rendered)")
+                } else {
+                    await check("a note shows its card", false)
+                }
                 let swallowed = doubleClick(fourthOf: area, in: sheet)
                 await ui.settle(0.8)
                 await check("a double-click on a note edits it at the spot", swallowed && model.editingFile == file.id && onFour(sheet.firstResponder),
                       "caret \((sheet.firstResponder as? NSTextView)?.selectedRange().location ?? -1) for \(four)")
                 await check("in a note only the text turns into the editor: its byline and title stay, the text in the same place and size",
-                      same(rendered, frame("file-editor")) && frame("file-page") != nil,
-                      "\(String(describing: rendered)) → \(String(describing: frame("file-editor")))")
+                      same(rendered, frame("file-editor")) && same(card, frame("file-card")),
+                      "\(String(describing: rendered)) → \(String(describing: frame("file-editor"))), card \(String(describing: card)) → \(String(describing: frame("file-card")))")
                 if let text = sheet.firstResponder as? NSTextView {
                     text.setSelectedRange((text.string as NSString).range(of: "Line four"))
                     await ui.key("i", .command, code: 34)

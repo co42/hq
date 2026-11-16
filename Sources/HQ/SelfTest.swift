@@ -865,13 +865,19 @@ enum SelfTest {
             "> A quote\n> on two lines.\n\nText.",
             "Text.\n\n```\nlet x = 1\nlet y = 2\n```\n\nAfter the code.",
         ]
+        // A note's leading `# Title` in Title 1, 12 pt more below it (T-470).
+        let titled = [
+            "# Retry budget plan\n\nThe registry retries.\n\n## Why\n\nText.",
+            "# Title, then a list\n- one\n- two",
+            "# Title on a long line that wraps at four hundred points wide, with words enough to wrap\nText right under it.",
+        ]
         var offsets: [String] = []
-        for sample in samples {
+        for (sample, title) in samples.map({ ($0, false) }) + titled.map({ ($0, true) }) {
             let width: CGFloat = 400
-            let rendered = NSHostingView(rootView: MarkdownView(sample).environment(model).frame(width: width).fixedSize(horizontal: false, vertical: true))
+            let rendered = NSHostingView(rootView: MarkdownView(sample, title: title).environment(model).frame(width: width).fixedSize(horizontal: false, vertical: true))
             let renderedHeight = rendered.fittingSize.height
             let storage = NSTextStorage(string: sample)
-            MarkdownStyle.apply(to: storage)
+            MarkdownStyle.apply(to: storage, title: title)
             let layout = NSLayoutManager()
             storage.addLayoutManager(layout)
             let container = NSTextContainer(size: NSSize(width: width, height: 100_000))
@@ -882,6 +888,11 @@ enum SelfTest {
             if abs(edited - renderedHeight) > 1 { offsets.append("\(sample.prefix(16).debugDescription): \(renderedHeight) rendered, \(edited) edited") }
         }
         check("the editor draws markdown as tall as the viewer, so switching moves nothing", offsets.isEmpty, offsets.joined(separator: "; "))
+        let titledNote = NSTextStorage(string: titled[0])
+        MarkdownStyle.apply(to: titledNote, title: true)
+        func size(_ needle: String) -> CGFloat? { (titledNote.attribute(.font, at: (titledNote.string as NSString).range(of: needle).location, effectiveRange: nil) as? NSFont)?.pointSize }
+        check("a note's leading # Title is in Title 1 in the editor, its other headings at theirs",
+              size("Retry") == KitType.pageTitle.nsFont.pointSize && size("Why") == KitType.heading2.nsFont.pointSize, "\(size("Retry") ?? 0) \(size("Why") ?? 0)")
         // Links between tasks, one way; pins and labels on files.
         guard let other = model.addTask(status: .todo, title: "Linked") else { return check("a task to link", false) }
         let linked = agent("task link", ["task": task.key, "item": other.key])
