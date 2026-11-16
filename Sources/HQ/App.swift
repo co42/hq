@@ -95,7 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command else { return event }
-            switch event.charactersIgnoringModifiers?.lowercased() {
+            let key = event.charactersIgnoringModifiers?.lowercased()
+            // ⌘B, ⌘I and ⌘K mark a markdown editor's selection before the menus and the views see them (T-513).
+            if let editor = self?.model.keyboardEditor(), editor.format(key) { return nil }
+            switch key {
             case "p": self?.toggleQuickOpen()
             case "=": self?.model.zoom(by: 1)
             default: return event

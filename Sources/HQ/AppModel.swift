@@ -787,6 +787,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var taskStatus: TaskStatus?
     /// A markdown editor or its find bar has the keyboard.
     @Published private(set) var editorFind = false
+    /// A markdown editor itself has the keyboard: Format's items and their keys.
+    @Published private(set) var editorFormat = false
     /// The open item's way out of HQ ("Open on GitHub"), its web link, and what a PR's modal allows.
     @Published private(set) var outside: String?
     @Published private(set) var link: String?
@@ -861,6 +863,14 @@ final class MenuState: ObservableObject {
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })
         set(\.taskStatus, targets.count == 1 ? task?.status : nil)
         set(\.editorFind, model.findEditor() != nil)
+        let editor = model.keyboardEditor() != nil
+        if editor != editorFormat {
+            editorFormat = editor
+            // SwiftUI rebuilds a menu's items only as it opens: Format's keys and theirs follow the editor now.
+            DispatchQueue.main.async {
+                for item in NSApp.mainMenu?.items ?? [] { if let menu = item.submenu { menu.delegate?.menuNeedsUpdate?(menu) } }
+            }
+        }
         set(\.outside, model.outsideTitle(model.menuRoute))
         set(\.link, model.link(of: model.menuRoute))
         let item: GitHubItem? = if case .github(let url) = model.menuRoute { model.githubItem(url) } else { nil }

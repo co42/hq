@@ -1514,19 +1514,24 @@ extension UITest {
         await check("Tab nests a list item, the editor keeping the keyboard", editor.string.contains("\n  - half") && model.editingDescription == task.id, editor.string)
         await ui.key(.tab, .shift)
         await check("Shift-Tab takes it back out", editor.string.contains("\n- half") && model.editingDescription == task.id, editor.string)
-        // ⌘B, ⌘I, ⌘K, a pasted address.
+        // ⌘B, ⌘I, ⌘K, a pasted address; the menus show whose keys they are (T-513).
+        let editing = "Bold [b] on, Italic [i] on, Add Link [k] on, Quick Open… [] on, Open [] off"
+        await check("while an editor has the keyboard, Format's items are on with ⌘B ⌘I ⌘K, which Quick Open and Open give up",
+                    ui.menuKeys("Bold", "Italic", "Add Link", "Quick Open…", "Open") == editing, ui.menuKeys("Bold", "Italic", "Add Link", "Quick Open…", "Open"))
         editor.setSelectedRange((editor.string as NSString).range(of: "Second"))
-        await ui.chord("b", .command, code: 11)
+        await ui.key("b", .command, code: 11)
         await check("Command-B marks the selection bold", editor.string.contains("**Second** line."), editor.string)
-        await ui.chord("b", .command, code: 11)
+        await ui.key("b", .command, code: 11)
         await check("Command-B again takes the marks off", editor.string.contains("\nSecond line."), editor.string)
-        await ui.chord("i", .command, code: 34)
+        await ui.key("i", .command, code: 34)
         await check("Command-I marks it italic, and doesn't open the task", editor.string.contains("_Second_ line.") && model.modal == nil, editor.string)
-        await ui.chord("i", .command, code: 34)
+        await ui.key("i", .command, code: 34)
         Pasteboard.copy("https://example.com/plan")
         editor.setSelectedRange((editor.string as NSString).range(of: "Second"))
-        await ui.chord("k", .command, code: 40)
-        await check("Command-K links the selection to a copied address", editor.string.contains("[Second](https://example.com/plan) line."), editor.string)
+        await ui.key("k", .command, code: 40)
+        await check("Command-K links the selection to a copied address, Quick Open staying shut",
+                    editor.string.contains("[Second](https://example.com/plan) line.") && AppDelegate.shared?.quickOpenPanel.isVisible != true, editor.string)
+        AppDelegate.shared?.quickOpenPanel.dismiss()
         editor.setSelectedRange((editor.string as NSString).range(of: "Last"))
         editor.paste(nil)
         await check("an address pasted over words links them", editor.string.contains("[Last](https://example.com/plan) line."), editor.string)
@@ -1551,6 +1556,19 @@ extension UITest {
         await ui.settle(0.6)
         await check("Escape saves what the editor wrote", model.task(task.id)?.body.contains("[Second](https://example.com/plan) line.") == true
               && model.editingDescription == nil, model.task(task.id)?.body ?? "-")
+        // Out of the editor, ⌘I opens the task and ⌘K Quick Open again (T-513).
+        await ui.until { model.focusedTask == task.id && ui.window.firstResponder is TaskOutlineView }
+        let resting = "Bold [] off, Italic [] off, Add Link [] off, Quick Open… [k] on, Open [i] on"
+        await check("out of the editor, Format's items are off and Quick Open and Open have ⌘K and ⌘I back",
+                    ui.menuKeys("Bold", "Italic", "Add Link", "Quick Open…", "Open") == resting, ui.menuKeys("Bold", "Italic", "Add Link", "Quick Open…", "Open"))
+        await ui.key("i", .command, code: 34)
+        await check("out of the editor, Command-I opens the task", model.modal == .task(task.id), "\(String(describing: model.modal))")
+        model.closeModal()
+        await ui.settle(0.4)
+        await ui.key("k", .command, code: 40)
+        await check("and Command-K opens Quick Open", AppDelegate.shared?.quickOpenPanel.isVisible == true)
+        AppDelegate.shared?.quickOpenPanel.dismiss()
+        await ui.settle(0.3)
 
         // A double-click edits at the spot: six lines, the fourth double-clicked.
         let lines = "Line one.\n\nLine two.\n\nLine three.\n\nLine four.\n\nLine five.\n\nLine six."
@@ -1606,6 +1624,11 @@ extension UITest {
             await check("in the task's window only the text turns into the editor: same place, same size, Edit becomes Done where it was",
                   same(rendered, frame("modal-description-editor")) && same(button, frame("modal-edit-description")),
                   "\(String(describing: rendered)) → \(String(describing: frame("modal-description-editor"))), button \(String(describing: button)) → \(String(describing: frame("modal-edit-description")))")
+            if let text = sheet.firstResponder as? NSTextView {
+                text.setSelectedRange((text.string as NSString).range(of: "Line four"))
+                await ui.key("b", .command, code: 11)
+                await check("in the task's window, Command-B marks the selection bold (T-513)", text.string.contains("**Line four**."), text.string)
+            }
             model.saveModalEdits()
         } else {
             await check("the task's window shows its description", false)
@@ -1624,6 +1647,17 @@ extension UITest {
                 await check("in a note only the text turns into the editor: its byline and title stay, the text in the same place and size",
                       same(rendered, frame("file-editor")) && frame("file-page") != nil,
                       "\(String(describing: rendered)) → \(String(describing: frame("file-editor")))")
+                if let text = sheet.firstResponder as? NSTextView {
+                    text.setSelectedRange((text.string as NSString).range(of: "Line four"))
+                    await ui.key("i", .command, code: 34)
+                    await check("in a note, Command-I marks the selection italic and opens nothing (T-513)",
+                                text.string.contains("_Line four_.") && model.modal == .file(file.id), text.string)
+                    Pasteboard.copy("https://example.com/notes")
+                    text.setSelectedRange((text.string as NSString).range(of: "Line five"))
+                    await ui.key("k", .command, code: 40)
+                    await check("and Command-K links it, Quick Open staying shut",
+                                text.string.contains("[Line five](https://example.com/notes).") && AppDelegate.shared?.quickOpenPanel.isVisible != true, text.string)
+                }
                 model.editingFile = nil
             } else {
                 await check("a note's window shows its text", false)
@@ -2236,7 +2270,7 @@ extension UITest {
         // To the backlog and back: it leaves the list while the backlog is hidden, the task above takes the selection; nothing moves.
         let place = model.taskTree.top()
         await ui.editTitle(b)
-        await ui.chord("b", [.command, .shift], code: 11)
+        await ui.viewChord("b", [.command, .shift], code: 11)
         await ui.settle(0.5)
         await check("Shift-Command-B moves a task to the backlog, in its place, and hides it", model.task(b)?.status == .backlog
                     && model.taskTree.top() == place && outline.row(forItem: coordinator.node(.task(b))) < 0, "\(String(describing: model.task(b)?.status))")
@@ -2248,7 +2282,7 @@ extension UITest {
         // ⌃⌘A archives a story: out of the list, the selection on another row; ⌘Z puts it back in its place (T-471).
         coordinator.select(c)
         await ui.settle(0.3)
-        await ui.chord("a", [.command, .control], code: 0)
+        await ui.viewChord("a", [.command, .control], code: 0)
         await ui.settle(0.5)
         await check("Control-Command-A archives the selected story: out of the list, another row selected, the keyboard kept",
                     model.task(c) == nil && outline.row(forItem: coordinator.node(.task(c))) < 0 && !model.selectedTasks.isEmpty && rows(), state())
@@ -2949,16 +2983,24 @@ final class FakeDrag: NSObject, NSDraggingInfo {
 }
 
 extension Driver {
-    /// A command-key chord: an active app gets it from the system as a key equivalent; a background
-    /// run hands it to the window the same way.
-    func chord(_ characters: String, _ flags: NSEvent.ModifierFlags, code: UInt16) async {
-        guard !NSApp.isActive else { return await key(characters, flags, code: code) }
+    /// A chord handed to the window's views, as their own key equivalents: a background run's menus keep their launch state
+    /// (SwiftUI updates them as they open), so a row's chord that is also a menu's is checked on the views' path.
+    func viewChord(_ characters: String, _ flags: NSEvent.ModifierFlags, code: UInt16) async {
         if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                         windowNumber: window.windowNumber, context: nil, characters: characters,
                                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) {
             _ = window.performKeyEquivalent(with: event)
         }
         await settle(0.05)
+    }
+
+    /// The menu bar's items with these titles: each one's key and whether it's on.
+    func menuKeys(_ titles: String...) -> String {
+        func walk(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(walk) ?? []) } }
+        let items = NSApp.mainMenu.map(walk) ?? []
+        return titles.map { title in
+            items.first { $0.title == title }.map { "\(title) [\($0.keyEquivalent)] \($0.isEnabled ? "on" : "off")" } ?? "\(title) missing"
+        }.joined(separator: ", ")
     }
 
     func find<T: NSView>(_ type: T.Type) -> T? {

@@ -62,7 +62,7 @@ struct HQCommands: Commands {
             Divider()
             // ⌘P opens it too (AppDelegate), as in Zed: HQ prints nothing.
             Button("Quick Open…", action: quickOpen)
-                .keyboardShortcut("k")
+                .keyboardShortcut(menu.editorFormat ? nil : KeyboardShortcut("k"))
             Divider()
             Button(menu.outside ?? "Open Outside HQ") { model.openOutside(model.menuRoute) }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -72,6 +72,20 @@ struct HQCommands: Commands {
                 .disabled(menu.link == nil)
             Divider()
             Button("Import Artifact…") { model.beginImport() }
+        }
+
+        // On, with their keys, only while a markdown editor has the keyboard: Quick Open and Task › Open keep ⌘K and ⌘I elsewhere.
+        CommandGroup(replacing: .textFormatting) {
+            let editor = menu.editorFormat
+            Button("Bold") { model.keyboardEditor()?.wrap("**") }
+                .keyboardShortcut(editor ? KeyboardShortcut("b") : nil)
+                .disabled(!editor)
+            Button("Italic") { model.keyboardEditor()?.wrap("_") }
+                .keyboardShortcut(editor ? KeyboardShortcut("i") : nil)
+                .disabled(!editor)
+            Button("Add Link") { model.keyboardEditor()?.link() }
+                .keyboardShortcut(editor ? KeyboardShortcut("k") : nil)
+                .disabled(!editor)
         }
 
         CommandGroup(after: .textEditing) {
@@ -145,7 +159,7 @@ struct HQCommands: Commands {
             let keys = menu.outlineKeyboard != .none
             let rows = menu.outlineKeyboard == .rows
             Button("Open") { if let task { model.open(.task(task)) } }
-                .keyboardShortcut("i")
+                .keyboardShortcut(menu.editorFormat ? nil : KeyboardShortcut("i"))
                 .disabled(task == nil || menu.inModal)
             let several = menu.tasks.count > 1
             Button("Next Status") { model.nextStatus(menu.tasks) }
@@ -365,9 +379,15 @@ extension AppModel {
         }
     }
 
+    /// The window with the keyboard: the key window; in a background run, the main window's sheet or the window.
+    var keyboardWindow: NSWindow? { NSApp.keyWindow ?? window?.attachedSheet ?? window }
+
+    /// The markdown editor that has the keyboard, for Format's items.
+    func keyboardEditor() -> MarkdownEditor.EditorTextView? { keyboardWindow?.firstResponder as? MarkdownEditor.EditorTextView }
+
     /// The markdown editor that has the keyboard, itself or through its find bar.
     func findEditor() -> NSTextView? {
-        guard let responder = (NSApp.keyWindow ?? window)?.firstResponder as? NSView else { return nil }
+        guard let responder = keyboardWindow?.firstResponder as? NSView else { return nil }
         if let editor = responder as? NSTextView, editor.usesFindBar { return editor }
         if let editor = responder.enclosingScrollView?.documentView as? NSTextView, editor.usesFindBar,
            responder.enclosingScrollView?.isFindBarVisible == true { return editor }

@@ -197,17 +197,17 @@ struct MarkdownEditor: NSViewRepresentable {
         }
     }
 
-    /// ⌘Return commits: the menu's own ⌘Return isn't bound while an editor has the keyboard. ⌘B, ⌘I and ⌘K mark the
-    /// selection; a click on a checkbox ticks it, with the pointing hand over it.
+    /// ⌘Return commits: the menu's own ⌘Return isn't bound while an editor has the keyboard. ⌘B, ⌘I and ⌘K (the app's key
+    /// monitor) and Format's items mark the selection; a click on a checkbox ticks it, with the pointing hand over it.
     final class EditorTextView: NSTextView {
         weak var coordinator: Coordinator?
         private var wantsFocus: (atEnd: Bool, point: CGPoint?)?
         private var pointerArea: NSTrackingArea?
 
-        /// The menus follow the keyboard in and out of editors (Find Next and Previous).
+        /// The menus follow the keyboard in and out of editors (Find Next and Previous, Format), once the window has it.
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
-            if accepted { NotificationCenter.default.post(name: .editorKeyboard, object: nil) }
+            if accepted { DispatchQueue.main.async { NotificationCenter.default.post(name: .editorKeyboard, object: nil) } }
             return accepted
         }
 
@@ -312,16 +312,18 @@ struct MarkdownEditor: NSViewRepresentable {
                 coordinator?.commit()
                 return true
             }
-            // Before the menus: ⌘I is Open on a task outside the editor.
-            if flags == .command {
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "b": wrap("**"); return true
-                case "i": wrap("_"); return true
-                case "k": link(); return true
-                default: break
-                }
-            }
             return super.performKeyEquivalent(with: event)
+        }
+
+        /// Format's key: ⌘B bold, ⌘I italic, ⌘K a link; false for another.
+        func format(_ key: String?) -> Bool {
+            switch key {
+            case "b": wrap("**")
+            case "i": wrap("_")
+            case "k": link()
+            default: return false
+            }
+            return true
         }
 
         /// ⌘B, ⌘I: the selection between the marks, or out of them when they're already there.
