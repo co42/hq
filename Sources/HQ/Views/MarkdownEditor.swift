@@ -55,12 +55,11 @@ struct MarkdownEditor: NSViewRepresentable {
         editor.isHorizontallyResizable = false
         let scroll = EditorScrollView()
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
         scroll.documentView = editor
-        scroll.maxHeight = onHeight == nil ? .infinity : maxHeight
         scroll.grows = onHeight != nil
+        scroll.maxHeight = onHeight == nil ? .infinity : maxHeight
         editor.delegate = context.coordinator
         editor.coordinator = context.coordinator
         editor.isRichText = false
@@ -199,14 +198,19 @@ struct MarkdownEditor: NSViewRepresentable {
     /// As tall as its text, it hands the scroll wheel to the page around it.
     final class EditorScrollView: NSScrollView {
         /// Its box follows the text's height, up to `maxHeight`.
-        var grows = false
-        var maxHeight: CGFloat = .infinity
+        var grows = false { didSet { scrollsInside = !(grows && maxHeight == .infinity) } }
+        var maxHeight: CGFloat = .infinity { didSet { scrollsInside = !(grows && maxHeight == .infinity) } }
         /// A caret the page shows once the box has grown to its text.
         var pendingCaret: NSRange?
+        /// Growing with no tallest, it never scrolls inside: no scroller, even while its height catches up with the text (T-523).
+        private var scrollsInside = true { didSet { hasVerticalScroller = scrollsInside } }
 
         override func scrollWheel(with event: NSEvent) {
-            guard let document = documentView, document.frame.height <= contentView.bounds.height + 0.5 else { return super.scrollWheel(with: event) }
-            nextResponder?.scrollWheel(with: event)
+            if scrollsInside, let document = documentView, document.frame.height > contentView.bounds.height + 0.5 {
+                super.scrollWheel(with: event)
+            } else {
+                nextResponder?.scrollWheel(with: event)
+            }
         }
 
         override func setFrameSize(_ newSize: NSSize) {

@@ -1677,7 +1677,7 @@ extension UITest {
             if let sheet = ui.window.attachedSheet, let area = catcher(sheet.contentView) {
                 let rendered = frame("file-text"), card = frame("file-card")
                 if let card, let rendered {
-                    await check("a note's text sits on its card, 40 pt in, the card at most 680 pt wide (T-470)",
+                    await check("a note's text sits on its card, 40 pt in, the card at most its readable width (T-470)",
                                 card.width <= Metric.noteCard + 0.5 && abs(rendered.minX - card.minX - Metric.noteInset) <= 0.5
                                 && abs(card.maxX - rendered.maxX - Metric.noteInset) <= 0.5, "card \(card), text \(rendered)")
                 } else {
@@ -1700,8 +1700,21 @@ extension UITest {
                     await ui.key("k", .command, code: 40)
                     await check("and Command-K links it, Quick Open staying shut",
                                 text.string.contains("[Line five](https://example.com/notes).") && AppDelegate.shared?.quickOpenPanel.isVisible != true, text.string)
+                    await check("a note's editor grows with its text, with no scroll bar of its own (T-523)",
+                                text.enclosingScrollView?.hasVerticalScroller == false, "scroller \(String(describing: text.enclosingScrollView?.verticalScroller))")
                 }
                 model.editingFile = nil
+                await ui.settle(0.5)
+                let narrow = frame("file-card")?.width ?? 0
+                await ui.click(ui.anchor("note-width"), inSheet: true)
+                // In a sheet narrower than the card, the card already takes the column: Widen keeps it there.
+                let wide = frame("file-card")?.width ?? 0
+                await check("Widen takes a note's card past its readable width, remembered (T-523)",
+                            model.wideNotes && (wide > Metric.noteCard + 0.5 || (narrow < Metric.noteCard - 0.5 && abs(wide - narrow) <= 0.5)),
+                            "\(narrow) → \(wide)")
+                await ui.click(ui.anchor("note-width"), inSheet: true)
+                await check("and Narrow brings it back", !model.wideNotes && abs((frame("file-card")?.width ?? 0) - narrow) <= 0.5,
+                            "\(narrow) → \(String(describing: frame("file-card")))")
             } else {
                 await check("a note's window shows its text", false)
             }

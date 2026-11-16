@@ -918,7 +918,7 @@ struct FileModal: View {
         @Bindable var model = model
         // The text on a card at a readable width, the byline and labels above it (T-470). Editing swaps only the text for the
         // editor: the card, byline, labels and title stay where they are (T-368).
-        ModalPage(width: Metric.noteCard) {
+        ModalPage(width: model.wideNotes ? .infinity : Metric.noteCard) {
             VStack(alignment: .leading, spacing: Space.sm) {
                 Text(byLine).kitType(.secondary).foregroundStyle(.secondary)
                 ItemLabels(project: file.project, tags: file.tags, pinned: file.pinned,

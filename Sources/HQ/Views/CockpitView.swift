@@ -97,10 +97,7 @@ struct CockpitView: View {
         }
         .onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
         .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                Ink.content
-                SkyView(mood: model.skyMood)
-            }
+            CanvasView(mood: model.skyMood)
             .id(zoom)
             .ignoresSafeArea()
         }

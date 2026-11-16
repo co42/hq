@@ -370,8 +370,8 @@ nonisolated enum Metric {
     /// The modal's text column.
     static var pageWidth: CGFloat { 760 * Zoom.factor }
     /// A note's card (T-470): at most this wide, its text this far in from its sides and bottom, `Space.section` from its
-    /// top: a 600 pt column, about 90 characters a line.
-    static var noteCard: CGFloat { 680 * Zoom.factor }
+    /// top: a 680 pt column, Obsidian's readable width (2026-11-16, T-523).
+    static var noteCard: CGFloat { 760 * Zoom.factor }
     static var noteInset: CGFloat { 40 * Zoom.factor }
     /// An expanded table's column at its widest before its cells wrap (T-490).
     static var expandedColumn: CGFloat { 320 * Zoom.factor }

@@ -249,6 +249,10 @@ final class AppModel {
     var earlierOpen = Prefs.defaults.bool(forKey: "notifications.earlierOpen") {
         didSet { remember(earlierOpen, as: "notifications.earlierOpen") }
     }
+    /// A note's card as wide as the sheet (T-523); remembered, off by default.
+    var wideNotes = Prefs.defaults.bool(forKey: "notes.wide") {
+        didSet { remember(wideNotes, as: "notes.wide") }
+    }
     var allDescriptions = Prefs.defaults.bool(forKey: "tasks.descriptions") {
         didSet { remember(allDescriptions, as: "tasks.descriptions"); hiddenDescriptions = []; syncMenu() }
     }

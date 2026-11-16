@@ -63,6 +63,9 @@ enum KitIcon: String, CaseIterable {
     case copy = "document.on.document"
     /// A table or a diagram to the whole sheet, and an expanded diagram's zoom (T-490).
     case expand = "arrow.up.left.and.arrow.down.right"
+    /// A note's card to the sheet's width, and back (T-523).
+    case widen = "arrow.left.and.right"
+    case narrow = "arrow.right.and.line.vertical.and.arrow.left"
     case zoomIn = "plus.magnifyingglass"
     case zoomOut = "minus.magnifyingglass"
     /// Markdown callouts' kinds (T-368).

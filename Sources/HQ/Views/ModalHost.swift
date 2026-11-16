@@ -60,12 +60,9 @@ struct ModalHost: View {
                height: min(size.height, max(model.windowSize.height, Metric.modalMin.height)))
         .background(alignment: .top) {
             // The item's own sky: warm while it needs the user.
-            ZStack(alignment: .top) {
-                Ink.content
-                SkyView(mood: model.mood(of: route))
-                    .opacity(0.7)
-            }
+            CanvasView(mood: model.mood(of: route), sky: 0.7)
         }
+        .canvasWindow(sheet: true)
         .environment(\.inModal, true)
         .environment(\.modalRoute, route)
         .onPreferenceChange(OwnsEscape.self) { contentEscapes = $0 }
@@ -265,6 +262,7 @@ private struct ModalActions: View {
                 } else {
                     CopyItemButton(route: .file(id))
                     RemindMeButton(route: .file(id))
+                    WideNoteButton()
                     Button("Delete") { model.deleteFile(id) }.help("Move the note to the Trash; Undo brings it back")
                     Button("Edit") { model.beginFileEdit(id) }.help("Edit the note in markdown (⌘E)")
                     Button("Open in Obsidian") { model.openInObsidian(file.path) }.disabled(file.path == nil)
@@ -439,6 +437,19 @@ private struct RemindMeButton: View {
             .labelStyle(.iconOnly)
             .help("Set a reminder linked to it")
             .uiTestAnchor("item-remind-me")
+    }
+}
+
+/// A note's card to the sheet's width, and back; remembered for every note.
+private struct WideNoteButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button(model.wideNotes ? "Narrow" : "Widen", icon: model.wideNotes ? .narrow : .widen) { model.wideNotes.toggle() }
+            .clickable()
+            .labelStyle(.iconOnly)
+            .help(model.wideNotes ? "Back to a readable width" : "Widen the note to the window")
+            .uiTestAnchor("note-width")
     }
 }
 
