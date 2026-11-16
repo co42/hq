@@ -38,12 +38,26 @@ struct MarkdownView: View {
             .environment(\.markdownSelectable, selectable)
             .environment(\.checkboxToggle, toggle.map(CheckboxToggle.init))
             .environment(\.openURL, OpenURLAction { url in
-                if let name = Markdown.noteName(url) {
-                    model.openNoteInObsidian(named: name)
-                    return .handled
-                }
-                return .systemAction
+                model.openMarkdownLink(url) ? .handled : .systemAction
             })
+    }
+}
+
+extension AppModel {
+    /// A link in markdown HQ opens itself (T-368): a task key opens the task's window, an HQ file's `[[link]]` the note, over
+    /// what's open (Back returns); any other note opens in Obsidian. False for a web address, which the browser opens.
+    func openMarkdownLink(_ url: URL) -> Bool {
+        if let id = Markdown.taskID(url) {
+            if task(id) != nil { open(.task(id), push: modal != nil) }
+            return true
+        }
+        guard let name = Markdown.noteName(url) else { return false }
+        if let file = files.first(where: { $0.title == name || $0.id == name || ($0.id as NSString).deletingPathExtension == name }) {
+            open(.file(file.id), push: modal != nil)
+        } else {
+            openNoteInObsidian(named: name)
+        }
+        return true
     }
 }
 
@@ -61,6 +75,11 @@ nonisolated enum ViewerBlock: Sendable {
     case list(ordered: Bool, start: Int, items: [ViewerItem])
     case quote([ViewerBlock])
     case table(MarkdownTableLayout)
+    /// A paragraph that is only an image, `![alt](url)` or `![[picture.png]]`; `![[Note]]`, a note to open (T-368).
+    case image(URL, alt: String)
+    case embed(String)
+    /// An Obsidian callout, `> [!note] Title`: its kind's name, its title, `-` folded or `+` foldable, its blocks (T-368).
+    case callout(kind: String, title: String, fold: String, blocks: [ViewerBlock])
 
     static func prepare(_ blocks: [MarkdownBlock], style: MarkdownTableLayout.Style) -> [ViewerBlock] {
         blocks.map { block in
@@ -69,11 +88,56 @@ nonisolated enum ViewerBlock: Sendable {
                 .list(ordered: ordered, start: start, items: items.map {
                     ViewerItem(checked: $0.checked, taskIndex: $0.taskIndex, blocks: prepare($0.blocks, style: style), spoken: spoken($0.blocks))
                 })
-            case .quote(let blocks): .quote(prepare(blocks, style: style))
+            case .quote(let blocks): callout(blocks, style: style) ?? .quote(prepare(blocks, style: style))
             case .table(let alignments, let rows): .table(MarkdownTableLayout(alignments: alignments, rows: rows, style: style))
+            case .paragraph(let text): picture(text) ?? .block(.paragraph(highlighted(text, style.highlight)))
+            case .heading(let level, let text): .block(.heading(level: level, text: highlighted(text, style.highlight)))
             default: .block(block)
             }
         }
+    }
+
+    /// A paragraph that is one image alone, or `![[Note]]`.
+    private static func picture(_ text: AttributedString) -> ViewerBlock? {
+        let runs = text.runs.filter { !String(text[$0.range].characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard runs.count == 1, let url = runs[0].imageURL else { return nil }
+        let alt = String(text[runs[0].range].characters)
+        if let name = Markdown.noteName(url), !imageExtensions.contains((name as NSString).pathExtension.lowercased()) { return .embed(name) }
+        return .image(url, alt: alt)
+    }
+
+    private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]
+
+    /// A quote whose first line is `[!kind] Title`: a callout, the rest of its text and blocks inside.
+    private static func callout(_ blocks: [MarkdownBlock], style: MarkdownTableLayout.Style) -> ViewerBlock? {
+        guard case .paragraph(let text)? = blocks.first else { return nil }
+        let plain = String(text.characters)
+        let first = plain.prefix { $0 != "\n" }
+        guard let match = first.wholeMatch(of: /\[!(\w+)\]([+-]?)[ \t]*(.*)/) else { return nil }
+        var inside: [MarkdownBlock] = []
+        if first.count < plain.count {
+            let rest = AttributedString(text[text.characters.index(text.startIndex, offsetBy: first.count + 1)...])
+            if !String(rest.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { inside.append(.paragraph(rest)) }
+        }
+        inside += blocks.dropFirst()
+        return .callout(kind: String(match.1), title: String(match.3), fold: String(match.2), blocks: prepare(inside, style: style))
+    }
+
+    /// `==words==`: a soft marker behind the words, the marks gone (T-368 item 7); not in code.
+    static func highlighted(_ text: AttributedString, _ color: NSColor) -> AttributedString {
+        let plain = String(text.characters)
+        guard plain.contains("==") else { return text }
+        var result = text
+        func index(_ offset: Int) -> AttributedString.Index { result.characters.index(result.startIndex, offsetBy: offset) }
+        for match in plain.matches(of: /==(?=\S)[^=\n]*?\S==/).reversed() {
+            let start = plain.distance(from: plain.startIndex, to: match.range.lowerBound)
+            let end = start + plain.distance(from: match.range.lowerBound, to: match.range.upperBound)
+            guard !result[index(start)..<index(end)].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) else { continue }
+            result[index(start + 2)..<index(end - 2)].backgroundColor = Color(nsColor: color)
+            result.removeSubrange(index(end - 2)..<index(end))
+            result.removeSubrange(index(start)..<index(start + 2))
+        }
+        return result
     }
 
     /// A list item's first line, for VoiceOver.
@@ -137,7 +201,8 @@ private struct MarkdownBlockView: View {
                 .padding(.bottom, Space.md)
         case .block(.heading(let level, let text)):
             Text(text)
-                .kitType(level == 1 ? .heading1 : level == 2 ? .heading2 : .heading3)
+                .kitType(MarkdownStyle.headingType(level))
+                .foregroundStyle(level >= 5 ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, level <= 2 ? Space.xs : 0)
         case .block(.paragraph(let text)):
@@ -166,6 +231,14 @@ private struct MarkdownBlockView: View {
                 MermaidDiagram(source: text) { model.expand(ExpandedBlock(heading: section, content: .diagram(text))) }
             } else {
                 CodeBlock(text: text, copies: true)
+            }
+        case .image(let url, let alt):
+            MarkdownImage(url: url, alt: alt) { image in model.expand(ExpandedBlock(heading: section, content: .image(image))) }
+        case .embed(let name):
+            NoteEmbed(name: name)
+        case .callout(let kind, let title, let fold, let blocks):
+            CalloutBox(kind: CalloutKind(kind), title: title.isEmpty ? kind.capitalized : title, foldable: !fold.isEmpty, folded: fold == "-") {
+                MarkdownBlocks(blocks: blocks, section: section)
             }
         case .table(let layout):
             MarkdownTable(layout: layout) { model.expand(ExpandedBlock(heading: section, content: .table(layout))) }
@@ -269,7 +342,7 @@ struct ExpandCorner: View {
 
 /// A diagram drawn by AppKit, sharp at any size: a double-click expands it (T-490), wherever a double-click would edit the
 /// text; other clicks go to what's under it, a task's card in the outline.
-private struct DiagramImage: NSViewRepresentable {
+struct DiagramImage: NSViewRepresentable {
     let image: NSImage
     let expand: (() -> Void)?
 

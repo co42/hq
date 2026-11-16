@@ -1526,17 +1526,17 @@ struct DescriptionBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             if let task = model.task(id) {
-                let lines = task.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false)
                 let editing = editable && model.editingDescription == id
-                let cut = !editing && lines.count > Self.maxLines
+                // Whole blocks up to the 20th line: the block that crosses it is left for the window (T-368 item 7).
+                let preview = editing ? (text: task.body, hidden: 0) : Markdown.preview(task.body, lines: Self.maxLines)
                 // The outline catches its own double-click: it edits at the spot (T-368).
-                MarkdownSurface(text: cut ? lines.prefix(Self.maxLines).joined(separator: "\n") : task.body, selectable: false,
+                MarkdownSurface(text: preview.text, selectable: false,
                                 placeholder: "No description yet. Double-click to write one.",
                                 toggle: { index in model.toggleCheckbox(id, at: index) },
                                 editing: editable ? editor(editing) : nil, catchesDoubleClick: false,
                                 anchors: MarkdownAnchors(editor: "description-editor:\(id)"))
-                if cut {
-                    Text("\(lines.count - Self.maxLines) more lines: open the task to read them all.")
+                if preview.hidden > 0 {
+                    Text("\(preview.hidden) more \(preview.hidden == 1 ? "line" : "lines"): open the task to read them all.")
                         .kitType(.callout)
                         .foregroundStyle(.secondary)
                 }

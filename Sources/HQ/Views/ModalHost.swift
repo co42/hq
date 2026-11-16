@@ -367,28 +367,36 @@ private struct ExpandedActions: View {
                 .uiTestAnchor("expanded-rows")
             CopyButton(text: { layout.markdown }, title: "Copy", icon: .copy, done: "Copied", help: "Copy the table as markdown", anchor: "copy-table")
         case .diagram(let source):
-            let zoom = model.diagramZoom
-            Button("Zoom Out", icon: .zoomOut) { zoom.step(-1) }
-                .labelStyle(.iconOnly)
-                .clickable()
-                .help("Zoom Out (⌘−)")
-            Button { zoom.fit() } label: {
-                // As wide at every zoom: the glass doesn't move.
-                ZStack {
-                    Text("400%").hidden()
-                    Text("\(Int((zoom.scale * 100).rounded()))%")
-                }
-                .monospacedDigit()
-            }
-            .clickable()
-            .help("Zoom to Fit (⌘9)")
-            .uiTestAnchor("diagram-zoom")
-            Button("Zoom In", icon: .zoomIn) { zoom.step(1) }
-                .labelStyle(.iconOnly)
-                .clickable()
-                .help("Zoom In (⌘+)")
+            zoomControls
             CopyButton(text: { source }, title: "Copy Source", icon: .copy, done: "Copied", help: "Copy the diagram’s Mermaid source", anchor: "copy-source")
+        case .image:
+            zoomControls
         }
+    }
+
+    /// Zoom Out, the zoom in % (a click fits), Zoom In: a diagram's and a picture's.
+    @ViewBuilder
+    private var zoomControls: some View {
+        let zoom = model.diagramZoom
+        Button("Zoom Out", icon: .zoomOut) { zoom.step(-1) }
+            .labelStyle(.iconOnly)
+            .clickable()
+            .help("Zoom Out (⌘−)")
+        Button { zoom.fit() } label: {
+            // As wide at every zoom: the glass doesn't move.
+            ZStack {
+                Text("400%").hidden()
+                Text("\(Int((zoom.scale * 100).rounded()))%")
+            }
+            .monospacedDigit()
+        }
+        .clickable()
+        .help("Zoom to Fit (⌘9)")
+        .uiTestAnchor("diagram-zoom")
+        Button("Zoom In", icon: .zoomIn) { zoom.step(1) }
+            .labelStyle(.iconOnly)
+            .clickable()
+            .help("Zoom In (⌘+)")
     }
 }
 

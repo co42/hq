@@ -36,8 +36,8 @@ enum KitType {
     case field
     /// The modal's item title, Title 1 22 semibold.
     case pageTitle
-    /// Markdown headings: Title 2, Title 3, then Headline.
-    case heading1, heading2, heading3
+    /// Markdown headings: Title 2, Title 3, Headline; H4 Body semibold, H5 and H6 Callout semibold (T-368).
+    case heading1, heading2, heading3, heading4, heading5
     /// A markdown table's header row: Callout 12 semibold.
     case tableHeader
     /// Inline code in a markdown table's header row: Callout 12 semibold monospaced.
@@ -51,6 +51,8 @@ enum KitType {
         case .title, .body: (.body, .regular, .default)
         case .titleStrong: (.body, .semibold, .default)
         case .titleBold, .header, .heading3: (.body, .bold, .default)
+        case .heading4: (.body, .semibold, .default)
+        case .heading5: (.callout, .semibold, .default)
         case .secondary, .meta: (.subheadline, .regular, .default)
         case .key: (.subheadline, .regular, .monospaced)
         case .code: (.callout, .regular, .monospaced)

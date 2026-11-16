@@ -864,6 +864,7 @@ enum SelfTest {
             "- a\n  - nested\n- b\n\n1. first\n2. second",
             "> A quote\n> on two lines.\n\nText.",
             "Text.\n\n```\nlet x = 1\nlet y = 2\n```\n\nAfter the code.",
+            "#### Four\n\nText under it.\n\n##### Five\n\n###### Six\n\nEnd.",
         ]
         // A note's leading `# Title` in Title 1, 12 pt more below it (T-470).
         let titled = [
@@ -891,6 +892,45 @@ enum SelfTest {
         let titledNote = NSTextStorage(string: titled[0])
         MarkdownStyle.apply(to: titledNote, title: true)
         func size(_ needle: String) -> CGFloat? { (titledNote.attribute(.font, at: (titledNote.string as NSString).range(of: needle).location, effectiveRange: nil) as? NSFont)?.pointSize }
+        // What the viewer draws since T-368 item 7: callouts, highlights.
+        let callout = ViewerBlock.prepare(Markdown.blocks("> [!warning]- Before the release\n> Ship after the canary.\n>\n> - one"), style: .current)
+        if case .callout(let kind, let title, let fold, let inside)? = callout.first {
+            check("a `> [!kind]` quote is a callout: its kind, title, fold and blocks", kind == "warning" && title == "Before the release" && fold == "-" && inside.count == 2,
+                  "\(kind) \(title) \(fold) \(inside.count)")
+        } else {
+            check("a `> [!kind]` quote is a callout", false, "\(callout)")
+        }
+        if case .block(.paragraph(let marked))? = ViewerBlock.prepare(Markdown.blocks("Never ==retry a 4xx== and `==code==`"), style: .current).first {
+            let lit = marked.runs.filter { $0.backgroundColor != nil }.map { String(marked[$0.range].characters) }
+            check("`==words==` are highlighted, their marks gone, never in code", String(marked.characters) == "Never retry a 4xx and ==code==" && lit == ["retry a 4xx"],
+                  "\(String(marked.characters)) \(lit)")
+        } else {
+            check("a highlighted paragraph", false)
+        }
+        let pictures = ["![A chart](https://example.com/chart.png)", "![[diagram.png]]", "![[Retry budget plan]]"]
+            .map { ViewerBlock.prepare(Markdown.blocks($0), style: .current).first }
+        let kinds = pictures.map { block -> String in
+            switch block {
+            case .image(let url, let alt): "image \(url.absoluteString) \(alt)"
+            case .embed(let name): "embed \(name)"
+            default: "other"
+            }
+        }
+        check("an image alone is drawn, `![[picture.png]]` too; `![[Note]]` is a card that opens it",
+              kinds == ["image https://example.com/chart.png A chart", "image hq-note:diagram.png diagram.png", "embed Retry budget plan"], "\(kinds)")
+        // A task key and an HQ file's [[link]] open over what's open, Back returning (T-368 item 6).
+        if model.tasks.count >= 2, let note = model.files.first {
+            let (first, second) = (model.tasks[0].id, model.tasks[1].id)
+            model.open(.task(first))
+            let key = model.openMarkdownLink(URL(string: "\(Markdown.taskScheme):\(second)")!)
+            let opened = model.modal == .task(second) && model.modalStack == [.task(first)]
+            let name = note.title.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? note.title
+            let link = model.openMarkdownLink(URL(string: "\(Markdown.noteScheme):\(name)")!)
+            check("a task key in text opens the task over what's open, an HQ file's [[link]] the note, Back returning",
+                  key && opened && link && model.modal == .file(note.id) && model.modalStack == [.task(first), .task(second)],
+                  "\(String(describing: model.modal)) \(model.modalStack)")
+            model.closeModal()
+        }
         check("a note's leading # Title is in Title 1 in the editor, its other headings at theirs",
               size("Retry") == KitType.pageTitle.nsFont.pointSize && size("Why") == KitType.heading2.nsFont.pointSize, "\(size("Retry") ?? 0) \(size("Why") ?? 0)")
         // Links between tasks, one way; pins and labels on files.

@@ -7,6 +7,8 @@ struct ExpandedBlock: Hashable {
     enum Content {
         case table(MarkdownTableLayout)
         case diagram(String)
+        /// A picture from the text (T-368).
+        case image(NSImage)
     }
 
     let id = UUID()
@@ -16,6 +18,7 @@ struct ExpandedBlock: Hashable {
     var title: String {
         if let heading { return heading }
         if case .table = content { return "Table" }
+        if case .image = content { return "Image" }
         return "Diagram"
     }
 
@@ -26,7 +29,9 @@ struct ExpandedBlock: Hashable {
 extension AppModel {
     /// An expanded diagram is the sheet's: View › Zoom and ⌘9 act on it.
     var diagramShown: Bool {
-        if case .block(let block) = modal, case .diagram = block.content { true } else { false }
+        guard case .block(let block) = modal else { return false }
+        if case .table = block.content { return false }
+        return true
     }
 
     /// Expands a block over the modal it's in, Back and Escape returning to it; from the page, the sheet opens on it.
@@ -59,6 +64,9 @@ struct ExpandedBlockView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .task(id: "\(scheme)\n\(source)") { diagram = await MermaidRenderer.shared.render(source, dark: scheme == .dark) }
                 }
+            case .image(let image):
+                ExpandedDiagram(image: image, zoom: model.diagramZoom)
+                    .uiTestAnchor("expanded-diagram")
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))

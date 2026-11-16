@@ -92,7 +92,8 @@ struct MarkdownSurface: View {
                                         editing.box?.wrappedValue = height
                                     },
                                     maxHeight: editing.box == nil ? .infinity : Metric.editorMaximum,
-                                    onCommit: editing.commit, onCancel: editing.cancel, onEnd: editing.end, onTab: editing.tab)
+                                    onCommit: editing.commit, onCancel: editing.cancel, onEnd: editing.end, onTab: editing.tab,
+                                    completions: model.markdownCompletions)
             .onAppear { model.editorCaret = nil }
             .onDisappear { editorHeight = 0 }
             .uiTestAnchor(anchors.editor ?? "markdown-editor")
@@ -140,16 +141,18 @@ struct MarkdownField: View {
     var maxHeight: CGFloat = .infinity
     var submit: () -> Void
     var cancel: () -> Void
+    @Environment(AppModel.self) private var model
 
     var body: some View {
+        let baseline = Space.sm + MarkdownStyle.body.ascender
         MarkdownEditor(text: $text, focusOnAppear: focusOnAppear, label: label, inset: Space.sm, onCommit: submit, onCancel: cancel,
                        onTab: { backward in
                            let window = NSApp.keyWindow
                            if backward { window?.selectPreviousKeyView(nil) } else { window?.selectNextKeyView(nil) }
-                       })
+                       }, completions: model.markdownCompletions)
             .frame(minHeight: minHeight, maxHeight: maxHeight)
             // A form's label lines up with its first line: an AppKit text view gives the grid no baseline.
-            .alignmentGuide(.firstTextBaseline) { _ in Space.sm + MarkdownStyle.body.ascender }
+            .alignmentGuide(.firstTextBaseline) { _ in baseline }
             .background(Ink.editor, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Ink.boxFrame))
             .overlay(alignment: .topLeading) {
@@ -177,4 +180,23 @@ enum MarkdownLine {
     }
 
     private static var cache: [String: AttributedString] = [:]
+}
+
+extension AppModel {
+    /// The editor's list (T-368 item 6): HQ's files after `[[`, newest first, by any words of their name; the tasks after `T-`,
+    /// doing, todo, then the backlog and done, by number or by a word of the title. Twenty at most.
+    func markdownCompletions(_ kind: MarkdownCompletion, _ typed: String) -> [String] {
+        switch kind {
+        case .note:
+            let query = typed.lowercased()
+            return files.sorted { $0.modified > $1.modified }.map { ($0.id as NSString).deletingPathExtension }
+                .filter { query.isEmpty || $0.lowercased().contains(query) }.prefix(20).map(\.self)
+        case .task:
+            let query = typed.dropFirst(2).lowercased()
+            let rank: [TaskStatus: Int] = [.doing: 0, .todo: 1, .backlog: 2, .done: 3]
+            return tasks.filter { query.isEmpty || String($0.id).hasPrefix(query) || $0.title.lowercased().contains(query) }
+                .sorted { (rank[$0.status] ?? 4, $1.id) < (rank[$1.status] ?? 4, $0.id) }
+                .prefix(20).map { "T-\($0.id) \($0.title)" }
+        }
+    }
 }

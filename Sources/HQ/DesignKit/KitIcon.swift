@@ -65,6 +65,13 @@ enum KitIcon: String, CaseIterable {
     case expand = "arrow.up.left.and.arrow.down.right"
     case zoomIn = "plus.magnifyingglass"
     case zoomOut = "minus.magnifyingglass"
+    /// Markdown callouts' kinds (T-368).
+    case calloutNote = "info.circle"
+    case calloutTip = "lightbulb"
+    case calloutWarning = "exclamationmark.triangle"
+    case calloutDanger = "xmark.octagon"
+    case calloutQuestion = "questionmark.circle"
+    case calloutQuote = "quote.opening"
     case openExternal = "arrow.up.right.square"
     case close = "xmark"
     case back = "chevron.backward"

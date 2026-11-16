@@ -315,6 +315,14 @@ enum Snapshot {
                     model.open(.file(file.id))
                 }
             },
+            // T-368: what the viewer draws: task keys, a highlight, H4 to H6, callouts, a note's card.
+            Page(name: "modal-file-markdown", capture: .sheet) { model in
+                reset(model)
+                let body = "Split into T-47 and T-48, ==never retry a 4xx==.\n\n#### Rules\n\nAt most 3 attempts.\n\n##### Fine print\n\nBase 100 ms.\n\n"
+                    + "> [!warning] Before the release\n> Ship only after T-49 is green for 30 minutes.\n\n> [!tip]- Folded at first\n> Hidden.\n\n"
+                    + "> [!question] Why per upload?\n> A push of 40 layers must not retry 120 times.\n\n![[Retry budget plan]]"
+                if let file = model.addFile(title: "Markdown parts", body: body) { model.open(.file(file.id)) }
+            },
             // T-490: a table and a diagram expanded over the note.
             Page(name: "modal-expanded-table", capture: .sheet) { model in
                 reset(model)

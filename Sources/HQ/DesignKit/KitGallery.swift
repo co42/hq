@@ -114,7 +114,9 @@ struct KitGallery: View {
                                     look: .page, title: true)
                         .frame(width: Metric.noteCard)
                     VStack(alignment: .leading, spacing: Space.lg) {
-                        MarkdownSurface(text: "At most **3 attempts** per part.", look: .compact)
+                        MarkdownSurface(text: "At most **3 attempts** per part, see T-13. ==Never retry a 4xx.==\n\n#### Rules\n\n##### Fine print\n\n"
+                                        + "> [!warning] Before the release\n> Ship after the canary.\n\n> [!tip]- Folded\n> Hidden at first.\n\n> [!question] Why?\n> Because.",
+                                        look: .compact)
                         MarkdownSurface(text: "", look: .compact, placeholder: "No description yet. Double-click to write one.")
                         MarkdownLine.text("Retry budget **ready**: see `T-13` and [the plan](https://example.com).").kitType(.title)
                         MarkdownField(text: .constant(""), placeholder: "Optional, in markdown", label: "Description", minHeight: Metric.noteField,

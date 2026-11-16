@@ -1532,6 +1532,42 @@ extension UITest {
         await check("Command-K links the selection to a copied address, Quick Open staying shut",
                     editor.string.contains("[Second](https://example.com/plan) line.") && AppDelegate.shared?.quickOpenPanel.isVisible != true, editor.string)
         AppDelegate.shared?.quickOpenPanel.dismiss()
+        // A mark typed over a selection wraps it, again doubles it; with nothing selected it's just typed (T-368 item 6).
+        editor.setSelectedRange((editor.string as NSString).range(of: "First"))
+        await ui.type("*")
+        await ui.type("*")
+        await check("a mark typed over a selection wraps it, again doubles it, the words still selected",
+                    editor.string.contains("**First** line.") && (editor.string as NSString).substring(with: editor.selectedRange()) == "First", editor.string)
+        editor.setSelectedRange(NSRange(location: at("More.") + 5, length: 0))
+        await ui.type("_")
+        await check("with nothing selected, a mark is just typed", editor.string.contains("More._\n"), editor.string)
+        // `T-` and `[[` complete: the list's rows, and what a pick puts in (T-368 item 6).
+        if let coordinator = editor.delegate as? MarkdownEditor.Coordinator {
+            func rows() -> [String] { coordinator.textView(editor, completions: [], forPartialWordRange: editor.rangeForUserCompletion, indexOfSelectedItem: nil) }
+            editor.setSelectedRange(NSRange(location: at("Last line.") + 10, length: 0))
+            editor.insertText(" T-", replacementRange: editor.selectedRange())
+            await check("`T-` starting a word opens the list", editor.justOpenedCompletion && editor.completionContext()?.0 == .task)
+            editor.insertText("write", replacementRange: editor.selectedRange())
+            let tasks = rows()
+            await check("the tasks narrow by a word of their title", tasks.first == "T-\(task.id) Write it down", "\(tasks.prefix(3))")
+            editor.insertCompletion(tasks.first ?? "", forPartialWordRange: editor.rangeForUserCompletion, movement: NSTextMovement.return.rawValue, isFinal: true)
+            await check("a pick puts the task's key in, not its title", editor.string.contains("Last line. T-\(task.id)\n") || editor.string.hasSuffix("Last line. T-\(task.id)"),
+                        editor.string)
+            let target = model.addFile(title: "Completion target")
+            editor.insertText(" [[completion", replacementRange: editor.selectedRange())
+            let notes = rows()
+            if let note = notes.first {
+                editor.insertCompletion(note, forPartialWordRange: editor.rangeForUserCompletion, movement: NSTextMovement.return.rawValue, isFinal: true)
+            }
+            await check("`[[` lists HQ's files by their name; a pick closes the link", notes.first?.contains("Completion target") == true
+                        && editor.string.contains("[[\(notes.first ?? "-")]]"), "\(notes.prefix(3))")
+            editor.insertText(" T-", replacementRange: editor.selectedRange())
+            _ = rows()
+            editor.insertCompletion("T-", forPartialWordRange: editor.rangeForUserCompletion, movement: NSTextMovement.cancel.rawValue, isFinal: true)
+            await check("Escape keeps what was typed", editor.string.contains("]] T-"), editor.string)
+            if let target { model.deleteFile(target.id) }
+            editor.undoManager?.removeAllActions()
+        }
         editor.setSelectedRange((editor.string as NSString).range(of: "Last"))
         editor.paste(nil)
         await check("an address pasted over words links them", editor.string.contains("[Last](https://example.com/plan) line."), editor.string)

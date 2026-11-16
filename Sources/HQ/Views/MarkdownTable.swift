@@ -10,13 +10,13 @@ nonisolated final class MarkdownTableLayout: @unchecked Sendable {
         var text, header, code, headerCode: NSFont
         var textLine, headerLine, codeLine: CGFloat
         var columnGap, rowGap, rule: CGFloat
-        var color, link: NSColor
+        var color, link, highlight: NSColor
 
         @MainActor static var current: Style {
             Style(text: KitType.callout.nsFont, header: KitType.tableHeader.nsFont, code: KitType.code.nsFont, headerCode: KitType.tableHeaderCode.nsFont,
                   textLine: MarkdownStyle.lineHeight(.callout), headerLine: MarkdownStyle.lineHeight(.tableHeader),
                   codeLine: MarkdownStyle.lineHeight(.code), columnGap: Space.lg, rowGap: Space.sm, rule: Metric.tableRule,
-                  color: Ink.textNS, link: Ink.accentNS)
+                  color: Ink.textNS, link: Ink.accentNS, highlight: Ink.highlightNS)
         }
     }
 

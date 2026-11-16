@@ -176,6 +176,32 @@ extension UITest {
             await ui.settle(0.4)
         }
 
+        // A picture from the vault, `![[name.png]]`: drawn in the note, a double-click expands it (T-368 item 7).
+        model.closeModal()
+        await ui.settle(0.6)
+        if let vault = model.vault?.root.deletingLastPathComponent(), let picture = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 400, pixelsHigh: 200,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+            let png = picture.representation(using: .png, properties: [:]) {
+            try? png.write(to: vault.appending(path: "uitest-picture.png"))
+            if let note = model.addFile(title: "With a picture", body: "Above.\n\n![[uitest-picture.png]]\n\nBelow.") {
+                model.open(.file(note.id))
+                await ui.until(5) { diagramView(ui) != nil }
+                await check("a picture from the vault shows in the note, at its size", diagramView(ui).map { abs($0.frame.width - 200) < 1 } == true,
+                            "\(diagramView(ui)?.frame ?? .zero)")
+                if let shown = diagramView(ui) {
+                    let frame = shown.convert(shown.bounds, to: nil)
+                    await ui.click(NSPoint(x: frame.midX, y: frame.midY), count: 2, inSheet: true)
+                    let named: Bool = if case .block(let block) = model.modal { block.title == "Image" } else { false }
+                    await check("a double-click on it expands it, zoomable as a diagram", named && model.diagramShown, "\(String(describing: model.modal))")
+                    await sheetKey(ui, "\u{1b}", code: 53)
+                }
+                model.closeModal()
+                model.deleteFile(note.id)
+            }
+            try? FileManager.default.removeItem(at: vault.appending(path: "uitest-picture.png"))
+            await ui.settle(0.4)
+        }
+
         // From the page, the sheet opens on the block and Escape closes it.
         model.closeModal()
         await ui.settle(0.6)

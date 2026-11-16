@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 
+/// What the editor's list completes: an HQ file's `[[name]]` or a task's `T-12` (T-368 item 6).
+enum MarkdownCompletion { case note, task }
+
 /// A markdown editor (DESIGN.md §9) that looks like the rendered note: its fonts, heading sizes and line height, marks
 /// dimmed, mono only in code. Return continues a list, Tab nests it; ⌘B, ⌘I, ⌘K; a URL pasted over words links them; a
 /// click ticks a checkbox. Undo, Find, no spell check. ⌘Return commits, Escape cancels, leaving it ends the edit; Tab can
@@ -27,6 +30,8 @@ struct MarkdownEditor: NSViewRepresentable {
     var onEnd: () -> Void = {}
     /// Tab and ⇧Tab (true) leave the editor instead of typing a tab, off a list line.
     var onTab: ((Bool) -> Void)?
+    /// What `[[` and `T-` complete to: rows to show for a query (T-368 item 6); nil, no list.
+    var completions: ((MarkdownCompletion, String) -> [String])?
 
     /// A box in a row: as tall as its text, then it scrolls.
     static func box(_ height: CGFloat) -> CGFloat { min(max(height, MarkdownStyle.lineHeight(.body)), Metric.editorMaximum) }
@@ -105,6 +110,19 @@ struct MarkdownEditor: NSViewRepresentable {
             parent.text = editor.string
             typing = false
             restyle(editor)
+            // `[[` or a word's `T-` just typed: the list of what it can be shows (T-368 item 6).
+            if parent.completions != nil, let editor = editor as? EditorTextView, editor.justOpenedCompletion {
+                DispatchQueue.main.async { editor.complete(nil) }
+            }
+        }
+
+        /// The list's rows: HQ's files after `[[`, the tasks after `T-`.
+        func textView(_ textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange,
+                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
+            guard let editor = textView as? EditorTextView, let (kind, _) = editor.completionContext(), let source = parent.completions else { return [] }
+            editor.completing = kind
+            index?.pointee = 0
+            return source(kind, (textView.string as NSString).substring(with: charRange))
         }
 
         /// Styles the text and tells the box its height.
@@ -328,6 +346,62 @@ struct MarkdownEditor: NSViewRepresentable {
             return true
         }
 
+        /// A pair's opening mark typed over a selection wraps it, the words still selected: again doubles it, `**bold**`,
+        /// `[[link]]` (T-368 item 6). With nothing selected, what's typed is what you get.
+        override func insertText(_ string: Any, replacementRange: NSRange) {
+            let range = selectedRange()
+            if let typed = (string as? String) ?? (string as? NSAttributedString)?.string, let close = Self.pairs[typed], range.length > 0,
+               replacementRange.location == NSNotFound || replacementRange == range {
+                let words = (self.string as NSString).substring(with: range)
+                super.insertText(typed + words + close, replacementRange: range)
+                setSelectedRange(NSRange(location: range.location + (typed as NSString).length, length: range.length))
+                return
+            }
+            super.insertText(string, replacementRange: replacementRange)
+        }
+
+        /// The list's kind while it shows.
+        var completing: MarkdownCompletion?
+
+        /// What the caret completes: the words after an open `[[` on its line, or a `T-` word, with their range.
+        func completionContext() -> (MarkdownCompletion, NSRange)? {
+            let caret = selectedRange()
+            guard caret.length == 0 else { return nil }
+            let text = string as NSString
+            let line = text.lineRange(for: NSRange(location: caret.location, length: 0))
+            let before = text.substring(with: NSRange(location: line.location, length: caret.location - line.location)) as NSString
+            let open = before.range(of: "[[", options: .backwards)
+            if open.location != NSNotFound {
+                let words = before.substring(from: NSMaxRange(open))
+                if !words.contains("]") { return (.note, NSRange(location: line.location + NSMaxRange(open), length: (words as NSString).length)) }
+            }
+            let word = before.range(of: #"(?:^|(?<=[\s(]))T-\w*$"#, options: .regularExpression)
+            if word.location != NSNotFound { return (.task, NSRange(location: line.location + word.location, length: word.length)) }
+            return nil
+        }
+
+        /// The keystroke that just went in opened a list: `[[`, or `T-` starting a word.
+        var justOpenedCompletion: Bool {
+            guard let (kind, range) = completionContext() else { return false }
+            return range.length == (kind == .note ? 0 : 2)
+        }
+
+        override var rangeForUserCompletion: NSRange { completionContext()?.1 ?? super.rangeForUserCompletion }
+
+        /// A task's row puts its key in, a note's its name and the closing `]]`; Escape puts back what was typed.
+        override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange, movement: Int, isFinal flag: Bool) {
+            guard let kind = completing, movement != NSTextMovement.cancel.rawValue else { return super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag) }
+            let inserted = switch kind {
+            case .task: String(word.prefix { $0 != " " })
+            case .note: flag ? word + "]]" : word
+            }
+            super.insertCompletion(inserted, forPartialWordRange: charRange, movement: movement, isFinal: flag)
+            if flag { completing = nil }
+        }
+
+        /// What a typed mark wraps a selection in.
+        static let pairs = ["`": "`", "*": "*", "_": "_", "~": "~", "[": "]", "(": ")", "\"": "\""]
+
         /// ⌘B, ⌘I: the selection between the marks, or out of them when they're already there.
         func wrap(_ mark: String) {
             let text = string as NSString
@@ -437,7 +511,15 @@ enum MarkdownStyle {
     /// Inline code, at the text's size.
     static var inlineCode: NSFont { KitType.editor.nsFont }
 
-    static func headingType(_ level: Int) -> KitType { level == 1 ? .heading1 : level == 2 ? .heading2 : .heading3 }
+    static func headingType(_ level: Int) -> KitType {
+        switch level {
+        case 1: .heading1
+        case 2: .heading2
+        case 3: .heading3
+        case 4: .heading4
+        default: .heading5
+        }
+    }
     static func heading(_ level: Int) -> NSFont { headingType(level).nsFont }
 
     /// The viewer's line height for a type: SwiftUI's own, measured once per size (TextKit's differs at some sizes).
@@ -589,6 +671,8 @@ enum MarkdownStyle {
     static let emphasis = pattern(#"(?<![*_\w])([*_])(?=[^\s*_])([^\n*_]*?[^\s*_])\1(?![*_\w])"#)
     static let link = pattern(#"(\[)([^\]\n]+)(\]\([^)\s]*\))"#)
     static let wiki = pattern(#"(\[\[)([^\]\n]+)(\]\])"#)
+    static let highlight = pattern(#"(==)(?=\S)([^\n=]*?\S)(==)"#)
+    static let taskKey = pattern(#"(?<![\w\[/#:.=-])T-\d+\b(?![\]\w-])"#)
     static let address = pattern(#"(?<![(<\w])https?://[^\s)>\]]+"#)
 
     /// Styles the whole text again: cheap enough on every keystroke for any note HQ keeps (a self-test times it). With
@@ -637,6 +721,7 @@ enum MarkdownStyle {
             let level = text.substring(with: marks).prefix { $0 == "#" }.count
             let line = text.paragraphRange(for: match.range)
             storage.addAttribute(.font, value: line == titleLine ? KitType.pageTitle.nsFont : heading(level), range: line)
+            if level >= 5 { storage.addAttribute(.foregroundColor, value: Ink.secondaryTextNS, range: line) }
             quiet(marks)
         }
         each(item) { match in
@@ -671,6 +756,12 @@ enum MarkdownStyle {
             quiet(match.range(at: 3))
         }
         each(address) { match in storage.addAttribute(.foregroundColor, value: Ink.syntaxLinkNS, range: match.range) }
+        each(taskKey) { match in storage.addAttribute(.foregroundColor, value: Ink.syntaxLinkNS, range: match.range) }
+        each(highlight) { match in
+            storage.addAttribute(.backgroundColor, value: Ink.highlightNS, range: match.range(at: 2))
+            quiet(match.range(at: 1))
+            quiet(match.range(at: 3))
+        }
         // Inline code last: what's inside it is code, whatever it looks like.
         each(inlineCodeSpan) { match in
             storage.addAttributes([.font: inlineCode, .foregroundColor: Ink.syntaxCodeNS], range: match.range)
