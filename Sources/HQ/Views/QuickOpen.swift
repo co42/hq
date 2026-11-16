@@ -5,7 +5,7 @@ import SwiftUI
 /// One result in Quick Open.
 struct QuickOpenResult: Identifiable, Hashable {
     enum Kind: Int, CaseIterable {
-        case sessions, tasks, pullRequests, files, artifacts
+        case sessions, tasks, pullRequests, files, artifacts, archive
 
         var title: String {
             switch self {
@@ -14,6 +14,7 @@ struct QuickOpenResult: Identifiable, Hashable {
             case .pullRequests: "Pull Requests and Issues"
             case .files: "Files"
             case .artifacts: "Artifacts"
+            case .archive: "Archive"
             }
         }
     }
@@ -24,6 +25,8 @@ struct QuickOpenResult: Identifiable, Hashable {
     var detail: String?
     var offsets: [Int] = []
     var score = 0
+    /// The Archive's row: what its search starts with.
+    var query = ""
 
     var id: ModalRoute { route }
 }
@@ -62,13 +65,16 @@ enum QuickOpen {
             add(.artifact(artifact.id), .artifacts, artifact.title, nil)
         }
         let limit = query.isEmpty ? 3 : perKind
-        let groups = QuickOpenResult.Kind.allCases.map { kind in
+        // Typed, the last row searches the Archive (T-471), as Things' Quick Find goes on into its Logbook.
+        let archive = query.isEmpty ? [] : [QuickOpenResult(route: .archive, kind: .archive, title: "Search the Archive for “\(query)”", detail: nil,
+                                                            score: .min, query: query)]
+        let groups = QuickOpenResult.Kind.allCases.filter { $0 != .archive }.map { kind in
             Array(all.filter { $0.kind == kind }.sorted { $0.score > $1.score }.prefix(limit))
         }
         // Typed, the kind with the best match comes first, so the top hit is the first row (2026-11-11).
         guard !query.isEmpty else { return groups.flatMap(\.self) }
         return groups.enumerated().sorted { ($0.element.first?.score ?? .min, -$0.offset) > ($1.element.first?.score ?? .min, -$1.offset) }
-            .flatMap(\.element)
+            .flatMap(\.element) + archive
     }
 
     /// ⌘Return: the item's outside action.
@@ -84,6 +90,7 @@ enum QuickOpen {
 
     /// Return: the item's modal.
     static func open(_ result: QuickOpenResult, model: AppModel) {
+        if result.route == .archive { return model.openArchive(query: result.query) }
         model.open(result.route)
     }
 
@@ -159,6 +166,8 @@ final class QuickOpenPanel: NSPanel {
 
 extension Notification.Name {
     static let focusQuickOpen = Notification.Name("HQ.focusQuickOpen")
+    /// The Archive's search field takes the keyboard (T-471).
+    static let focusArchive = Notification.Name("HQ.focusArchive")
 }
 
 struct QuickOpenView: View {
@@ -308,12 +317,16 @@ private enum QuickOpenLine: Identifiable {
     }
 }
 
-/// Quick Open's field: an NSTextField, so ↑↓, Return and Escape reach the results while it has focus.
+/// Quick Open's field, and the Archive's (T-471): an NSTextField, so ↑↓, Return and Escape reach the results while it
+/// has focus.
 struct QuickOpenField: NSViewRepresentable {
     enum Command { case up, down, open, show, cancel }
 
     @Binding var text: String
     let prompt: String
+    var label = "Quick Open"
+    /// What makes it take the keyboard.
+    var focus = Notification.Name.focusQuickOpen
     let onCommand: (Command) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -327,8 +340,8 @@ struct QuickOpenField: NSViewRepresentable {
         field.placeholderString = prompt
         field.delegate = context.coordinator
         field.cell?.lineBreakMode = .byTruncatingTail
-        field.setAccessibilityLabel("Quick Open")
-        context.coordinator.observe(field)
+        field.setAccessibilityLabel(label)
+        context.coordinator.observe(field, focus)
         return field
     }
 
@@ -345,8 +358,8 @@ struct QuickOpenField: NSViewRepresentable {
             self.parent = parent
         }
 
-        func observe(_ field: NSTextField) {
-            token = NotificationCenter.default.addObserver(forName: .focusQuickOpen, object: nil, queue: .main) { [weak field] _ in
+        func observe(_ field: NSTextField, _ name: Notification.Name) {
+            token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak field] _ in
                 MainActor.assumeIsolated { _ = field?.window?.makeFirstResponder(field) }
             }
         }

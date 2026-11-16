@@ -126,8 +126,10 @@ public struct ArchiveIndex: Codable, Sendable, Equatable {
             var text: String
         }
 
-        let stories: [Item]
-        let under: [Int: [Item]]
+        private(set) var stories: [Item]
+        private(set) var under: [Int: [Item]]
+        /// Changes with what it searches: a search kept for one id still holds.
+        public private(set) var id = UUID()
 
         public init(_ index: ArchiveIndex) {
             let projects = Dictionary(index.entries.filter { $0.id == $0.root }.map { ($0.id, $0.project) }, uniquingKeysWith: { a, _ in a })
@@ -145,18 +147,26 @@ public struct ArchiveIndex: Codable, Sendable, Equatable {
 
         public var count: Int { stories.count }
 
-        /// The stories with every word in their title, key, project or tags, or in one of their tasks'; the newest
-        /// archived first. No words: every story.
+        /// Takes a story and the tasks under it out, without folding the rest again.
+        public mutating func remove(story root: Int) {
+            stories.removeAll { $0.entry.id == root }
+            under[root] = nil
+            id = UUID()
+        }
+
+        /// The stories with every word in their title, key, project or tags, or in one of their tasks' (then those tasks
+        /// come with it); the newest archived first. No words: every story.
         public func search(_ query: String) -> [Match] {
             let words = ArchiveIndex.words(query)
-            return stories.compactMap { story in
-                let kids = under[story.entry.id] ?? []
-                guard !words.isEmpty else { return Match(story: story.entry, under: [], count: kids.count) }
-                let own = words.allSatisfy(story.text.contains)
-                let found = kids.filter { kid in words.allSatisfy(kid.text.contains) }
-                guard own || !found.isEmpty else { return nil }
-                return Match(story: story.entry, under: found.map(\.entry), count: kids.count)
-            }
+            return stories.compactMap { match($0, words) }
+        }
+
+        private func match(_ story: Item, _ words: [String]) -> Match? {
+            let kids = under[story.entry.id] ?? []
+            guard !words.isEmpty, !words.allSatisfy(story.text.contains) else { return Match(story: story.entry, under: [], count: kids.count) }
+            let found = kids.filter { kid in words.allSatisfy(kid.text.contains) }
+            guard !found.isEmpty else { return nil }
+            return Match(story: story.entry, under: found.map(\.entry), count: kids.count)
         }
     }
 

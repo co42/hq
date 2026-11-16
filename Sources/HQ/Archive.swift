@@ -86,6 +86,11 @@ nonisolated final class ArchiveStore: @unchecked Sendable {
 }
 
 extension AppModel {
+    /// A delay in words, as Settings › General shows it: "1 week".
+    static func archiveDelayName(_ days: Int) -> String {
+        days == 1 ? "1 day" : days == 7 ? "1 week" : days == 14 ? "2 weeks" : days == 30 ? "1 month" : "\(days) days"
+    }
+
     /// Settings › General: how long a done story waits before the Archive takes it, in days (T-471).
     var archiveDelayDays: Int {
         get { TaskArchive.delayChoices.contains(archiveDelay) ? archiveDelay : TaskArchive.defaultDelay }
@@ -179,3 +184,122 @@ extension AppModel {
         archive(due, auto: true)
     }
 }
+
+/// The Archive as the window shows it (T-471): the index read in the background when it opens, folded once for its
+/// search, let go when the window closes.
+struct ArchiveShown {
+    var index: ArchiveIndex
+    var searcher: ArchiveIndex.Searcher
+    /// Archived notes read for an archived task's window, by key.
+    var notes: [Int: TaskItem] = [:]
+
+    static var empty: ArchiveShown { ArchiveShown(index: ArchiveIndex(), searcher: ArchiveIndex.Searcher(ArchiveIndex())) }
+}
+
+extension AppModel {
+    /// Go › Archive (⇧⌘A), the Tasks header's button, Quick Open's last row: the Archive's window, its search typed.
+    func openArchive(query: String = "") {
+        archiveQuery = query
+        showWindow()
+        open(.archive, push: modal != nil && modal != .archive)
+        loadArchive()
+    }
+
+    /// The index, read off the main thread once the window opens; the window says it's loading meanwhile.
+    func loadArchive() {
+        guard archiveShown == nil, !archiveLoading else { return }
+        archiveLoading = true
+        let store = ArchiveStore.shared
+        store.hold()
+        archiveHeld = true
+        Task {
+            // The search's folded text is made there too: with 10,000 tasks it's the slow part.
+            let (index, searcher) = await Task.detached(priority: .userInitiated) { () -> (ArchiveIndex, ArchiveIndex.Searcher) in
+                NoteWriter.queue.sync {}
+                let index = store.index()
+                return (index, ArchiveIndex.Searcher(index))
+            }.value
+            archiveLoading = false
+            guard archiveHeld else { return }
+            archiveShown = ArchiveShown(index: index, searcher: searcher)
+            archivedHighestKey = max(archivedHighestKey, index.highestKey)
+        }
+    }
+
+    /// The index again, after an Unarchive or a Delete changed it: what the window shows follows.
+    func reloadArchive() {
+        guard archiveHeld else { return }
+        let store = ArchiveStore.shared
+        Task {
+            let (index, searcher) = await Task.detached(priority: .userInitiated) { () -> (ArchiveIndex, ArchiveIndex.Searcher) in
+                NoteWriter.queue.sync {}
+                let index = store.index()
+                return (index, ArchiveIndex.Searcher(index))
+            }.value
+            guard archiveHeld else { return }
+            let notes = archiveShown?.notes ?? [:]
+            archiveShown = ArchiveShown(index: index, searcher: searcher, notes: notes)
+        }
+    }
+
+    /// An archived task's note, for its window: read in the background, nil until it's in.
+    func loadArchivedNote(_ id: Int) {
+        guard archiveShown?.notes[id] == nil, let vault else { return }
+        Task {
+            let read = await Task.detached(priority: .userInitiated) { vault.readArchived([id]) }.value
+            if let item = read.first { archiveShown?.notes[id] = item }
+        }
+    }
+
+    /// The window and the archived tasks over it closed: the index goes from memory.
+    func archiveFollowsModal() {
+        let routes = [modal].compactMap(\.self) + modalStack
+        let open = routes.contains { route in
+            switch route {
+            case .archive, .archivedTask: true
+            default: false
+            }
+        }
+        guard !open, archiveHeld else { return }
+        archiveHeld = false
+        archiveShown = nil
+        ArchiveStore.shared.release()
+    }
+
+    /// Unarchive in the Archive (its card, Task › Unarchive, an archived task's window): the story leaves the results, the
+    /// next one found takes the selection, its windows close; it comes back at the end of Tasks, selected once the Archive closes.
+    func unarchiveFromWindow(_ story: Int) {
+        let ids = Set(archiveShown?.index.entries.filter { $0.root == story }.map(\.id) ?? [story])
+        if archiveSelection == story, let shown = archiveShown {
+            let found = shown.searcher.search(archiveQuery).map(\.story.id)
+            let rest = found.filter { $0 != story }
+            archiveSelection = rest.isEmpty ? nil : rest[min(found.firstIndex(of: story) ?? 0, rest.count - 1)]
+        }
+        unarchive(story)
+        // What the window shows follows at once; the writer updates the index file after the moves.
+        archiveShown?.index.remove(story: story)
+        archiveShown?.searcher.remove(story: story)
+        leaveModal { route in if case .archivedTask(let id) = route { ids.contains(id) } else { false } }
+    }
+
+    /// Delete in the Archive: a story's notes go to the Trash, with the tasks under it; Undo brings them back archived.
+    func deleteArchived(_ story: Int) {
+        guard let vault, let index = archiveShown?.index ?? ArchiveStore.shared.current else { return }
+        let entries = index.entries.filter { $0.root == story }
+        guard !entries.isEmpty else { return }
+        var trashed: [Int: URL] = [:]
+        for entry in entries { trashed[entry.id] = trash(vault.archivedURL(entry.id).path) }
+        writeNotes([]) { ArchiveStore.shared.update { $0.remove(story: story) } }
+        archiveShown?.index.remove(story: story)
+        archiveShown?.searcher.remove(story: story)
+        let ids = Set(entries.map(\.id))
+        leaveModal { route in if case .archivedTask(let id) = route { ids.contains(id) } else { false } }
+        registerUndo("Delete") { model in
+            for entry in entries { model.untrash(trashed[entry.id], to: vault.archivedURL(entry.id).path) }
+            model.writeNotes([]) { ArchiveStore.shared.update { $0.add(entries) } }
+            model.reloadArchive()
+            model.registerUndo("Delete") { $0.deleteArchived(story) }
+        }
+    }
+}
+

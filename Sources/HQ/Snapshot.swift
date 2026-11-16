@@ -46,6 +46,9 @@ enum Snapshot {
             model.showBacklog = false
             model.showDone = false
             model.taskSearch = ""
+            model.archiveQuery = ""
+            model.archiveShown = nil
+            model.archiveSelection = nil
             model.folded = []
             model.pinnedOnly = false
             model.allDescriptions = false
@@ -199,6 +202,30 @@ enum Snapshot {
                 model.editDescription(13)
             },
             Page(name: "modal-notifications", capture: .sheet) { reset($0); $0.openCenter() },
+            // The Archive (T-471): its stories by when they went, a search that finds tasks under a story, nothing archived,
+            // and an archived task's window.
+            Page(name: "modal-archive", capture: .sheet) { model in
+                reset(model)
+                model.archiveShown = SeedData.archive(now: model.now)
+                model.open(.archive)
+            },
+            Page(name: "modal-archive-search", capture: .sheet) { model in
+                reset(model)
+                model.archiveShown = SeedData.archive(now: model.now)
+                model.archiveQuery = "drag"
+                model.open(.archive)
+            },
+            Page(name: "modal-archive-empty", capture: .sheet) { model in
+                reset(model)
+                model.archiveShown = .empty
+                model.open(.archive)
+            },
+            Page(name: "modal-archived-task", capture: .sheet) { model in
+                reset(model)
+                model.archiveShown = SeedData.archive(now: model.now)
+                model.open(.archive)
+                model.open(.archivedTask(301), push: true)
+            },
             Page(name: "modal-reminder", capture: .sheet) { model in
                 reset(model)
                 SlackClipboard.testText = nil

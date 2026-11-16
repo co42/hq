@@ -321,6 +321,8 @@ nonisolated enum Metric {
     static var searchWidth: CGFloat { 200 * Zoom.factor }
     /// A list's search field in its header.
     static var listSearch: CGFloat { 180 * Zoom.factor }
+    /// The Archive's search field: Quick Open's size of field, on a card (T-471).
+    static var archiveField: CGFloat { 44 * Zoom.factor }
     static var listSearchMin: CGFloat { 96 * Zoom.factor }
     /// Link…'s list in its popover.
     static var linkPicker: CGFloat { 280 * Zoom.factor }

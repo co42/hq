@@ -75,6 +75,7 @@ extension AppModel {
             return ItemLine.line("Link", url, nil)
         case .web(let url): return ItemLine.line("Link", url, nil)
         case .slack(let url): return ItemLine.line("Slack", url, slackMessages[url]?.title)
+        case .archivedTask(let id): return ItemLine.line("Task", "T-\(id)", archiveShown?.index.entry(id)?.title)
         default: return title(of: route)
         }
     }

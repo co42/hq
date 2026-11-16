@@ -28,6 +28,11 @@ extension SelfTest {
         check("their notes move to the Archive's folder, the story's with the time it went",
               !exists(vault.liveURL(story.id)) && exists(vault.archivedURL(story.id)) && exists(vault.archivedURL(step.id))
                 && note(vault.archivedURL(story.id)).string("archived") != nil)
+        // [[T-n]] in other notes opens by the note's name, which the move keeps: it finds the note in the Archive's folder.
+        let link = model.obsidianLink(named: Markdown.noteName(URL(string: "hq-note:\(story.key)")!) ?? "").flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        check("a [[T-n]] link to an archived story still opens it: by its name, which its moved note keeps",
+              link?.queryItems?.first { $0.name == "file" }?.value == story.key
+                && vault.archivedURL(story.id).deletingPathExtension().lastPathComponent == story.key, "\(String(describing: link))")
         let index = store.index()
         check("the index has the story and the task under it", index.entry(story.id)?.root == story.id && index.entry(step.id)?.root == story.id
               && index.highestKey >= step.id, "\(index.entries.map(\.id))")

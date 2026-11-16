@@ -129,6 +129,8 @@ struct HQCommands: Commands {
             Button("Back") { model.back() }
                 .keyboardShortcut("[")
                 .disabled(!menu.canGoBack)
+            Button("Archive") { model.openArchive() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
             Divider()
             Button("Mark Reviewed") { if case .github(let url) = model.menuRoute { model.markReviewed(url) } }
                 .disabled(!menu.reviewable)
@@ -196,10 +198,12 @@ struct HQCommands: Commands {
             }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(task == nil)
-            // A top-level task with everything under it (T-471); Mail's key.
-            Button(several ? "Archive \(menu.tasks.count)" : "Archive") { model.archive(menu.tasks) }
+            // A top-level task with everything under it (T-471); Mail's key. In the Archive, Unarchive.
+            Button(menu.archivedStory != nil ? "Unarchive" : several ? "Archive \(menu.tasks.count)" : "Archive") {
+                if let story = menu.archivedStory { model.unarchiveFromWindow(story) } else { model.archive(menu.tasks) }
+            }
                 .keyboardShortcut("a", modifiers: [.command, .control])
-                .disabled(!menu.taskIsTop)
+                .disabled(menu.archivedStory == nil && !menu.taskIsTop)
             Button("Move Up") { model.shiftTasks(menu.tasks, by: -1) }
                 .keyboardShortcut(rows ? KeyboardShortcut(.upArrow, modifiers: .shift) : nil)
                 .disabled(task == nil)

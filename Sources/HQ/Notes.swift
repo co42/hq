@@ -648,7 +648,7 @@ extension AppModel {
             resolveSlack(url)
         case .task(let other): relate(id, to: other)
         case .session(let session): link(task: id, session: session)
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: break
         }
     }
 
@@ -664,7 +664,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): if let address = URL(string: url) { unlink(task: id, url: address) }
         case .task(let other): unrelate(id, from: other)
         case .session(let session): unlink(task: id, session: session)
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: break
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: break
         }
     }
 
@@ -676,7 +676,7 @@ extension AppModel {
         case .github(let url), .web(let url), .slack(let url): task(id)?.links.contains { $0.absoluteString == url } ?? false
         case .task(let other): task(id)?.related.contains(other) == true
         case .session(let session): task(id)?.sessions.contains(session) ?? false
-        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact: false
+        case .start, .closedSessions, .notifications, .roles, .newTask, .newReminder, .newFile, .importArtifact, .archive, .archivedTask: false
         }
     }
 
@@ -867,11 +867,16 @@ extension AppModel {
 
     /// A `[[link]]` in a note: Obsidian finds the note by its name.
     func openNoteInObsidian(named name: String) {
+        if let link = obsidianLink(named: name) { NSWorkspace.shared.open(link) }
+    }
+
+    /// Obsidian's link to a note by its name alone: it finds the note in any folder, an archived task's too.
+    func obsidianLink(named name: String) -> URL? {
         let vaultName = vault?.root.deletingLastPathComponent().lastPathComponent
             ?? setup.vaultPath.map { ($0 as NSString).lastPathComponent } ?? "Notes"
-        guard var url = URLComponents(string: "obsidian://open") else { return }
+        guard var url = URLComponents(string: "obsidian://open") else { return nil }
         url.queryItems = [URLQueryItem(name: "vault", value: vaultName), URLQueryItem(name: "file", value: name)]
-        if let link = url.url { NSWorkspace.shared.open(link) }
+        return url.url
     }
 
     func trash(_ path: String?) -> URL? {

@@ -21,6 +21,9 @@ enum KitIcon: String, CaseIterable {
     case pickDate = "calendar"
     case search = "magnifyingglass"
     case closedSessions = "clock.arrow.circlepath"
+    /// The Archive (T-471): its button, an archived task's mark, Unarchive.
+    case archive = "archivebox"
+    case unarchive = "tray.and.arrow.up"
     /// Roles, on the Sessions header and in a role chip: playing a role.
     case roles = "theatermasks"
     case role = "theatermasks.fill"

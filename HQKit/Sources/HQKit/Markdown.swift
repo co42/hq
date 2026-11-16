@@ -74,7 +74,6 @@ public enum Markdown {
         }
     }
 
-    /// The name of the note a `hq-note:` URL points to.
     /// A renamed note's body: its opening `# heading` takes the new title when it was the old one, else nil.
     public static func retitled(_ body: String, from old: String, to new: String) -> String? {
         var lines = body.components(separatedBy: "\n")
@@ -86,6 +85,7 @@ public enum Markdown {
         return lines.joined(separator: "\n")
     }
 
+    /// The name of the note a `hq-note:` URL points to.
     public static func noteName(_ url: URL) -> String? {
         guard url.scheme == noteScheme else { return nil }
         return String(url.absoluteString.dropFirst(noteScheme.count + 1)).removingPercentEncoding

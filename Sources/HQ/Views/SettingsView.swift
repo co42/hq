@@ -110,7 +110,7 @@ struct GeneralSettings: View {
             @Bindable var model = model
             Picker("Archive done stories after", selection: $model.archiveDelay) {
                 ForEach(TaskArchive.delayChoices, id: \.self) { days in
-                    Text(days == 1 ? "1 day" : days == 7 ? "1 week" : days == 14 ? "2 weeks" : days == 30 ? "1 month" : "\(days) days").tag(days)
+                    Text(AppModel.archiveDelayName(days)).tag(days)
                 }
             }
             .uiTestAnchor("archive-delay")
@@ -303,7 +303,8 @@ struct KeysSettings: View {
         ("Open the task", "Space  ⌘I, or double-click the row"),
         ("Block or unblock, blocked by, after", "B  ⇧B  A"),
         ("To the backlog or out of it", "⇧⌘B"),
-        ("Archive a story", "⌃⌘A"),
+        ("To the Archive or out of it", "⌃⌘A"),
+        ("Open the Archive", "⇧⌘A"),
         ("Start Session…", "⌥⌘Return"),
         ("Delete", "⌫  ⌘⌫"),
     ]

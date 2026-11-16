@@ -123,6 +123,9 @@ private func sampleIndex() -> ArchiveIndex {
     #expect(searcher.search("hq terminal").first?.under.map(\.id) == [348])
     #expect(searcher.search("deja").map(\.story.id) == [315])
     #expect(searcher.search("nothing here").isEmpty)
+    var less = searcher
+    less.remove(story: 342)
+    #expect(less.search("drag").map(\.story.id) == [46] && less.count == 3 && less.id != searcher.id)
 }
 
 @Test func archiveIndexAddsAndRemovesStories() throws {
@@ -177,4 +180,10 @@ private func sampleIndex() -> ArchiveIndex {
     #expect(ArchiveIndex.group(monday, now: monday, calendar: calendar) == .thisWeek)
     #expect(ArchiveIndex.group(monday - 2 * day, now: monday, calendar: calendar) == .lastWeek)
     #expect(ArchiveIndex.group(monday - 20 * day, now: monday, calendar: calendar) == .month(year: 2026, month: 10))
+}
+
+@Test func taskLinksNameTheNoteNotItsFolder() throws {
+    let text = Markdown.linkNotes("See [[T-12]] and [[T-12|the story]].")
+    #expect(text == "See [T-12](hq-note:T-12) and [the story](hq-note:T-12).")
+    #expect(Markdown.noteName(try #require(URL(string: "hq-note:T-12"))) == "T-12")
 }

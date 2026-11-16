@@ -49,7 +49,7 @@ fi
 
 # The groups that time the main thread run alone; the others in shards of about the same length (GROUP lines give
 # each group's time). The last shard takes every group the others don't name, new ones included.
-alone=idle,performance
+alone=idle,performance,archiveWindow
 shards=(
   outlineKeys,grid,modal,menuBar,singleSessionFace,prFaces
   storyFlow,typingKeepsRows,pageSelection,lateChecks

@@ -25,6 +25,9 @@ enum ModalRoute: Hashable {
     case start
     case closedSessions
     case notifications
+    /// The Archive (T-471): its search and stories; an archived task, read only, opens over it.
+    case archive
+    case archivedTask(Int)
     /// The Roles modal (T-415): the roles' list beside the one picked.
     case roles
 }
@@ -390,12 +393,20 @@ final class AppModel {
         willSet { if newValue != modal { saveModalEdits() } }
         didSet {
             syncMenu()
+            archiveFollowsModal()
             // Back from a PR's page, where the user may have reviewed it: Reviews catch up in seconds (T-366).
             if case .github? = oldValue, modal != oldValue { pollGitHubSoon() }
         }
     }
     /// What Back returns to, newest last.
-    var modalStack: [ModalRoute] = [] { didSet { syncMenu() } }
+    var modalStack: [ModalRoute] = [] { didSet { syncMenu(); archiveFollowsModal() } }
+    /// The Archive's window (T-471): its search, the index it shows, read when it opens, and whether HQ holds it.
+    var archiveQuery = ""
+    /// The story selected in the Archive: kept while an archived task's window is over it.
+    var archiveSelection: Int? { didSet { syncMenu() } }
+    var archiveShown: ArchiveShown?
+    var archiveLoading = false
+    @ObservationIgnored var archiveHeld = false
     var startDraft: StartDraft?
     /// The role picked in the Roles modal, and its name, line or text while edited in place.
     var selectedRole: String?
@@ -727,6 +738,8 @@ final class MenuState: ObservableObject {
     @Published private(set) var taskInBacklog = false
     /// A top-level task is among the ones the Task menu acts on: Archive applies.
     @Published private(set) var taskIsTop = false
+    /// The archived story Task › Unarchive acts on: the Archive's selection, or the story of the archived task's window.
+    @Published private(set) var archivedStory: Int?
     @Published private(set) var session: String?
     @Published private(set) var sessionRunning = false
     @Published private(set) var outlineKeyboard = OutlineKeyboard.none
@@ -837,6 +850,12 @@ final class MenuState: ObservableObject {
         set(\.taskBlocked, task?.blocked ?? false)
         let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []
         set(\.taskIsTop, targets.contains { model.taskTree.parent(of: $0) == nil && model.task($0) != nil })
+        let archived: Int? = switch model.modal {
+        case .archive: model.archiveSelection
+        case .archivedTask(let id): model.archiveShown?.index.entry(id)?.root ?? id
+        default: nil
+        }
+        set(\.archivedStory, archived)
         set(\.tasks, targets)
         set(\.tasksToBacklog, targets.contains { model.task($0)?.status != .backlog })
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })

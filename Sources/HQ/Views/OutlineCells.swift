@@ -1462,6 +1462,12 @@ private struct TaskToggles: View {
             .clickable()
             .help("Descriptions: show every description in Tasks")
             .accessibilityLabel("Descriptions")
+        // The Archive (T-471): no count, it only grows.
+        Button { model.openArchive() } label: { HeaderIcon(icon: .archive) }
+            .clickable()
+            .help("Archive: search the stories done and put away, and bring one back (⇧⌘A)")
+            .accessibilityLabel("Archive")
+            .uiTestAnchor("archive-button")
     }
 }
 
@@ -1790,6 +1796,8 @@ extension AppModel {
         case .newReminder: "New Reminder"
         case .newFile: "New File"
         case .importArtifact: "Import an Artifact"
+        case .archive: "Archive"
+        case .archivedTask(let id): archiveShown?.index.entry(id)?.title ?? "T-\(id)"
         }
     }
 

@@ -90,6 +90,8 @@ extension ModalRoute {
         case .closedSessions: "closed"
         case .roles: "roles"
         case .notifications: "notifications"
+        case .archive: "archive"
+        case .archivedTask(let id): "archived:\(id)"
         }
     }
 }

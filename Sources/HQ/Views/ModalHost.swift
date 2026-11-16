@@ -48,6 +48,8 @@ struct ModalHost: View {
                 case .closedSessions: ClosedSessionsModal()
                 case .roles: RolesModal()
                 case .notifications: NotificationCenterView()
+                case .archive: ArchiveView()
+                case .archivedTask(let id): ArchivedTaskView(id: id).id(id)
                 case nil: EmptyView()
                 }
             }
@@ -170,6 +172,8 @@ private struct ModalHeader: View {
         case .closedSessions: "Closed Sessions"
         case .roles: "Roles"
         case .notifications: "Notifications"
+        case .archive: "Archive"
+        case .archivedTask(let id): "T-\(id)"
         case nil: ""
         }
     }
@@ -315,7 +319,26 @@ private struct ModalActions: View {
                         .help("Open the role’s note in Obsidian")
                 }
             }
-        case .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
+        case .archivedTask(let id):
+            // Read only: Copy, the rare ones in More, and Unarchive (its story, for a task under one), prominent.
+            let story = model.archiveShown?.index.entry(id)?.root ?? id
+            CopyItemButton(route: .archivedTask(id))
+            Menu {
+                Button("Open in Obsidian") { model.openInObsidian(model.vault?.archivedURL(id).path) }
+                Divider()
+                Button("Delete") { model.deleteArchived(story) }
+            } label: {
+                Label("More", icon: .more)
+            }
+            .menuIndicator(.hidden)
+            .help("More")
+            Button(story == id ? "Unarchive" : "Unarchive T-\(story)", icon: .unarchive) { model.unarchiveFromWindow(story) }
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.glassProminent)
+            .clickable()
+            .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
+            .uiTestAnchor("unarchive-task")
+        case .archive, .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
             EmptyView()
         }
     }

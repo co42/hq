@@ -81,6 +81,7 @@ enum UITest {
                 ("teams", teams),
                 ("sessionDrags", sessionDrags),
                 ("taskLinks", taskLinks),
+                ("archiveWindow", archiveWindow),
                 ("sessionStarts", sessionStarts),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
