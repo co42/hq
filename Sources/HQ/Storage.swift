@@ -166,8 +166,13 @@ final class Storage {
                                        configurations: ModelConfiguration(url: url))
     }
 
+    /// A test run's switch: every read of the store fails, as one did on 2026-11-13.
+    static var failReads = false
+    /// The kinds of record read whole at launch: only those may lose rows their list no longer has.
+    private var loaded: Set<ObjectIdentifier> = []
+
     func sessions() -> [SessionItem] {
-        ((try? context.fetch(FetchDescriptor<SessionRecord>())) ?? []).map(\.item)
+        load(key: \SessionRecord.sessionID) { $0.lastActivity > $1.lastActivity }.map(\.item)
     }
 
     func save(_ sessions: [SessionItem]) {
@@ -175,7 +180,7 @@ final class Storage {
     }
 
     func artifacts() -> [ArtifactItem] {
-        ((try? context.fetch(FetchDescriptor<ArtifactRecord>())) ?? []).compactMap(\.item)
+        load(key: \ArtifactRecord.url) { $0.published > $1.published }.compactMap(\.item)
     }
 
     func save(_ artifacts: [ArtifactItem]) {
@@ -183,37 +188,75 @@ final class Storage {
     }
 
     func seen() -> [String: Date] {
-        Dictionary(((try? context.fetch(FetchDescriptor<SeenRecord>())) ?? []).map { ($0.key, $0.seenAt) }, uniquingKeysWith: max)
+        Dictionary(uniqueKeysWithValues: load(key: \SeenRecord.key) { $0.seenAt > $1.seenAt }.map { ($0.key, $0.seenAt) })
     }
 
     func save(seen: [String: Date]) {
-        let records = (try? context.fetch(FetchDescriptor<SeenRecord>())) ?? []
-        var byKey = Dictionary(records.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-        for (key, date) in seen {
-            if let record = byKey.removeValue(forKey: key) {
-                if record.seenAt != date { record.seenAt = date }
-            } else {
-                context.insert(SeenRecord(key: key, seenAt: date))
-            }
-        }
-        for record in byKey.values { context.delete(record) }
-        commit("seen items")
+        sync(seen.map { Seen(key: $0.key, date: $0.value) }, key: \.key, id: \.key,
+             make: { SeenRecord(key: $0.key, seenAt: $0.date) }) { if $0.seenAt != $1.date { $0.seenAt = $1.date } }
     }
 
-    /// Changed records update, new ones insert, missing ones go. Saves only when something changed.
+    /// How many rows of a kind the store holds (the self-test counts duplicates).
+    func rows<Record: PersistentModel>(_ type: Record.Type) -> Int {
+        (try? context.fetchCount(FetchDescriptor<Record>())) ?? -1
+    }
+
+    private struct Seen {
+        let key: String
+        let date: Date
+    }
+
+    /// Every record of a kind, one per key: a key's other rows go, the newest kept.
+    private func load<Record: PersistentModel>(key: KeyPath<Record, String>, newer: (Record, Record) -> Bool) -> [Record] {
+        guard let records = read(Record.self) else { return [] }
+        loaded.insert(ObjectIdentifier(Record.self))
+        var kept: [String: Record] = [:]
+        var extra = 0
+        for record in records {
+            let id = record[keyPath: key]
+            guard let other = kept[id] else { kept[id] = record; continue }
+            extra += 1
+            if newer(record, other) { kept[id] = record; context.delete(other) } else { context.delete(record) }
+        }
+        guard extra > 0 else { return records }
+        AppLog.write("removed \(extra) duplicate \(Record.self) rows at launch, \(kept.count) kept", to: "store.log")
+        commit(String(describing: Record.self))
+        return records.filter { kept[$0[keyPath: key]] === $0 }
+    }
+
+    /// Changed records update, new ones insert, missing ones go, and so does a key's second row. Saves only when
+    /// something changed. A failed read writes nothing: every item would be stored again.
     private func sync<Item, Record: PersistentModel>(_ items: [Item], key: KeyPath<Record, String>, id: KeyPath<Item, String>,
                                                      make: (Item) -> Record, update: (Record, Item) -> Void) {
-        let records = (try? context.fetch(FetchDescriptor<Record>())) ?? []
-        var byID = Dictionary(records.map { ($0[keyPath: key], $0) }, uniquingKeysWith: { first, _ in first })
-        for item in items {
+        guard let records = read(Record.self) else { return }
+        var byID: [String: Record] = [:]
+        var extra = 0
+        for record in records {
+            if byID[record[keyPath: key]] == nil { byID[record[keyPath: key]] = record } else { context.delete(record); extra += 1 }
+        }
+        if extra > 0 { AppLog.write("removed \(extra) duplicate \(Record.self) rows on save", to: "store.log") }
+        var written: Set<String> = []
+        for item in items where written.insert(item[keyPath: id]).inserted {
             if let record = byID.removeValue(forKey: item[keyPath: id]) {
                 update(record, item)
             } else {
                 context.insert(make(item))
             }
         }
-        for record in byID.values { context.delete(record) }
+        if loaded.contains(ObjectIdentifier(Record.self)) {
+            for record in byID.values { context.delete(record) }
+        }
         commit(String(describing: Record.self))
+    }
+
+    private func read<Record: PersistentModel>(_ type: Record.Type) -> [Record]? {
+        do {
+            if Self.failReads { throw CocoaError(.fileReadUnknown) }
+            return try context.fetch(FetchDescriptor<Record>())
+        } catch {
+            AppLog.write("couldn't read \(Record.self): \(error)", to: "store.log")
+            return nil
+        }
     }
 
     private func commit(_ what: String) {
@@ -221,7 +264,9 @@ final class Storage {
         do {
             try context.save()
         } catch {
-            FileHandle.standardError.write(Data("HQ: could not save \(what): \(error)\n".utf8))
+            // Unsaved inserts left in the context would be saved again with the next change.
+            context.rollback()
+            AppLog.write("couldn't save \(what): \(error)", to: "store.log")
         }
     }
 }

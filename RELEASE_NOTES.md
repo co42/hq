@@ -1,5 +1,9 @@
 # Release notes
 
+## v15.1 · 2026-11-16
+
+- HQ no longer hangs at launch on a store that saved every session thousands of times. Since 2026-11-13, a save that couldn't read the store stored all sessions again. The next launch loaded the copies, and each save after it stored them again, until the store held 4.5 million rows. Now a save that can't read the store writes nothing, each session is stored once, and launch removes any copies already there, keeping the newest. Each case leaves a line in `~/Library/Logs/HQ/store.log`.
+
 ## v15 · 2026-11-13 · Models
 
 **Sessions** (plugin 0.12.0)
