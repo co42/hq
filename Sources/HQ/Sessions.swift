@@ -644,6 +644,8 @@ extension AppModel {
                 put(placed)
             }
         }
+        // Open on the grid when HQ quit, its Claude gone now: Closed Sessions offers to reopen them (T-505).
+        var gone: [SessionItem.ID] = []
         for var item in sessions where item.isRunning {
             if let pid = item.pid, ClaudeProcess.isRunningClaude(pid) {
                 watch(pid)
@@ -652,6 +654,7 @@ extension AppModel {
                 // HQ started it and its Claude never reported: nothing to resume. One just started may still report.
                 if item.started < .now.addingTimeInterval(-60) { forget(item.id) }
             } else if item.pid != nil || item.status.state != .idle {
+                if item.closedAt == nil { gone.append(item.id) }
                 var live = item.live
                 live.end(item.status.lastActivity)
                 item.live = live
@@ -660,6 +663,7 @@ extension AppModel {
                 put(item)
             }
         }
+        offerReopen(gone)
         TurnWatch.update(self)
     }
 

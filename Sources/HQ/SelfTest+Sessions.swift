@@ -10,6 +10,7 @@ extension SelfTest {
         subagentChecks(model)
         await closeKeysChecks(model)
         neverStartedChecks(model)
+        await reopenChecks(model)
         clearChecks(model)
         replayOrderChecks(model)
         await teamChecks(model)
@@ -149,6 +150,44 @@ extension SelfTest {
         model.reviveSessions()
         check("a card that never reported doesn't survive a relaunch; one just started does", model.session(old.id) == nil && model.session(fresh.id) != nil,
               "\(model.sessions.map(\.customName))")
+        model.sessions = saved
+    }
+
+    /// Open when HQ quit, gone at launch: Closed Sessions offers to reopen them, top cards first (T-505).
+    private static func reopenChecks(_ model: AppModel) async {
+        let saved = model.sessions
+        let lead = "5e550000-0000-4000-8000-0000000000d1", worker = "5e550000-0000-4000-8000-0000000000d2", closed = "5e550000-0000-4000-8000-0000000000d3"
+        func item(_ id: String, _ name: String, parent: String? = nil, closedAt: Date? = nil) -> SessionItem {
+            var item = SessionItem(id: id, customName: name, status: SessionStatus(state: .done, since: .now), cwd: "/tmp", repo: "reopen", branch: "main",
+                                   started: .now.addingTimeInterval(-600), pid: 999_981, tty: "/dev/ttys981", order: 1)
+            item.transcriptPath = "/tmp/HQ-selftest-\(id).jsonl"
+            item.parent = parent
+            item.closedAt = closedAt
+            return item
+        }
+        model.dismissReopen()
+        model.sessions = [item(worker, "Reopen worker", parent: lead), item(lead, "Reopen lead"), item(closed, "Closed before", closedAt: .now.addingTimeInterval(-60))]
+        model.reviveSessions()
+        check("at launch, the sessions open when HQ quit whose Claude is gone are offered, top cards first; one closed before isn't",
+              model.reopenable.map(\.id) == [lead, worker] && model.session(lead)?.closedAt != nil, "\(model.reopenable.map(\.name))")
+        model.reviveSessions()
+        check("the offer outlives a relaunch", model.reopenable.map(\.id) == [lead, worker])
+        let log = model.ghosttyLog.count
+        model.reopenAll()
+        await expect("Reopen All resumes the top card first, and the offer goes", model.ghosttyLog.dropFirst(log).first?.contains("claude --resume \(lead)") == true
+              && model.reopenable.isEmpty, "\(model.ghosttyLog.dropFirst(log))")
+        await expect("then the one under it, once its leader runs or after a while", model.ghosttyLog.dropFirst(log).contains { $0.contains("claude --resume \(worker)") },
+                     "\(model.ghosttyLog.dropFirst(log))")
+        model.sessions = [item(lead, "Reopen lead")]
+        model.reviveSessions()
+        model.dismissReopen()
+        model.reviveSessions()
+        check("Dismiss ends the offer, for good", model.reopenable.isEmpty)
+        model.sessions = [item(lead, "Reopen lead")]
+        model.reviveSessions()
+        model.reopenOffer?.at = .now.addingTimeInterval(-AppModel.reopenKept - 60)
+        check("after 24 h it's gone", model.reopenable.isEmpty)
+        model.dismissReopen()
         model.sessions = saved
     }
 

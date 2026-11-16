@@ -76,4 +76,25 @@ extension UITest {
         Prefs.defaults.removeObject(forKey: "claude.notified")
         await ui.settle(0.2)
     }
+
+    /// Sessions open when HQ quit and gone at launch (T-505): Closed Sessions offers them at its top, Reopen All and Dismiss.
+    static func reopenSessions(_ model: AppModel, _ ui: Driver) async {
+        let closed = Array(model.closedSessions.prefix(2))
+        guard closed.count == 2 else { return await check("two closed sessions in the seed", false) }
+        model.reopenOffer = ReopenOffer(ids: closed.map(\.id), at: .now)
+        model.open(.closedSessions)
+        await ui.settle(0.4)
+        await check("Closed Sessions offers them at its top, with Reopen All and Dismiss",
+                    ui.anchorFrame("reopen-all") != nil && ui.anchorFrame("reopen-dismiss") != nil
+                    && (ui.anchorFrame("reopen-all")?.minY ?? 0) > (ui.anchorFrame("closed:\(closed[0].id)")?.maxY ?? .infinity),
+                    "\(String(describing: ui.anchorFrame("reopen-all"))) \(String(describing: ui.anchorFrame("closed:\(closed[0].id)")))")
+        let log = model.ghosttyLog.count
+        await ui.click(await ui.steadyAnchor("reopen-all"), inSheet: true)
+        await ui.until(3) { model.ghosttyLog.dropFirst(log).filter { $0.contains("claude --resume") }.count == 2 }
+        await check("Reopen All resumes each, and the offer goes", model.ghosttyLog.dropFirst(log).filter { $0.contains("claude --resume") }.count == 2
+                    && model.reopenable.isEmpty && ui.anchorFrame("reopen-all") == nil, "\(model.ghosttyLog.dropFirst(log))")
+        model.closeModal()
+        model.reopenOffer = nil
+        await ui.settle(0.2)
+    }
 }

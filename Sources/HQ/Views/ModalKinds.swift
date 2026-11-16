@@ -1400,6 +1400,27 @@ struct ClosedSessionsModal: View {
 
     var body: some View {
         ModalPage {
+            // Open when HQ quit, gone at launch: all of them back in one click (T-505).
+            let gone = model.reopenable
+            if !gone.isEmpty {
+                ModalGroup(title: "Open when HQ quit") {
+                    ModalBox {
+                        HStack(spacing: Space.sm) {
+                            Text("\(gone.count) session\(gone.count == 1 ? " was" : "s were") open when HQ quit and \(gone.count == 1 ? "isn't" : "aren't") running now.")
+                                .kitType(.title)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Dismiss") { model.dismissReopen() }
+                                .help("Keep them in Closed Sessions")
+                                .uiTestAnchor("reopen-dismiss")
+                            Button("Reopen All") { model.reopenAll() }
+                                .help("Resume each in a new Ghostty tab, in its place: a team's sessions in its leader's window")
+                                .uiTestAnchor("reopen-all")
+                        }
+                        .padding(.horizontal, Space.md)
+                        .frame(height: Metric.boxRow + Space.xs)
+                    }
+                }
+            }
             ModalGroup(title: "Closed in the last 14 days") { rows(model.closedRows) }
         }
     }

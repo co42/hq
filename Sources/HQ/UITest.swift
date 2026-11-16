@@ -84,6 +84,7 @@ enum UITest {
                 ("archiveWindow", archiveWindow),
                 ("sessionStarts", sessionStarts),
                 ("sessionRestarts", sessionRestarts),
+                ("reopenSessions", reopenSessions),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still

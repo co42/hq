@@ -323,6 +323,8 @@ final class AppModel {
     /// Sessions asked to quit for Restart Session, by their Claude's pid: their terminal gets `claude --resume` once it quits.
     @ObservationIgnored var sessionRestarts: [Int32: (id: String, tty: String)] = [:]
     @ObservationIgnored var claudeCheckedAt = Date.distantPast
+    /// The sessions open when HQ quit whose Claude was gone at launch: Closed Sessions offers to reopen them (T-505).
+    var reopenOffer: ReopenOffer?
     /// Tasks whose subtasks are hidden or shown by the user's choice, by key; a task not in it shows them.
     var fold: [Int: FoldMode] = FoldMode.remembered() {
         didSet { FoldMode.remember(fold) }

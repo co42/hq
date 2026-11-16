@@ -57,6 +57,7 @@ enum Snapshot {
             // Each page on the same seed: a page that empties Needs You leaves it full for the next ones.
             SeedData.fill(model, now: seeded)
             model.installedClaude = nil
+            model.reopenOffer = nil
             if SeedData.large { SeedData.fillLarge(model, now: seeded) }
             model.pendingTaskLink = nil
             model.zoom = 1
@@ -362,6 +363,12 @@ enum Snapshot {
             Page(name: "modal-review", capture: .sheet) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
             Page(name: "modal-start", capture: .sheet) { reset($0); $0.beginStart(task: 13) },
             Page(name: "modal-closed", capture: .sheet) { reset($0); $0.open(.closedSessions) },
+            // T-505: open when HQ quit, gone at launch: the offer at the top.
+            Page(name: "modal-closed-reopen", capture: .sheet) { model in
+                reset(model)
+                model.reopenOffer = ReopenOffer(ids: model.closedSessions.prefix(3).map(\.id), at: .now)
+                model.open(.closedSessions)
+            },
             // Teams and roles (T-408, T-415, T-411): the form from a team's lead, Roles, a role's text edited, a lead's window,
             // a team closed together.
             Page(name: "modal-start-child", capture: .sheet) { model in
