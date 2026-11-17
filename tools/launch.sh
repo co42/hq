@@ -16,6 +16,9 @@ env=(--env APP_STORE=$store --env HQ_VAULT=$vault --env HQ_GITHUB=fixtures --env
 if [[ ${PERF_SEED:-0} == 1 ]]; then
   mkdir -p $vault/hq/tasks $vault/hq/files
   env+=(--env APP_SEED=1)
+  # Tasks in the vault (T-543): the seed's tasks live in memory only, and the vault's first scan empties them.
+  perl -e 'for my $i (1..40) { my $story = $i - ($i % 5 || 5) + 1; my $up = $i == $story ? "" : "parent: T-$story\n";
+    open my $f, ">", "$ARGV[0]/T-$i.md" or die; print $f "---\ntitle: Task $i\nstatus: ", ($i % 3 ? "todo" : "doing"), "\n${up}order: $i\n---\nA description.\n"; close $f }' $vault/hq/tasks
 else
   sqlite3 "$HOME/Library/Application Support/HQ/HQ.store" ".backup $store"
   cp -R "$notes/hq" $vault/
