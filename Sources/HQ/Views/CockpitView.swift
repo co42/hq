@@ -14,6 +14,8 @@ struct CockpitView: View {
     @State private var tops = SectionTops()
     /// Room at the page's end for an open team's card that reaches past it: only the page's end observes it.
     @State private var end = PageEnd()
+    /// The page's visible top under the toolbar, where a section's header pins.
+    @State private var pinTop: CGFloat = 0
 
     /// The column's leading inset and width: centered on the 4 pt grid, at most `pageMax` wide.
     static func column(_ visible: CGFloat) -> (inset: CGFloat, width: CGFloat) {
@@ -33,17 +35,22 @@ struct CockpitView: View {
                     PageTitle()
                     PullRequestsSection(width: column.width)
                         .sectionKeys(.pullRequests, focus: $keyboard)
+                        .pinsItsHeader()
                         .modifier(SectionTop(section: .pullRequests, tops: tops))
                     SessionsSection(width: column.width)
+                        .pinsItsHeader()
                         .modifier(SectionTop(section: .sessions, tops: tops))
                         // An open team's card floats over the next sections.
                         .zIndex(1)
                     FilesSection(width: column.width)
                         .sectionKeys(.files, focus: $keyboard)
+                        .pinsItsHeader()
                         .modifier(SectionTop(section: .files, tops: tops))
                     TasksSection(width: column.width)
+                        .pinsItsHeader()
                         .modifier(SectionTop(section: .tasks, tops: tops))
                 }
+                .environment(\.pinLine, PinLine(bar: pinTop, inset: column.inset, width: visible, gap: Space.xxl + Space.xs, mood: model.skyMood))
                 .frame(width: column.width, alignment: .leading)
                 .uiTestAnchor("page-column")
                 .coordinateSpace(.named(PageEnd.space))
@@ -63,6 +70,7 @@ struct CockpitView: View {
                 .id(zoom)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentInsets.top } action: { _, top in pinTop = top }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height > geometry.visibleRect.height + 1 && geometry.visibleRect.maxY >= geometry.contentSize.height - 2
             } action: { _, bottom in
@@ -373,6 +381,8 @@ struct SessionsSection: View {
                     .accessibilityLabel("New Session")
             }
             .gridProbe("sessions-header", area: "page")
+            // Over its cards when it pins: a zIndex inside the probe doesn't reach the stack.
+            .zIndex(1)
             if model.folded.contains(.sessions) {
                 EmptyView()
             } else if model.gridSessions.isEmpty {

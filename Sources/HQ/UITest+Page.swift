@@ -28,6 +28,8 @@ extension UITest {
         await sheetsFollowZoom(model, ui)
         await scenario(model, ui)
         await linkRows(model, ui)
+        await scenario(model, ui)
+        await pinnedHeaders(model, ui)
     }
 
     /// Every form sheet grows with the zoom: its header and its buttons stay inside it, at the user's 115% and at 150% (T-446).
@@ -373,6 +375,35 @@ extension UITest {
         await check("a poll that drops it leaves its page, never This Item Is Gone",
               Snapshot.goneShown == gone && ui.anchor("reload") != nil && model.modal == .github(pr.url), "gone \(Snapshot.goneShown - gone)")
         await check("and the next poll asks GitHub for what the modal shows", model.modalGitHubURLs == [pr.url])
+    }
+
+    /// A section's header pins under the toolbar while its section scrolls, over its cards, and its controls take clicks
+    /// there (T-542): Sessions over its grid, Tasks over its outline, both AppKit.
+    private static func pinnedHeaders(_ model: AppModel, _ ui: Driver) async {
+        guard let outline = ui.find(TaskOutlineView.self), let scroll = outline.enclosingScrollView, let document = scroll.documentView,
+              let grid = ui.find(SessionGrid.GridView.self) else { return await check("the page scrolls", false) }
+        let under = ui.window.contentLayoutRect.maxY
+        // Its top `by` points above the page's visible top.
+        func scrollPast(_ view: NSView, by: CGFloat) async {
+            let frame = view.convert(view.bounds, to: document)
+            let top = document.isFlipped ? frame.minY : document.frame.height - frame.maxY
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: top - scroll.contentView.contentInsets.top + by))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            await ui.settle(0.4)
+        }
+        func pinned(_ name: String) -> NSRect? {
+            ui.anchorFrame(name).flatMap { $0.maxY <= under + 1 && $0.minY >= under - Metric.sectionBar - 2 ? $0 : nil }
+        }
+        await scrollPast(grid, by: Metric.card)
+        await check("Sessions' header pins over its grid", pinned("roles-button").flatMap { ui.hitView(NSPoint(x: $0.midX, y: $0.midY)) }
+            .map { view in !sequence(first: view, next: \.superview).contains { $0 is SessionGrid.GridView } } ?? false,
+            "\(String(describing: ui.anchorFrame("roles-button"))) under \(under)")
+        await scrollPast(outline, by: outline.bounds.height / 3)
+        let backlog = model.showBacklog
+        await check("Tasks' header pins over its outline", pinned("toggle:backlog") != nil, "\(String(describing: ui.anchorFrame("toggle:backlog"))) under \(under)")
+        await ui.click(pinned("toggle:backlog").map { NSPoint(x: $0.midX, y: $0.midY) })
+        await check("its toggle takes a click there", model.showBacklog != backlog)
+        model.showBacklog = backlog
     }
 
     /// Escape in a form over a modal goes back to what's under it; in the center's reminder editor it ends the edit.

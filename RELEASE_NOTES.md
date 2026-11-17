@@ -6,6 +6,7 @@
 - HQ has a real version, from these notes: About HQ and `hq --version` say 17, or 17-unreleased and 17-dev for builds that aren't a release.
 - A window (a task, a note, Roles…) is never wider than HQ's window: at a bigger zoom on a narrow window it no longer runs off both sides.
 - Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor.
+- A section's header stays at the top of the page while you scroll through it, its search and buttons at hand; the next section's header pushes it away as it arrives.
 
 ## v16.1 · 2026-11-16 · Archive by hand, links with a hand (plugin 0.13.1)
 

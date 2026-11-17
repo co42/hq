@@ -142,6 +142,30 @@ enum Snapshot {
                     scroll(toTopOf: outline, below: Metric.skyHeight / 4)
                 }
             },
+            // Sessions' header pinned under the toolbar, its cards passing under it (T-542).
+            Page(name: "cockpit-pinned") { model in
+                reset(model)
+                await ready()
+                if let root = mainWindow?.contentView, let grid = views(SessionGrid.GridView.self, in: root).first { scroll(toTopOf: grid, below: -Metric.card / 2) }
+            },
+            Page(name: "cockpit-pinned-files") { model in
+                reset(model)
+                await ready()
+                if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first { scroll(toTopOf: outline, below: Metric.skyHeight / 3) }
+            },
+            // Tasks' header arriving: Files' header leaves before it, its foot on the arriving one's top (T-542).
+            Page(name: "cockpit-pinned-handoff") { model in
+                reset(model)
+                await ready()
+                if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first { scroll(toTopOf: outline, below: Metric.sectionBar / 2) }
+            },
+            // At the user's zoom: Tasks' header pinned over its cards (T-542).
+            Page(name: "cockpit-pinned-zoom") { model in
+                reset(model)
+                model.zoom = 1.15
+                await ready()
+                if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first { scroll(toTopOf: outline, below: -Metric.skyHeight / 2) }
+            },
             Page(name: "cockpit-search") { model in
                 reset(model)
                 model.search = "cdn"

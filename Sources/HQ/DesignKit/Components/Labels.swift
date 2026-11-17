@@ -45,6 +45,7 @@ struct SectionHeader<Trailing: View>: View {
             }
         }
         .frame(minHeight: Metric.sectionBar)
+        .pinsWhileScrolling()
     }
 
     private func titleLine(open: Bool?) -> some View {

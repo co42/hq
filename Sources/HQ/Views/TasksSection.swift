@@ -1,14 +1,15 @@
-import AppKit
-import HQKit
 import SwiftUI
 
-/// Tasks and the Backlog (DESIGN.md §7): one outline. Its headers, filters and quick-add lines are rows of it.
+/// Tasks (DESIGN.md §7): one outline, its header over the outline's first row so it pins as the other sections' do.
 struct TasksSection: View {
     let width: CGFloat
-    @Environment(AppModel.self) private var model
 
     var body: some View {
-        TaskOutline(width: width)
-            .frame(width: width)
+        ZStack(alignment: .top) {
+            TaskOutline(width: width)
+            OutlineHeader()
+                .frame(height: Metric.outlineHeader)
+        }
+        .frame(width: width)
     }
 }

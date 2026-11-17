@@ -1549,7 +1549,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     private func hosted(_ node: OutlineNode) -> AnyView {
         switch node.kind {
-        case .header: AnyView(OutlineHeader().handCursors().environment(model))
+        case .header: AnyView(Color.clear) // The section draws its header over this row.
         case .empty: AnyView(Text(OutlineSnapshot.searchWords(model).isEmpty ? "Nothing open. Type a task, or show the backlog."
                                   : "No task matches “\(OutlineSnapshot.searchWords(model).joined(separator: " "))”.")
             .kitType(.callout).foregroundStyle(.secondary)

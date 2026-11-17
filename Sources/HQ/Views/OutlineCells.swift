@@ -1421,7 +1421,7 @@ final class HostCell: NSTableCellView {
     func show(_ view: AnyView) { host.rootView = view }
 }
 
-/// "Tasks · 14 open" with its toggles; "Backlog · 8 open" with its disclosure.
+/// "Tasks · 14 open" with its search and toggles, over the outline's first row.
 struct OutlineHeader: View {
     @Environment(AppModel.self) private var model
 
