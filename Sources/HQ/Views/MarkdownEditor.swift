@@ -505,7 +505,7 @@ struct MarkdownEditor: NSViewRepresentable {
     }
 }
 
-/// How the editor draws markdown: the viewer's fonts and sizes, blank lines as tall as the viewer's gap between blocks,
+/// How the editor draws markdown: the viewer's fonts and sizes, a blank line as tall as the viewer's gap between blocks,
 /// the marks dimmed, mono only in code.
 @MainActor
 enum MarkdownStyle {
@@ -558,8 +558,8 @@ enum MarkdownStyle {
         case blank, text, itemText, heading(Int), title, item, quote, quoteBlank, fenceOpen, fenceClose, code, rule
     }
 
-    /// Each line as tall as the viewer draws it and as far below the line above: 12 pt between blocks (the blank lines
-    /// between them share it), 4 pt between list items, a heading's room above, a code box's padding taken from the space
+    /// Each line as tall as the viewer draws it and as far below the line above: 12 pt between blocks (their first blank
+    /// line; any other blank line is a whole line, T-550), 4 pt between list items, a heading's room above, a code box's padding taken from the space
     /// around its fences. Only what the marks add (their own lines, longer lines) moves the text. With `title`, a first line
     /// `# Title` is the note's title, 12 pt more below it (T-470); its range comes back.
     @discardableResult
@@ -636,11 +636,13 @@ enum MarkdownStyle {
             if kind != .item, kind != .itemText { markers = [:]; newList = false }
             let space = gap(kind)
             newList = false
-            if !blanks.isEmpty {
-                // NSParagraphStyle reads 0 as no limit: a blank line is a point tall at least.
-                let each = max(space / CGFloat(blanks.count), 1)
-                for blank in blanks { storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(each), range: blank) }
+            // The first blank line between blocks is their gap, every other one a whole line: each shows and takes the caret.
+            // NSParagraphStyle reads 0 as no limit: a blank line is a point tall at least.
+            for (index, blank) in blanks.enumerated() {
+                let height = index == 0 && previous != nil ? max(space, 1) : body
+                storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height), range: blank)
             }
+            let leading = previous == nil && !blanks.isEmpty
             let height: CGFloat = switch kind {
             case .heading(let level): lineHeight(headingType(level))
             case .title: lineHeight(.pageTitle)
@@ -650,7 +652,7 @@ enum MarkdownStyle {
             }
             // TextKit gives the first line no room above: it goes into the line.
             let first = previous == nil && blanks.isEmpty
-            storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height + (first ? space : 0), before: blanks.isEmpty && !first ? space : 0, indent: indent),
+            storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height + (first ? space : 0), before: (blanks.isEmpty && !first) || leading ? space : 0, indent: indent),
                                  range: enclosing)
             blanks = []
             previous = kind

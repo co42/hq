@@ -889,6 +889,13 @@ enum SelfTest {
             if abs(edited - renderedHeight) > 1 { offsets.append("\(sample.prefix(16).debugDescription): \(renderedHeight) rendered, \(edited) edited") }
         }
         check("the editor draws markdown as tall as the viewer, so switching moves nothing", offsets.isEmpty, offsets.joined(separator: "; "))
+        // Every blank line shows in the editor (T-550): the first between blocks is their gap, the others and those at the start or end a whole line.
+        let blanks = NSTextStorage(string: "\n\nOne.\n\n\n\nTwo.\n\n")
+        MarkdownStyle.apply(to: blanks)
+        let blankHeights = [0, 1, 7, 8, 9, 15].map { (blanks.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight ?? 0 }
+        let line = MarkdownStyle.lineHeight(.body)
+        check("each blank line in the editor shows: the first between blocks their gap, the others and those at the start and end a whole line",
+              blankHeights == [line, line, Space.md, line, line, line], "\(blankHeights)")
         let titledNote = NSTextStorage(string: titled[0])
         MarkdownStyle.apply(to: titledNote, title: true)
         func size(_ needle: String) -> CGFloat? { (titledNote.attribute(.font, at: (titledNote.string as NSString).range(of: needle).location, effectiveRange: nil) as? NSFont)?.pointSize }
