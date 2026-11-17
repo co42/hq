@@ -19,6 +19,11 @@ struct ModalHost: View {
         let route = route
         let page: GitHubItem? = if case .github(let url) = route { model.githubItem(url) ?? (kept?.url == url ? kept : nil) } else { nil }
         let small = route == .closedSessions
+        // A form keeps its size, its buttons whole; an item's window is never bigger than the window (T-544).
+        let form = switch route { case .start, .newTask, .newReminder, .newFile, .importArtifact: true; default: false }
+        let room = form ? CGSize(width: max(model.windowSize.width, Metric.modalMin.width), height: max(model.windowSize.height, Metric.modalMin.height))
+            : CGSize(width: model.windowSize.width > 0 ? model.windowSize.width : Metric.modalMin.width,
+                     height: model.windowSize.height > 0 ? model.windowSize.height : Metric.modalMin.height)
         let size = switch route {
         case .start: Metric.startSheet
         case .newTask: Metric.taskSheet
@@ -56,9 +61,7 @@ struct ModalHost: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        // Never wider or taller than the window, at any zoom (T-544).
-        .frame(width: min(size.width, model.windowSize.width > 0 ? model.windowSize.width : Metric.modalMin.width),
-               height: min(size.height, model.windowSize.height > 0 ? model.windowSize.height : Metric.modalMin.height))
+        .frame(width: min(size.width, room.width), height: min(size.height, room.height))
         .background(alignment: .top) {
             // The item's own sky: warm while it needs the user.
             ZStack(alignment: .top) {
