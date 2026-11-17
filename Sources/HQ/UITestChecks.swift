@@ -572,6 +572,20 @@ extension UITest {
         await check("a PR that waits for the user's review stands in Needs You, with Later (T-319)", !model.waitingReviews.isEmpty
               && model.waitingReviews.allSatisfy { ui.anchor("review:\($0.url)") != nil && ui.anchor("review-later:\($0.url)") != nil },
               "\(model.waitingReviews.count) waiting")
+        // A link in a notification's text: the hand over it as the sheet gives it, the arrow beside (T-536).
+        let linked = model.notify("Read [the plan](https://example.com/plan) before the review.", level: .update, source: "uitest-link")
+        await ui.until(3) { ui.window.attachedSheet.flatMap { ui.find(LinkHandView.self, in: $0.contentView) }?.handParts.isEmpty == false }
+        if let sheet = ui.window.attachedSheet, let hands = ui.find(LinkHandView.self, in: sheet.contentView), let part = hands.handParts.first {
+            hands.scrollToVisible(part.insetBy(dx: 0, dy: -Space.xl))
+            await ui.settle(0.4)
+            let over = hands.convert(NSPoint(x: part.midX, y: part.midY), to: nil)
+            let beside = hands.convert(NSPoint(x: max(part.minX - Space.md, 1), y: part.midY), to: nil)
+            await check("the hand over a link in a notification, the arrow beside",
+                        ui.cursorShown(at: over, in: sheet) == .pointingHand && ui.cursorShown(at: beside, in: sheet) != .pointingHand, "over \(String(describing: ui.cursorShown(at: over, in: sheet))) beside \(String(describing: ui.cursorShown(at: beside, in: sheet))) hit \(String(describing: ui.hitView(over, in: sheet)))")
+        } else {
+            await check("a notification's link draws where the hand shows", false)
+        }
+        model.notices.removeAll { $0.id == linked.id }
         guard let row = model.notices(in: .updates).first(where: { $0.readAt == nil && !$0.links.isEmpty }) else { return await check("an update with links", false) }
         if let frame = ui.anchorFrame("notice:\(row.id.uuidString)"), let face = ui.anchorFrame("notice-avatar:\(row.id.uuidString)") {
             await check("a card's face or tile starts at its padding, as on a task's card (no unread dot)",

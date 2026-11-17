@@ -610,10 +610,10 @@ struct Driver {
 
     /// The pointer the window shows at a point: AppKit sends the update to the view it hits, which passes it up its
     /// responder chain unless it sets one (T-453).
-    func cursorShown(at point: NSPoint) -> NSCursor? {
-        guard let hit = hitView(point),
+    func cursorShown(at point: NSPoint, in target: NSWindow? = nil) -> NSCursor? {
+        guard let hit = hitView(point, in: target),
               let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return nil }
+                                             windowNumber: (target ?? window).windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else { return nil }
         NSCursor.arrow.set()
         hit.cursorUpdate(with: event)
         return NSCursor.current

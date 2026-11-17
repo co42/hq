@@ -2,7 +2,7 @@
 
 ## v16.1 · 2026-11-16 · Archive by hand, links with a hand (plugin 0.13.1)
 
-- Nothing goes to the Archive on its own any more: Task › Archive All Done… (also on the Archive button's right-click) archives every story done throughout, after telling you how many; one Undo brings them all back. The Settings delay is gone.
+- Nothing goes to the Archive on its own any more: Task › Archive All Done… (also in the Tasks header's Archive menu, beside Show Archive) archives every story done throughout, after telling you how many; one Undo brings them all back. The Settings delay is gone.
 - An archived task's window looks like a task's: the same top lines, the description, its subtasks as cards, Unarchive in the header.
 - A link in any markdown text (descriptions, notes, notifications, table cells) shows the pointing hand.
 - Modal headers: More is the three dots alone, at the far right.

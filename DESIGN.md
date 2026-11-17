@@ -245,7 +245,7 @@ A **status** (2026-11-16, T-471), at any level: a story for later, or a step of 
 
 ### Archive
 
-Stories leave the list for the **Archive** (2026-11-16, T-471) only by hand, never on their own (2026-11-16, T-537): **Archive All Done…** (the Task menu, the Archive button's right-click menu) takes every story done with every task under it done, after an alert that names how many ("Archive 4 done stories?", Archive 4 Stories, Cancel; with none, "No Done Story to Archive"), one Undo step that brings them all back; any top-level task, any status, with **Archive** (⌃⌘A, Mail's key; the Task menu, the card's menu, the task window's More), one Undo step that puts it back in its place. HQ takes ⌃⌘A before the menus, by its letter: with nothing to archive it does nothing, never Go › Archive (⇧⌘A), which AppKit fell to while the item was off (2026-11-16, T-533). It leaves at once, the task above takes the selection. A subtask goes with its story only. The Archive window searches and brings stories back (§8).
+Stories leave the list for the **Archive** (2026-11-16, T-471) only by hand, never on their own (2026-11-16, T-537): **Archive All Done…** (the Task menu, the Tasks header's Archive menu beside Show Archive) takes every story done with every task under it done, after an alert that names how many ("Archive 4 done stories?", Archive 4 Stories, Cancel; with none, "No Done Story to Archive"), one Undo step that brings them all back; any top-level task, any status, with **Archive** (⌃⌘A, Mail's key; the Task menu, the card's menu, the task window's More), one Undo step that puts it back in its place. HQ takes ⌃⌘A before the menus, by its letter: with nothing to archive it does nothing, never Go › Archive (⇧⌘A), which AppKit fell to while the item was off (2026-11-16, T-533). It leaves at once, the task above takes the selection. A subtask goes with its story only. The Archive window searches and brings stories back (§8).
 
 ### Order
 
@@ -564,7 +564,7 @@ What each gesture does on each element. Change this table before the code; a new
 | Notification row | selects; its whole text shows | opens its first link (edits a reminder that links nothing) | its menu | Return opens, E reads or completes, L Later, ⌫ deletes, ⌘C copies |
 | A notification's links and name | opens the item over the center (Back returns) | | | |
 | Tasks' Backlog and Done toggles (2026-11-16, T-471) | show or hide those tasks, where they sit, at every level | each click toggles at once | | ⌃⌘B for Backlog; View › Show Backlog, Show Done; remembered |
-| Tasks' Archive button (2026-11-16, T-471) | opens the Archive | nothing more | | ⇧⌘A, Go › Archive; Quick Open's last row opens it with what was typed |
+| Tasks' Archive button (2026-11-16, T-471) | a menu (2026-11-17, T-537): Show Archive, Archive All Done… | nothing more | | ⇧⌘A, Go › Archive; Quick Open's last row opens it with what was typed |
 | Archived story's card, in the Archive | selects | opens its window, read only | its menu: Open, Unarchive, Copy, Open in Obsidian, Delete | from the search field ↑ ↓ move the selection, Return opens, ⌃⌘A unarchives (the next card takes the selection), Escape clears the search, then closes; Unarchive and More show under the pointer and while selected, as a notification's actions |
 | Header controls, toolbar and modal buttons | act | | | tooltips name the action and end with its key |
 

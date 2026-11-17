@@ -92,6 +92,28 @@ extension UITest {
         await check("⌃⌘A with nothing to archive leaves the Archive shut", model.modal == nil, "\(String(describing: model.modal))")
         await endUndoGroup(model)
 
+        // Archive All Done (T-537): asks naming how many, takes every story done throughout, one Undo brings them all back.
+        if let first = model.addTask(status: .done, title: "Done one"), let second = model.addTask(status: .done, title: "Done two"),
+           let held = model.addTask(status: .done, title: "Done, a step open"), let open = model.addSubtask(to: held.id, title: "Open step") {
+            model.setStatus(open.id, .todo)
+            await endUndoGroup(model)
+            let done = model.doneStories, log = model.ghosttyLog.count
+            model.archiveAllDone()
+            await endUndoGroup(model)
+            await ui.settle(0.3)
+            await check("Archive All Done asks naming how many, then takes every story done throughout, not one with a step open",
+                        model.ghosttyLog.dropFirst(log).contains("confirm archive all done, \(done.count)") && done.contains(first.id)
+                        && model.task(first.id) == nil && model.task(second.id) == nil && model.task(held.id) != nil,
+                        "\(model.ghosttyLog.suffix(1)) \(done)")
+            model.flushNoteWrites()
+            model.undoManager?.undo()
+            await ui.until(3) { model.task(first.id) != nil && model.task(second.id) != nil }
+            await check("one Undo brings them all back", model.task(first.id) != nil && model.task(second.id) != nil)
+            await ui.settle(0.3)
+            model.deleteTasks([first.id, second.id, held.id])
+            await endUndoGroup(model)
+        }
+
         // Nothing archived.
         model.archiveQuery = ""
         model.archiveShown = .empty

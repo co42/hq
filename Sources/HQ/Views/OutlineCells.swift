@@ -1458,11 +1458,13 @@ private struct TaskToggles: View {
             .help("Done: show the \(done) done tasks where they sit")
             .accessibilityLabel("Show Done")
             .uiTestAnchor("toggle:done")
-        // The Archive (T-471): no count, it only grows.
-        Button { model.openArchive() } label: { HeaderIcon(icon: .archive) }
+        // The Archive (T-471): no count, it only grows. A menu on a click: show it, or archive every done story (T-537).
+        Menu {
+            Button("Show Archive") { model.openArchive() }
+            Button("Archive All Done…") { model.archiveAllDone() }
+        } label: { HeaderIcon(icon: .archive) }
             .clickable()
-            .contextMenu { Button("Archive All Done…") { model.archiveAllDone() } }
-            .help("Archive: search the stories done and put away, and bring one back (⇧⌘A)")
+            .help("Archive: show the stories done and put away (⇧⌘A), or archive every done one")
             .accessibilityLabel("Archive")
             .uiTestAnchor("archive-button")
     }
