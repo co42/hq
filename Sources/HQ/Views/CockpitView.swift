@@ -46,6 +46,8 @@ struct CockpitView: View {
                         .sectionKeys(.files, focus: $keyboard)
                         .pinsItsHeader()
                         .modifier(SectionTop(section: .files, tops: tops))
+                        // Its header pinned, the team cards are gone under the toolbar: an open one folds, never over the header.
+                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY < -0.5 } action: { if $0 { model.foldTeam() } }
                     TasksSection(width: column.width)
                         .pinsItsHeader()
                         .modifier(SectionTop(section: .tasks, tops: tops))

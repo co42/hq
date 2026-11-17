@@ -403,6 +403,14 @@ extension UITest {
         await check("Sessions' header pins over its grid", pinned("roles-button").flatMap { ui.hitView(NSPoint(x: $0.midX, y: $0.midY)) }
             .map { view in !sequence(first: view, next: \.superview).contains { $0 is SessionGrid.GridView } } ?? false,
             "\(String(describing: ui.anchorFrame("roles-button"))) under \(under)")
+        if let lead = model.gridRoots.first(where: { !model.team(of: $0.id).isEmpty })?.id {
+            model.openTeam = lead
+            await ui.settle(0.3)
+            await scrollPast(grid, by: grid.bounds.height + Metric.skyHeight / 2)
+            await check("an open team folds once Files' header pins, never over it", model.openTeam == nil)
+        } else {
+            await check("a seed team to open", false)
+        }
         await scrollPast(outline, by: outline.bounds.height / 3)
         let backlog = model.showBacklog
         await check("Tasks' header pins over its outline", pinned("toggle:backlog") != nil, "\(String(describing: ui.anchorFrame("toggle:backlog"))) under \(under)")

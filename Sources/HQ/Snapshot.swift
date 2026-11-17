@@ -148,10 +148,14 @@ enum Snapshot {
                 await ready()
                 if let root = mainWindow?.contentView, let grid = views(SessionGrid.GridView.self, in: root).first { scroll(toTopOf: grid, below: -Metric.card / 2) }
             },
+            // Files' header pinned: the seed's biggest team, open before the scroll, folded (T-542).
             Page(name: "cockpit-pinned-files") { model in
                 reset(model)
+                model.openTeam = seedTeam(model)
                 await ready()
                 if let root = mainWindow?.contentView, let outline = views(TaskOutlineView.self, in: root).first { scroll(toTopOf: outline, below: Metric.skyHeight / 3) }
+                await ready()
+                if model.openTeam != nil { fail("an open team stays open under Files' pinned header") }
             },
             // Tasks' header arriving: Files' header leaves before it, its foot on the arriving one's top (T-542).
             Page(name: "cockpit-pinned-handoff") { model in
