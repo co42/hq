@@ -3,6 +3,7 @@
 ## v17 · unreleased
 
 - The markdown editor shows every blank line: the first between two blocks is their usual gap, any other, and those at the start or end, a whole line you can put the caret on.
+- HQ has a real version, from these notes: About HQ and `hq --version` say 17, or 17-unreleased and 17-dev for builds that aren't a release.
 - A window (a task, a note, Roles…) is never wider than HQ's window: at a bigger zoom on a narrow window it no longer runs off both sides.
 - Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor.
 

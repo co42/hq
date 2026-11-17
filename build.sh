@@ -72,7 +72,18 @@ if (( dev )); then app="${HQ_DEV_APP:-$HOME/Library/Developer/$name/$name.app}";
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin" "$app/Contents/MacOS/$name"
-sed -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
+# The version: RELEASE_NOTES.md's top entry (`## v17 · 2026-11-20 · …` is 17). The test copy says -dev; an install
+# says -unreleased unless that entry is dated, the tree is committed and the gate wasn't forced.
+top=$(grep -m1 '^## v' "$here/RELEASE_NOTES.md" || true)
+version=${${top#\#\# v}%% *}
+[[ -n "$version" ]] || version=0
+if (( dev )); then
+  version+="-dev"
+elif [[ " $* " == *" --force "* || ! "$top" =~ ' · [0-9]{4}-[0-9]{2}-[0-9]{2}' ]] \
+  || [[ -n "$(git -C "$here" status --porcelain)" ]]; then
+  version+="-unreleased"
+fi
+sed -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" -e "s/__VERSION__/$version/" "$here/Info.plist.in" > "$app/Contents/Info.plist"
 # The icon and the accent: Icon/ -> Resources/Assets.car + AppIcon.icns, rebuilt when Icon/ changed.
 if [[ -d "$here/Icon/AppIcon.icon" ]]; then
   car="$here/Resources/Assets.car"

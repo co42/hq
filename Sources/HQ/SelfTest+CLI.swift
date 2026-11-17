@@ -37,7 +37,7 @@ extension SelfTest {
               silent.joined(separator: ", "))
         check("hq status gives the build that runs", (agent("status", [:])["version"] as? String).map { !$0.isEmpty } == true
               && agent("status", [:])["startedAt"] != nil)
-        check("a build stamp orders two builds", AgentVersion.build("0.1 (202611111020)") == 202_611_111_020 && AgentVersion.build("dev") == nil)
+        check("a build stamp orders two builds", AgentVersion.build("17-dev (202611111020)") == 202_611_111_020 && AgentVersion.build("dev") == nil)
 
         // Lists say when they're cut, and refuse a filter that doesn't apply.
         let cut = agent("ls", ["kind": "tasks", "limit": "1"])
@@ -217,6 +217,9 @@ extension SelfTest {
         check("a needless --not-mine is said as done, not as a failure (T-510), and the command runs", (needless["warnings"] as? [String])?.first == "done: \(key(mine)) is yours already, so --not-mine wasn't needed"
               && model.task(id(mine))?.tags.contains("cli") == true, "\(needless["warnings"] ?? "none")")
         check("every reply names the build that runs", needless["app"] as? String == AgentVersion.atLaunch)
+        // The release notes' top entry, the test copy marked dev (T-546): `17-dev (202611171700)`.
+        check("the test copy's version is the release notes' top entry, marked dev", AgentVersion.atLaunch.wholeMatch(of: /\d+(\.\d+)*-dev \(\d{12}\)/) != nil,
+              AgentVersion.atLaunch)
         agent("hook", ["event": "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"\(session)\",\"reason\":\"other\"}"])
 
         // Leave the seed as it was.

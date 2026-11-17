@@ -75,6 +75,7 @@ tools/install-plugin.sh        # or Setup › Install in the app
 Then open HQ. Its Setup sheet checks the three things it needs (the plugin, Ghostty access, the vault) and fixes each with a button. Claude Code sessions started after the plugin is installed show up on their own.
 
 - `--force "install"`: `build.sh` installs on its own only a tree `tools/check.sh --release` passed on this Mac; a fresh clone hasn't run it.
+- The version (About HQ, `hq --version`) is `RELEASE_NOTES.md`'s top entry: `16.1` for a release (the entry dated, the tree committed), `17-unreleased` for another install, `17-dev` for the test copy.
 - `build.sh` signs with your Apple Development certificate when it finds one, ad hoc otherwise; `SIGN_IDENTITY` picks another.
 - The plugin installer adds a local marketplace, installs `hq@hq` for every session, and allows `Bash(hq:*)` in `~/.claude/settings.json`. Undo: `claude plugin uninstall hq@hq && claude plugin marketplace remove hq`.
 

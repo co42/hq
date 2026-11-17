@@ -9,7 +9,7 @@
 <key>CFBundleIconName</key><string>AppIcon</string>
 <key>NSAppleEventsUsageDescription</key><string>HQ brings your Claude sessions forward in Ghostty and opens new tabs to start or resume them.</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1</string>
+<key>CFBundleShortVersionString</key><string>__VERSION__</string>
 <key>CFBundleVersion</key><string>__BUILD__</string>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>

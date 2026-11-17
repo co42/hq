@@ -137,7 +137,7 @@ enum AgentRouter {
     }
 }
 
-/// The build a binary is, `0.1 (202611111020)`: the bundle's version and its build stamp.
+/// The build a binary is, `17-dev (202611111020)`: the bundle's version (RELEASE_NOTES.md's top entry) and its build stamp.
 nonisolated enum AgentVersion {
     /// The running app's, read when it starts listening: a rebuild under it doesn't change it.
     static let atLaunch = onDisk()
@@ -151,7 +151,7 @@ nonisolated enum AgentVersion {
         return (info?["CFBundleVersion"] as? String).map { "\(version) (\($0))" } ?? version
     }
 
-    /// The build stamp in `0.1 (202611111020)`, to order two builds.
+    /// The build stamp in `17 (202611111020)`, to order two builds.
     static func build(_ version: String) -> Int? {
         version.split(separator: "(").last.flatMap { Int($0.dropLast()) }
     }
