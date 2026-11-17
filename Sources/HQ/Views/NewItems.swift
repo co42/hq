@@ -17,6 +17,27 @@ struct FormLabel: View {
     }
 }
 
+/// A form's layout: its fields scroll when the window is too short for them, its buttons stay at its foot (T-564).
+struct FormLayout<Fields: View, Buttons: View>: View {
+    var padding = Space.xl
+    @ViewBuilder let fields: Fields
+    @ViewBuilder let buttons: Buttons
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                fields
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding([.horizontal, .top], padding)
+                    .padding(.bottom, Space.lg)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            buttons
+                .padding([.horizontal, .bottom], padding)
+        }
+    }
+}
+
 /// A sheet's buttons: Cancel (Escape) goes back to what was under it; the prominent one adds (⌘Return).
 struct FormButtons: View {
     let title: String
@@ -148,7 +169,7 @@ struct NewTaskForm: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
+        FormLayout {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     FormLabel("Task")
@@ -191,10 +212,9 @@ struct NewTaskForm: View {
                     LinksField(links: $links, anchor: "new-task")
                 }
             }
-            Spacer(minLength: 0)
+        } buttons: {
             FormButtons(title: "Add Task", ready: !DraftWords.words(title, links: links, in: model).isEmpty, anchor: "new-task-add", add: add)
         }
-        .padding(Space.xl)
         .onAppear { DispatchQueue.main.async { typing = true } }
         .onChange(of: title) { DraftWords.takeLink(from: &title, into: &links) }
         .onChange(of: links) { words.name(&title, after: links, in: model) }
@@ -253,7 +273,7 @@ struct NewReminderForm: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
+        FormLayout {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     FormLabel("Remind me to")
@@ -289,10 +309,9 @@ struct NewReminderForm: View {
                         .uiTestAnchor("new-reminder-important")
                 }
             }
-            Spacer(minLength: 0)
+        } buttons: {
             FormButtons(title: "Add Reminder", ready: !reminder.isEmpty, anchor: "new-reminder-add", add: add)
         }
-        .padding(Space.xl)
         // The sheet may come up as HQ comes forward from another app: the keyboard goes in once it has the window.
         .onAppear { DispatchQueue.main.async { typing = true } }
         .onChange(of: text) { DraftWords.takeLink(from: &text, into: &links) }
@@ -317,7 +336,7 @@ struct NewFileForm: View {
     private var name: String { title.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
+        FormLayout {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     FormLabel("Title")
@@ -328,10 +347,9 @@ struct NewFileForm: View {
                         .uiTestAnchor("new-file-title")
                 }
             }
-            Spacer(minLength: 0)
+        } buttons: {
             FormButtons(title: "Create", ready: !name.isEmpty, anchor: "new-file-create", add: add)
         }
-        .padding(Space.xl)
         .onAppear { DispatchQueue.main.async { typing = true } }
     }
 
@@ -356,7 +374,7 @@ struct ImportArtifactForm: View {
     private var name: String { title.trimmingCharacters(in: .whitespaces) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.lg) {
+        FormLayout {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     FormLabel("Link")
@@ -382,10 +400,9 @@ struct ImportArtifactForm: View {
                         .uiTestAnchor("import-title")
                 }
             }
-            Spacer(minLength: 0)
+        } buttons: {
             FormButtons(title: "Import", ready: url != nil && !name.isEmpty, anchor: "import-add", add: add)
         }
-        .padding(Space.xl)
         .onAppear { DispatchQueue.main.async { focus = .link } }
         .task { await fill() }
     }

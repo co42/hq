@@ -32,10 +32,13 @@ extension UITest {
         await pinnedHeaders(model, ui)
     }
 
-    /// Every form sheet grows with the zoom: its header and its buttons stay inside it, at the user's 115% and at 150% (T-446).
+    /// Every form sheet grows with the zoom: its header and its buttons stay inside it, at the user's 115% and at 150% (T-446),
+    /// and it stays inside a half-laptop window, its fields scrolling (T-564).
     private static func sheetsFollowZoom(_ model: AppModel, _ ui: Driver) async {
         let forms: [(ModalRoute, String)] = [(.start, "start-button"), (.newTask(.todo), "new-task-add"), (.newReminder, "new-reminder-add"),
                                              (.newFile, "new-file-create"), (.importArtifact, "import-add")]
+        let frame = ui.window.frame
+        ui.window.setContentSize(NSSize(width: 756, height: 640)) // grid: ok a half-laptop window
         for zoom in [1.15, 1.5] as [CGFloat] {
             model.zoom = zoom
             for (route, button) in forms {
@@ -46,13 +49,15 @@ extension UITest {
                     let shown = [button, "\(button)-off"].first { ui.anchorFrame($0) != nil } ?? button
                     return ["modal-close", shown].filter { name in ui.anchorFrame(name).map { !bounds.contains($0) } ?? true }
                         .map { "\($0) at \(ui.anchorFrame($0)?.integral ?? .zero) in \(sheet.frame.size)" }
+                        + (sheet.frame.width > ui.window.frame.width + 0.5 || sheet.frame.height > ui.window.frame.height + 0.5 ? ["the sheet, \(sheet.frame.size) in a \(ui.window.frame.size) window"] : [])
                 }
                 await ui.settle(0.3)
-                await check("at \(Int((zoom * 100).rounded()))%, \(model.title(of: route)) shows its header and its buttons whole", cut().isEmpty, cut().joined(separator: ", "))
+                await check("at \(Int((zoom * 100).rounded()))%, \(model.title(of: route)) shows its header and its buttons whole, inside the window", cut().isEmpty, cut().joined(separator: ", "))
                 model.closeModal()
                 await ui.until { ui.window.attachedSheet == nil }
             }
         }
+        ui.window.setFrame(frame, display: true)
         model.zoom = 1
     }
 

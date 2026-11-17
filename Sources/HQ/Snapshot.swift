@@ -386,6 +386,12 @@ enum Snapshot {
             Page(name: "modal-pr", capture: .sheet) { reset($0); $0.open(.github(pr)) },
             Page(name: "modal-review", capture: .sheet) { reset($0); $0.open(.github("https://github.com/acme/static-cdn/pull/512")) },
             Page(name: "modal-start", capture: .sheet) { reset($0); $0.beginStart(task: 13) },
+            // At 150%: no bigger than the window, its fields scrolling under its header, its buttons whole (T-564).
+            Page(name: "modal-start-zoom", capture: .sheet) { model in
+                reset(model)
+                model.zoom = 1.5
+                model.beginStart(task: 13)
+            },
             Page(name: "modal-closed", capture: .sheet) { reset($0); $0.open(.closedSessions) },
             // T-505: open when HQ quit, gone at launch: the offer at the top.
             Page(name: "modal-closed-reopen", capture: .sheet) { model in

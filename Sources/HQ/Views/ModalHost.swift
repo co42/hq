@@ -19,11 +19,9 @@ struct ModalHost: View {
         let route = route
         let page: GitHubItem? = if case .github(let url) = route { model.githubItem(url) ?? (kept?.url == url ? kept : nil) } else { nil }
         let small = route == .closedSessions
-        // A form keeps its size, its buttons whole; an item's window is never bigger than the window (T-544).
-        let form = switch route { case .start, .newTask, .newReminder, .newFile, .importArtifact: true; default: false }
-        let room = form ? CGSize(width: max(model.windowSize.width, Metric.modalMin.width), height: max(model.windowSize.height, Metric.modalMin.height))
-            : CGSize(width: model.windowSize.width > 0 ? model.windowSize.width : Metric.modalMin.width,
-                     height: model.windowSize.height > 0 ? model.windowSize.height : Metric.modalMin.height)
+        // Never bigger than the window, at any zoom (T-544); a form's fields scroll there, its buttons stay (T-564).
+        let room = CGSize(width: model.windowSize.width > 0 ? model.windowSize.width : Metric.modalMin.width,
+                          height: model.windowSize.height > 0 ? model.windowSize.height : Metric.modalMin.height)
         let size = switch route {
         case .start: Metric.startSheet
         case .newTask: Metric.taskSheet

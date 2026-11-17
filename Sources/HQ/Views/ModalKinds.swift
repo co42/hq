@@ -1202,74 +1202,77 @@ struct StartSessionForm: View {
     var body: some View {
         @Bindable var model = model
         if let draft = model.startDraft {
-            VStack(alignment: .leading, spacing: Space.lg) {
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
-                    GridRow {
-                        label("Name")
-                        TextField("Session name", text: Binding(get: { draft.name }, set: { model.startDraft?.name = $0 }))
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { model.startFromDraft() }
-                            .uiTestAnchor("start-name")
-                    }
-                    GridRow {
-                        label("Folder")
-                        Picker("Folder", selection: Binding(get: { draft.folder }, set: { value in
-                            if value == Self.other { choose() } else { model.startDraft?.folder = value }
-                        })) {
-                            ForEach(folders(draft), id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
-                            Divider()
-                            Text("Choose…").tag(Self.other)
+            FormLayout(padding: Space.xxl) {
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
+                        GridRow {
+                            label("Name")
+                            TextField("Session name", text: Binding(get: { draft.name }, set: { model.startDraft?.name = $0 }))
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { model.startFromDraft() }
+                                .uiTestAnchor("start-name")
                         }
-                        .labelsHidden()
-                        .uiTestAnchor("start-folder")
-                        .frame(width: Metric.startPicker, alignment: .leading)
-                        .clickable()
-                    }
-                    GridRow {
-                        label("Role")
-                        HStack(spacing: Space.md) {
-                            rolePicker(draft)
-                            hint(model.role(named: draft.role).map { $0.line.isEmpty ? "No line yet." : $0.line } ?? "No role: its first message says what to do.")
-                        }
-                    }
-                    GridRow {
-                        label("Model")
-                        HStack(spacing: Space.md) {
-                            ModelPickers(model: draft.model, effort: draft.effort, anchor: "start") { picked, effort in
-                                model.startDraft?.model = picked
-                                model.startDraft?.effort = effort
-                                model.startDraft?.modelChosen = true
+                        GridRow {
+                            label("Folder")
+                            Picker("Folder", selection: Binding(get: { draft.folder }, set: { value in
+                                if value == Self.other { choose() } else { model.startDraft?.folder = value }
+                            })) {
+                                ForEach(folders(draft), id: \.self) { Text(($0 as NSString).abbreviatingWithTildeInPath).tag($0) }
+                                Divider()
+                                Text("Choose…").tag(Self.other)
                             }
+                            .labelsHidden()
+                            .uiTestAnchor("start-folder")
                             .frame(width: Metric.startPicker, alignment: .leading)
-                            hint(draft.modelChosen ? "Picked for this session." : draft.role == nil ? "Claude Code’s own." : "Its role’s.")
+                            .clickable()
+                        }
+                        GridRow {
+                            label("Role")
+                            HStack(spacing: Space.md) {
+                                rolePicker(draft)
+                                hint(model.role(named: draft.role).map { $0.line.isEmpty ? "No line yet." : $0.line } ?? "No role: its first message says what to do.")
+                            }
+                        }
+                        GridRow {
+                            label("Model")
+                            HStack(spacing: Space.md) {
+                                ModelPickers(model: draft.model, effort: draft.effort, anchor: "start") { picked, effort in
+                                    model.startDraft?.model = picked
+                                    model.startDraft?.effort = effort
+                                    model.startDraft?.modelChosen = true
+                                }
+                                .frame(width: Metric.startPicker, alignment: .leading)
+                                hint(draft.modelChosen ? "Picked for this session." : draft.role == nil ? "Claude Code’s own." : "Its role’s.")
+                            }
+                        }
+                        GridRow {
+                            label("Parent")
+                            HStack(spacing: Space.md) {
+                                sessionPicker("Parent", none: "None: at the top level", selection: draft.parent,
+                                              sessions: model.sessionRows.map(\.session).filter(\.isRunning), anchor: "start-parent") { model.setStartParent($0) }
+                                hint(model.windowTTY(forChildOf: draft.parent) == nil ? "It opens in a new Ghostty tab." : "It opens in that session’s Ghostty window.")
+                            }
+                        }
+                        GridRow {
+                            label("History")
+                            HStack(spacing: Space.md) {
+                                sessionPicker("History", none: "None", selection: draft.history, sessions: model.sessionRows.map(\.session),
+                                              anchor: "start-history") { model.startDraft?.history = $0 }
+                                hint("Starts with that session’s conversation so far.")
+                            }
                         }
                     }
-                    GridRow {
-                        label("Parent")
-                        HStack(spacing: Space.md) {
-                            sessionPicker("Parent", none: "None: at the top level", selection: draft.parent,
-                                          sessions: model.sessionRows.map(\.session).filter(\.isRunning), anchor: "start-parent") { model.setStartParent($0) }
-                            hint(model.windowTTY(forChildOf: draft.parent) == nil ? "It opens in a new Ghostty tab." : "It opens in that session’s Ghostty window.")
-                        }
-                    }
-                    GridRow {
-                        label("History")
-                        HStack(spacing: Space.md) {
-                            sessionPicker("History", none: "None", selection: draft.history, sessions: model.sessionRows.map(\.session),
-                                          anchor: "start-history") { model.startDraft?.history = $0 }
-                            hint("Starts with that session’s conversation so far.")
-                        }
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        Text("First message").kitType(.groupLabel).foregroundStyle(.secondary)
+                        MarkdownField(text: Binding(get: { model.startDraft?.message ?? "" }, set: { model.startDraft?.message = $0 }),
+                                      label: "First message", focusOnAppear: true, minHeight: Metric.messageEditor,
+                                      submit: { model.startFromDraft() }, cancel: { model.closeModal() })
+                            .uiTestAnchor("start-message")
+                        Text("Sent as the first prompt, after HQ’s line and its role’s text; the task stays as it is.")
+                            .kitType(.secondary).foregroundStyle(.secondary)
                     }
                 }
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text("First message").kitType(.groupLabel).foregroundStyle(.secondary)
-                    MarkdownField(text: Binding(get: { model.startDraft?.message ?? "" }, set: { model.startDraft?.message = $0 }),
-                                  label: "First message", focusOnAppear: true, minHeight: Metric.messageEditor,
-                                  submit: { model.startFromDraft() }, cancel: { model.closeModal() })
-                        .uiTestAnchor("start-message")
-                    Text("Sent as the first prompt, after HQ’s line and its role’s text; the task stays as it is.")
-                        .kitType(.secondary).foregroundStyle(.secondary)
-                }
+            } buttons: {
                 HStack {
                     Spacer()
                     Button("Cancel") { model.closeModal() }
@@ -1283,7 +1286,6 @@ struct StartSessionForm: View {
                         .uiTestAnchor("start-button")
                 }
             }
-            .padding(Space.xxl)
             .frame(maxWidth: Metric.pageWidth)
             .frame(maxWidth: .infinity)
         }

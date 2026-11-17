@@ -4,7 +4,7 @@
 
 - The markdown editor shows every blank line: the first between two blocks is their usual gap, any other, and those at the start or end, a whole line you can put the caret on.
 - HQ has a real version, from these notes: About HQ and `hq --version` say 17, or 17-unreleased and 17-dev for builds that aren't a release.
-- A window (a task, a note, Roles…) is never wider than HQ's window: at a bigger zoom on a narrow window it no longer runs off both sides.
+- A window (a task, a note, Roles…) or a form (Start, New Task…) is never bigger than HQ's window: at a bigger zoom on a narrow window it no longer runs off its sides; a form's fields scroll, its title and buttons stay.
 - Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor.
 - A section's header stays at the top of the page while you scroll through it, its search and buttons at hand; the next section's header pushes it away as it arrives.
 
