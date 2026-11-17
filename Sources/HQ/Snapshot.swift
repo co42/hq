@@ -187,6 +187,12 @@ enum Snapshot {
                 }
             },
             Page(name: "modal-task", capture: .sheet) { reset($0); $0.open(.task(13)) },
+            // At the user's zoom: no wider than a 756 pt window (T-544).
+            Page(name: "modal-task-zoom", capture: .sheet) { model in
+                reset(model)
+                model.zoom = 1.15
+                model.open(.task(13))
+            },
             // Its relations, then its subtasks as the list's cards (2026-11-10).
             Page(name: "modal-task-subtasks", capture: .sheet) { model in
                 reset(model)
@@ -669,6 +675,9 @@ enum Snapshot {
     /// In the background that area shows the user's windows, so it captures the sheet, panel or popover alone.
     private static func captureRegion(of window: NSWindow, to path: String) {
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
+        if let sheet = window.attachedSheet, sheet.frame.width > window.frame.width + 0.5 || sheet.frame.height > window.frame.height + 0.5 {
+            fail("\(path): the sheet (\(Int(sheet.frame.width)) × \(Int(sheet.frame.height))) is bigger than its window (\(Int(window.frame.width)) × \(Int(window.frame.height)))")
+        }
         if Store.background {
             let overlay = window.attachedSheet ?? NSApp.windows
                 .filter { $0 !== window && $0.isVisible && $0.frame.intersects(window.frame) }

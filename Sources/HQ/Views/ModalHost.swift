@@ -56,8 +56,9 @@ struct ModalHost: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: min(size.width, max(model.windowSize.width, Metric.modalMin.width)),
-               height: min(size.height, max(model.windowSize.height, Metric.modalMin.height)))
+        // Never wider or taller than the window, at any zoom (T-544).
+        .frame(width: min(size.width, model.windowSize.width > 0 ? model.windowSize.width : Metric.modalMin.width),
+               height: min(size.height, model.windowSize.height > 0 ? model.windowSize.height : Metric.modalMin.height))
         .background(alignment: .top) {
             // The item's own sky: warm while it needs the user.
             ZStack(alignment: .top) {
