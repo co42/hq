@@ -372,7 +372,7 @@ enum AgentCommands {
                               .init(name: "model", help: "the model its sessions start on: opus, sonnet, haiku, fable or a full name (default: Claude Code's own)"),
                               .init(name: "effort", help: "their effort: low, medium, high, xhigh or max (default: Claude Code's own)"),
                               .init(name: "body", help: "its text in markdown; - reads stdin")],
-                     example: "hq role new Reviewer --line \"Reviews one pull request, never pushes.\" --color pink --body -", output: roleOutput + "; text") { args, model in
+                     example: "hq role new Scribe --line \"Keeps the docs in step with one change.\" --color mint --body -", output: roleOutput + "; text") { args, model in
             try roleNewCommand(args, model)
         },
         AgentCommand(name: "role edit", summary: "Change a role's name, line, color, model, effort or text. Its sessions get a new text when they next start, resume or compact; a new name follows to them.",

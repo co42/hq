@@ -103,7 +103,7 @@ hq session close 41ccc6                   # a session you started, its task done
 hq role show Leader                       # a role's line and text; role new | edit | delete
 ```
 
-Roles are notes in `<vault>/hq/roles/`: a color, one line, and the text a session started with the role gets, at its start, on resume and after a compact. Leader and Worker ship with HQ.
+Roles are notes in `<vault>/hq/roles/`: a color, one line, and the text a session started with the role gets, at its start, on resume and after a compact. Six ship with HQ, each defined by what it delivers: Leader (keeps a story and its tasks moving, writes no code), Worker (one change, one PR), Planner (a design to approve), Investigator (an answer, with its evidence), Reviewer (a check of a PR or a plan, from a fresh session) and Operator (steps on live systems, each with your go). Only a Worker or an Operator changes code or systems, one per branch or system; the others read, run and report. Each is written to your vault once: one you delete stays deleted.
 
 `hq help <command>` gives a command's options, an example and the shape of its `--json`. A list cut at its page says so on its last line.
 

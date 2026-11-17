@@ -1,7 +1,7 @@
 import Foundation
 import HQKit
 
-/// Roles (T-412, T-413): notes in hq/roles/, read at each vault scan and written by each change; Leader and Worker written
+/// Roles (T-412, T-413): notes in hq/roles/, read at each vault scan and written by each change; the shipped roles written
 /// once; a role's text reaches its session at every SessionStart, never past what a hook can add.
 extension SelfTest {
     static func roleChecks(_ model: AppModel) async {
@@ -16,70 +16,78 @@ extension SelfTest {
         }
         await rescan()
         let leader = RoleItem.defaults[0]
-        check("Leader and Worker are written to hq/roles/ when missing, with their color, line and text",
-              note("Leader")?.string("color") == "indigo" && note("Leader")?.string("line") == leader.line && note("Leader")?.body == leader.text + "\n"
-              && note("Worker")?.string("color") == "brown" && model.roles.prefix(2).map(\.name) == ["Leader", "Worker"]
-              && model.roles.prefix(2).allSatisfy { $0.path != nil && $0.builtin },
-              "\(model.roles.map(\.name)) \(note("Leader")?.text.prefix(80) ?? "no note")")
+        let shipped = ["Leader", "Worker", "Planner", "Investigator", "Reviewer", "Operator"]
+        let miswritten = RoleItem.defaults.filter { role in
+            guard let note = note(role.name) else { return true }
+            return note.string("color") != role.color.rawValue || note.string("line") != role.line || note.body != role.text + "\n"
+                || note.string("model") != role.model || note.string("effort") != role.effort
+        }
+        check("the six shipped roles are written to hq/roles/ when missing, with their color, line, text, model and effort, in their order",
+              RoleItem.defaults.map(\.name) == shipped && miswritten.isEmpty && model.roles.prefix(6).map(\.name) == shipped
+              && model.roles.prefix(6).allSatisfy { $0.path != nil && $0.builtin && !model.isChangedDefault($0) },
+              "\(model.roles.map(\.name)) miswritten: \(miswritten.map(\.name))")
+        check("Leader, Worker, Planner, Investigator, Reviewer and Operator ship in their colors, models and efforts",
+              RoleItem.defaults.map { "\($0.color.rawValue) \($0.model ?? "-") \($0.effort ?? "-")" }
+                == ["indigo opus xhigh", "brown opus high", "purple fable max", "teal opus xhigh", "pink opus xhigh", "orange opus xhigh"])
 
         // A note of the user's is a role; an edit in Obsidian reads again.
-        try? "---\ncolor: pink\nline: Reviews one pull request.\naliases: [critic]\n---\nRead the diff.\n".write(to: url("Reviewer"), atomically: true, encoding: .utf8)
+        try? "---\ncolor: pink\nline: Reviews one pull request.\naliases: [critic]\n---\nRead the diff.\n".write(to: url("Tester"), atomically: true, encoding: .utf8)
         await rescan()
         await expect("a note in hq/roles/ is a role: its name, color, line and text",
-                     model.role(named: "Reviewer").map { $0.color == .pink && $0.line == "Reviews one pull request." && $0.text == "Read the diff." && !$0.builtin } == true,
-                     "\(String(describing: model.role(named: "Reviewer")))")
-        try? "---\ncolor: pink\nline: Reviews one PR, never pushes.\naliases: [critic]\n---\nRead the diff.\n".write(to: url("Reviewer"), atomically: true, encoding: .utf8)
-        try? FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(5)], ofItemAtPath: url("Reviewer").path)
+                     model.role(named: "Tester").map { $0.color == .pink && $0.line == "Reviews one pull request." && $0.text == "Read the diff." && !$0.builtin } == true,
+                     "\(String(describing: model.role(named: "Tester")))")
+        try? "---\ncolor: pink\nline: Reviews one PR, never pushes.\naliases: [critic]\n---\nRead the diff.\n".write(to: url("Tester"), atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(5)], ofItemAtPath: url("Tester").path)
         await rescan()
-        await expect("a role changed in Obsidian reads again", model.role(named: "Reviewer")?.line == "Reviews one PR, never pushes.")
+        await expect("a role changed in Obsidian reads again", model.role(named: "Tester")?.line == "Reviews one PR, never pushes.")
 
         // Each change writes the note; HQ owns only color and line.
         await UITest.endUndoGroup(model)
-        model.changeRole("Reviewer") {
+        model.changeRole("Tester") {
             $0.text = "Read the whole diff."
             $0.color = .teal
         }
-        check("an edit writes the role's color and text, and keeps the user's keys", note("Reviewer")?.string("color") == "teal"
-              && note("Reviewer")?.body == "Read the whole diff.\n" && note("Reviewer")?.list("aliases") == ["critic"], note("Reviewer")?.text ?? "no note")
+        check("an edit writes the role's color and text, and keeps the user's keys", note("Tester")?.string("color") == "teal"
+              && note("Tester")?.body == "Read the whole diff.\n" && note("Tester")?.list("aliases") == ["critic"], note("Tester")?.text ?? "no note")
         let reviewing = "7e1e0000-0000-4000-8000-0000000000a1"
         model.put(SessionItem(id: reviewing, customName: "Role reviewer", status: SessionStatus(state: .idle, since: .now), cwd: NSTemporaryDirectory(),
-                              repo: "roles", branch: "main", started: .now, order: model.nextGridOrder, role: "reviewer"))
+                              repo: "roles", branch: "main", started: .now, order: model.nextGridOrder, role: "tester"))
         await UITest.endUndoGroup(model)
-        model.changeRole("Reviewer", "Rename Role") { $0.name = "Critic" }
-        check("a rename renames the note and the role of the sessions that have it", note("Reviewer") == nil && note("Critic")?.list("aliases") == ["critic"]
-              && model.role(named: "Reviewer") == nil && model.role(named: "Critic") != nil && model.session(reviewing)?.role == "Critic",
+        model.changeRole("Tester", "Rename Role") { $0.name = "Critic" }
+        check("a rename renames the note and the role of the sessions that have it", note("Tester") == nil && note("Critic")?.list("aliases") == ["critic"]
+              && model.role(named: "Tester") == nil && model.role(named: "Critic") != nil && model.session(reviewing)?.role == "Critic",
               "\(model.roles.map(\.name)) \(String(describing: model.session(reviewing)?.role))")
         await rescan()
-        check("a vault read after it finds the one note", model.roles.filter { ["reviewer", "critic"].contains($0.name.lowercased()) }.map(\.name) == ["Critic"],
+        check("a vault read after it finds the one note", model.roles.filter { ["tester", "critic"].contains($0.name.lowercased()) }.map(\.name) == ["Critic"],
               "\(model.roles.map(\.name))")
         await UITest.endUndoGroup(model)
-        model.changeRole("Critic") { $0.name = "Reviewer/2: draft" }
-        check("a name keeps no slash or colon: it names a note", model.role(named: "Reviewer-2- draft") != nil && note("Reviewer-2- draft") != nil,
+        model.changeRole("Critic") { $0.name = "Tester/2: draft" }
+        check("a name keeps no slash or colon: it names a note", model.role(named: "Tester-2- draft") != nil && note("Tester-2- draft") != nil,
               "\(model.roles.map(\.name))")
-        model.changeRole("Reviewer-2- draft") { $0.name = "Leader" }
-        check("a rename onto another role's name is refused", model.role(named: "Reviewer-2- draft") != nil && note("Leader")?.body == leader.text + "\n")
+        model.changeRole("Tester-2- draft") { $0.name = "Leader" }
+        check("a rename onto another role's name is refused", model.role(named: "Tester-2- draft") != nil && note("Leader")?.body == leader.text + "\n")
         model.undoManager?.undo()
         model.undoManager?.undo()
-        await expect("Undo renames it back", note("Reviewer") != nil && note("Critic") == nil && model.session(reviewing)?.role == "Reviewer",
+        await expect("Undo renames it back", note("Tester") != nil && note("Critic") == nil && model.session(reviewing)?.role == "Tester",
                      "\(model.roles.map(\.name)) \(String(describing: model.session(reviewing)?.role))")
 
         // Delete sends the note to the Trash; Undo brings it back.
         await UITest.endUndoGroup(model)
-        model.deleteRole("Reviewer")
-        check("Delete moves the role's note to the Trash; its sessions keep the name, not the chip", note("Reviewer") == nil && model.role(named: "Reviewer") == nil
-              && model.session(reviewing)?.role == "Reviewer")
+        model.deleteRole("Tester")
+        check("Delete moves the role's note to the Trash; its sessions keep the name, not the chip", note("Tester") == nil && model.role(named: "Tester") == nil
+              && model.session(reviewing)?.role == "Tester")
         await rescan()
-        check("and a vault read doesn't bring it back", model.role(named: "Reviewer") == nil)
+        check("and a vault read doesn't bring it back", model.role(named: "Tester") == nil)
         model.undoManager?.undo()
-        await expect("Undo brings the note back, with the chip", note("Reviewer")?.body == "Read the whole diff.\n" && model.role(named: "Reviewer") != nil)
+        await expect("Undo brings the note back, with the chip", note("Tester")?.body == "Read the whole diff.\n" && model.role(named: "Tester") != nil)
 
         // New Role and Restore Default.
         await UITest.endUndoGroup(model)
-        let made = model.newRole(named: "Planner", color: .mint, line: "Writes the plan.", text: "Plan first.")
-        let again = model.newRole(named: "Planner")
-        check("New Role writes its note, under a name no role has", made.name == "Planner" && again.name == "Planner 2"
-              && note("Planner")?.string("color") == "mint" && note("Planner")?.string("line") == "Writes the plan." && note("Planner")?.body == "Plan first.\n"
-              && note("Planner 2") != nil && !(note("Planner 2")?.has("line") ?? true), "\(made.name), \(again.name)")
+        let made = model.newRole(named: "Scout", color: .mint, line: "Writes the plan.", text: "Plan first.")
+        let again = model.newRole(named: "Scout")
+        check("New Role writes its note, under a name no role has", made.name == "Scout" && again.name == "Scout 2"
+              && note("Scout")?.string("color") == "mint" && note("Scout")?.string("line") == "Writes the plan." && note("Scout")?.body == "Plan first.\n"
+              && note("Scout 2") != nil && !(note("Scout 2")?.has("line") ?? true), "\(made.name), \(again.name)")
         model.changeRole("Leader") { $0.text = "Lead, my way." }
         check("a shipped role's text changed: Restore Default shows", model.role(named: "Leader").map(model.isChangedDefault) == true && note("Leader")?.body == "Lead, my way.\n")
         model.restoreDefault("Leader")
@@ -110,27 +118,27 @@ extension SelfTest {
                 }
             }
         }
-        check("Leader's and Worker's texts name only commands and options hq has", unknown.isEmpty, unknown.joined(separator: ", "))
+        check("the shipped texts name only commands and options hq has", unknown.isEmpty, unknown.joined(separator: ", "))
 
         await startTextChecks(model)
 
         // A checkbox in a role's text ticks in place, one Undo, as a description's (T-469 item 8).
         await UITest.endUndoGroup(model)
-        model.changeRole("Reviewer") { $0.text = "- [ ] Read the diff\n- [ ] Run it" }
+        model.changeRole("Tester") { $0.text = "- [ ] Read the diff\n- [ ] Run it" }
         await UITest.endUndoGroup(model)
-        model.toggleRoleCheckbox("Reviewer", at: 1)
+        model.toggleRoleCheckbox("Tester", at: 1)
         await UITest.endUndoGroup(model)
-        check("a checkbox in a role's text ticks in place", model.role(named: "Reviewer")?.text == "- [ ] Read the diff\n- [x] Run it",
-              model.role(named: "Reviewer")?.text ?? "no role")
+        check("a checkbox in a role's text ticks in place", model.role(named: "Tester")?.text == "- [ ] Read the diff\n- [x] Run it",
+              model.role(named: "Tester")?.text ?? "no role")
         model.undoManager?.undo()
-        check("and Undo unticks it", model.role(named: "Reviewer")?.text == "- [ ] Read the diff\n- [ ] Run it", model.role(named: "Reviewer")?.text ?? "no role")
+        check("and Undo unticks it", model.role(named: "Tester")?.text == "- [ ] Read the diff\n- [ ] Run it", model.role(named: "Tester")?.text ?? "no role")
         // A notification's text: inline marks only; tooltips and banners without them (item 8).
         check("a notification's text drops its marks where it can't draw them",
               MarkdownLine.plain("Retry **budget** in `cli`, see [the plan](https://example.com) and _why_") == "Retry budget in cli, see the plan and why",
               MarkdownLine.plain("Retry **budget** in `cli`, see [the plan](https://example.com) and _why_"))
 
         // Leave the vault as the other checks had it.
-        for name in ["Reviewer", "Planner", "Planner 2"] { model.deleteRole(name) }
+        for name in ["Tester", "Scout", "Scout 2"] { model.deleteRole(name) }
         model.sessions.removeAll { $0.id == reviewing }
     }
 
@@ -151,7 +159,7 @@ extension SelfTest {
         check("a Worker's start text: HQ tracks it, its leader by name and how to message it, then its role's text",
               worker0.hasPrefix("HQ tracks this session.") && worker0.contains("The session “registry: ready for more customers” (Leader) started this one: this session reports to it.")
               && worker0.contains("SendMessage, to “registry: ready for more customers”") && worker0.contains("Load the hq skill")
-              && worker0.contains("This session's role is Worker: Works on one task and reports to its leader. Its text, from HQ:\n\n" + RoleItem.workerText)
+              && worker0.contains("This session's role is Worker: \(RoleItem.defaults[1].line) Its text, from HQ:\n\n" + RoleItem.workerText)
               && worker0.hasSuffix(RoleItem.workerText), worker0)
         let lead0 = start(lead, "startup")
         check("a Leader's start text says it started sessions that report to it, and has the Leader's text",

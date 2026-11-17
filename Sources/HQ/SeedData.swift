@@ -270,14 +270,14 @@ enum SeedData {
         ], bellSeenAt: ago(30))
         model.storyFilter = [13]
         model.shownDescriptions = [44]
-        // Roles: the two that ship with HQ, and one of the user's.
+        // Roles: the six that ship with HQ, and one of the user's.
         model.roles = RoleItem.defaults + [
-            RoleItem(name: "Reviewer", color: .pink, line: "Reviews one pull request, never pushes.", text: """
-                You review one pull request; you never push to it.
+            RoleItem(name: "Scribe", color: .mint, line: "Keeps the docs in step with one change.", text: """
+                You bring the docs in step with one change; you touch no code.
 
-                - Read the whole diff and the task it closes before writing anything.
-                - Run its checks locally when CI can't tell.
-                - Leave one review: blocking points first, numbered, each with its fix.
+                - Read the diff and the task it closes before writing anything.
+                - Change only what the diff makes wrong: commands, flags, paths, screens.
+                - One commit, its message naming each doc it changed.
                 """, modified: ago(2 * 1_440)),
         ]
         model.sortRoles()

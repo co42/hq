@@ -278,7 +278,7 @@ extension SelfTest {
         let noRole = failure(agent("session new", ["name": "CLI no role", "role": "Pilot", "_session": lead]))
         let noParent = failure(agent("session new", ["name": "CLI no parent", "parent": "nobody-at-all", "_session": lead]))
         check("--beside with --parent, or outside a session, is refused", both?.code == "usage" && alone?.code == "usage", "\(String(describing: both)) \(String(describing: alone))")
-        check("an unknown role is refused, naming the roles", noRole?.code == "not_found" && noRole?.message.contains("Roles: Leader, Worker") == true, noRole?.message ?? "-")
+        check("an unknown role is refused, naming the roles", noRole?.code == "not_found" && noRole?.message.contains("Roles: Leader, Worker, Planner, Investigator, Reviewer, Operator") == true, noRole?.message ?? "-")
         check("an unknown session is refused, naming the open ones, the latest first", noParent?.code == "not_found"
               && noParent?.message.contains("Open sessions: ") == true && noParent?.message.contains("CLI worker") == true, noParent?.message ?? "-")
         let refused = model.sessions.filter { ["CLI both", "CLI alone", "CLI no role", "CLI no parent"].contains($0.name) }
@@ -317,7 +317,7 @@ extension SelfTest {
               && AgentCLI.human(tree).contains("\n  \(workerID.prefix(8)) [Idle] CLI worker · Worker"), "\(rows.suffix(6))")
         check("--tree is for sessions only", failure(agent("ls", ["kind": "tasks", "tree": "true"]))?.code == "usage")
         let roles = agent("ls", ["kind": "roles"])
-        check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(2).compactMap { $0["name"] as? String } == ["Leader", "Worker"]
+        check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(6).compactMap { $0["name"] as? String } == ["Leader", "Worker", "Planner", "Investigator", "Reviewer", "Operator"]
               && AgentCLI.human(roles).hasPrefix("Leader [indigo] Leads a story and keeps its task tree small and current. Never writes the code. · opus xhigh · ships with HQ · "), AgentCLI.human(roles))
 
         // role show, new, edit, delete.
@@ -342,7 +342,7 @@ extension SelfTest {
               && AgentCLI.human(again).hasPrefix("CLI Critic [pink]") && AgentCLI.human(again).contains(written), "\(again)")
         check("role edit with nothing to change is refused", failure(agent("role edit", ["role": "CLI Critic"]))?.code == "usage")
         check("so is a name another role has", failure(agent("role edit", ["role": "CLI Critic", "name": "Leader"]))?.code == "invalid")
-        check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Worker") == true)
+        check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Worker, Planner, Investigator, Reviewer, Operator") == true)
         let would = agent("role delete", ["role": "CLI Critic"])
         check("role delete without --yes only says what it would do", would["wouldDelete"] as? String == "CLI Critic" && model.role(named: "CLI Critic") != nil)
         let deleted = agent("role delete", ["role": "CLI Critic", "yes": "true"])

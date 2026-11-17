@@ -468,7 +468,11 @@ Task and Session act on the open modal's item, or, with no modal, on the focused
 | Team | a session and the sessions it started, by `hq` or from the page, in its card | group, tree, children |
 | Role | what a session starts as: a note in `hq/roles/`, its text sent at start, resume and compact | persona, agent type, profile |
 | Leader | the role that follows a story and keeps it moving, never writing the code | manager, boss, orchestrator |
-| Worker | the role that works on one task and reports to its leader | subagent, helper |
+| Worker | the role that builds one change, one PR, and reports to its leader | subagent, helper |
+| Planner | the role that turns one task into a design to approve, writing no code | architect |
+| Investigator | the role that answers one question with evidence, changing nothing | researcher, analyst |
+| Reviewer | the role that checks one PR or plan from a fresh session, never pushing | critic, verifier |
+| Operator | the role that carries out one change on live systems, each step with the user's go | runner, SRE |
 | Move Under, Make Root | put a session in another's team; make it top-level again | reparent, detach |
 | Focus | bring a session's terminal forward in Ghostty | open in Ghostty |
 | Start | a new session in a new Ghostty tab | start in Ghostty |

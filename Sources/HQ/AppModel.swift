@@ -186,7 +186,7 @@ final class AppModel {
         }
     }
     var files: [FileItem] = [] { didSet { outputsCache = nil; persistFiles(from: oldValue) } }
-    /// The roles a session can start with: notes in <vault>/hq/roles/, Leader and Worker first.
+    /// The roles a session can start with: notes in <vault>/hq/roles/, the shipped ones first.
     var roles: [RoleItem] = []
     /// Pages Claude published, captured from its hooks. Saved at once.
     var artifacts: [ArtifactItem] = [] { didSet { outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
