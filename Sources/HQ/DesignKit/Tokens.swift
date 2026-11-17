@@ -389,6 +389,10 @@ nonisolated enum Metric {
     static var diagramPlaceholder: CGFloat { 120 * Zoom.factor }
     /// The bar beside a quote.
     static var quoteBar: CGFloat { 3 * Zoom.factor }
+    /// Markdown's room (T-529): between blocks, between list items, and added between a paragraph's lines.
+    static var markdownBlock: CGFloat { 16 * Zoom.factor }
+    static var markdownItem: CGFloat { 6 * Zoom.factor }
+    static var markdownLine: CGFloat { 2 * Zoom.factor }
     /// A pill's inner padding and icon in AppKit rows.
     static var pillPadding: CGFloat { 6 * Zoom.factor }
     static var pillIcon: CGFloat { 12 * Zoom.factor }

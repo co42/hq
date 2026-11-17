@@ -159,7 +159,7 @@ nonisolated struct ViewerItem: Sendable {
 private struct MarkdownBlocks: View {
     let blocks: [ViewerBlock]
     /// Tighter inside a list item, so a nested list stays with its item.
-    var spacing = Space.md
+    var spacing = Metric.markdownBlock
     /// The first block, a `# Title`, is the note's title.
     var title = false
     /// The heading these blocks sit under: an expanded table or diagram is named by it.
@@ -208,14 +208,15 @@ private struct MarkdownBlockView: View {
         case .block(.paragraph(let text)):
             LinkText(text)
                 .kitType(.body)
+                .lineSpacing(Metric.markdownLine)
                 .fixedSize(horizontal: false, vertical: true)
         case .list(let ordered, let start, let items):
-            VStack(alignment: .leading, spacing: Space.xs) {
+            VStack(alignment: .leading, spacing: Metric.markdownItem) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
                         marker(ordered: ordered, number: start + index, checked: item.checked, task: item.taskIndex, text: item.spoken)
                         // A done item steps back (T-368).
-                        MarkdownBlocks(blocks: item.blocks, spacing: Space.xs, section: section)
+                        MarkdownBlocks(blocks: item.blocks, spacing: Metric.markdownItem, section: section)
                             .foregroundStyle(item.checked == true ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                     }
                 }

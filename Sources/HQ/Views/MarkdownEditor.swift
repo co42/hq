@@ -539,10 +539,12 @@ enum MarkdownStyle {
     private static var lineHeights: [String: CGFloat] = [:]
 
     /// A line exactly `height` tall, `before` below the one above; wrapped lines start at `indent`.
-    nonisolated static func line(_ height: CGFloat, before: CGFloat = 0, indent: CGFloat = 0) -> NSParagraphStyle {
+    /// `spacing` goes below each of its lines but the text's last, as the viewer's between a paragraph's lines.
+    nonisolated static func line(_ height: CGFloat, before: CGFloat = 0, indent: CGFloat = 0, spacing: CGFloat = 0) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.minimumLineHeight = height
         style.maximumLineHeight = height
+        style.lineSpacing = spacing
         style.paragraphSpacingBefore = before
         style.headIndent = indent
         style.lineBreakStrategy = .standard
@@ -558,9 +560,12 @@ enum MarkdownStyle {
         case blank, text, itemText, heading(Int), title, item, quote, quoteBlank, fenceOpen, fenceClose, code, rule
     }
 
-    /// Each line as tall as the viewer draws it and as far below the line above: 12 pt between blocks (their first blank
-    /// line; any other blank line is a whole line, T-550), 4 pt between list items, a heading's room above, a code box's padding taken from the space
-    /// around its fences. Only what the marks add (their own lines, longer lines) moves the text. With `title`, a first line
+    /// A paragraph's line, drawn with the viewer's line spacing.
+    private static func spaced(_ kind: Kind?) -> Bool { [.text, .itemText, .item, .quote].contains(kind) }
+
+    /// Each line as tall as the viewer draws it and as far below the line above: 16 pt between blocks (their first blank
+    /// line; any other blank line is a whole line, T-550), 6 pt between list items, 2 pt between a paragraph's lines
+    /// (T-529), a heading's room above, a code box's padding taken from the space around its fences. Only what the marks add (their own lines, longer lines) moves the text. With `title`, a first line
     /// `# Title` is the note's title, 12 pt more below it (T-470); its range comes back.
     @discardableResult
     private static func space(_ storage: NSTextStorage, title: Bool = false) -> NSRange? {
@@ -581,16 +586,18 @@ enum MarkdownStyle {
             var gap: CGFloat
             switch kind {
             case .code, .fenceClose, .quoteBlank: return 0
-            case .heading(let level): gap = Space.md + (level <= 2 ? Space.xs : 0)
-            case .item, .itemText: gap = [.item, .itemText].contains(previous) && !newList ? Space.xs : Space.md
+            case .heading(let level): gap = Metric.markdownBlock + (level <= 2 ? Space.xs : 0)
+            case .item, .itemText: gap = [.item, .itemText].contains(previous) && !newList ? Metric.markdownItem : Metric.markdownBlock
             case .text where blanks.isEmpty && [.text, .quote].contains(previous): return 0
             case .quote where [.quote, .quoteBlank].contains(previous) && blanks.isEmpty: return 0
-            default: gap = Space.md
+            default: gap = Metric.markdownBlock
             }
             if kind == .itemText && blanks.isEmpty { return 0 }
             if previous == .fenceClose { gap += Space.sm - code }
             if kind == .fenceOpen { gap += Space.sm - code }
             if previous == .title { gap += Space.md }
+            // A paragraph's line spacing already sits below its last line.
+            if spaced(previous) { gap -= Metric.markdownLine }
             return max(gap, 0)
         }
         func width(_ prefix: String) -> CGFloat { (prefix as NSString).size(withAttributes: [.font: MarkdownStyle.body]).width }
@@ -647,12 +654,13 @@ enum MarkdownStyle {
             case .heading(let level): lineHeight(headingType(level))
             case .title: lineHeight(.pageTitle)
             case .fenceOpen, .fenceClose, .code: code
-            case .quoteBlank: Space.md
+            case .quoteBlank: Metric.markdownBlock - Metric.markdownLine
             default: body
             }
             // TextKit gives the first line no room above: it goes into the line.
             let first = previous == nil && blanks.isEmpty
-            storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height + (first ? space : 0), before: (blanks.isEmpty && !first) || leading ? space : 0, indent: indent),
+            storage.addAttribute(.paragraphStyle, value: MarkdownStyle.line(height + (first ? space : 0), before: (blanks.isEmpty && !first) || leading ? space : 0,
+                                                                            indent: indent, spacing: spaced(kind) ? Metric.markdownLine : 0),
                                  range: enclosing)
             blanks = []
             previous = kind

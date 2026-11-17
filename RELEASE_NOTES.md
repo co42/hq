@@ -3,6 +3,7 @@
 ## v17 · unreleased
 
 - The markdown editor shows every blank line: the first between two blocks is their usual gap, any other, and those at the start or end, a whole line you can put the caret on.
+- Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor.
 
 ## v16.1 · 2026-11-16 · Archive by hand, links with a hand (plugin 0.13.1)
 

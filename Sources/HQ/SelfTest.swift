@@ -863,6 +863,8 @@ enum SelfTest {
             "## Done when\n- [x] At most 3 attempts\n- [ ] The canary stays green\n\n## Status\nMerged in **#418**, `canary` green.",
             "- a\n  - nested\n- b\n\n1. first\n2. second",
             "> A quote\n> on two lines.\n\nText.",
+            "A line\nright under it, then a third long enough to wrap at four hundred points wide with more words to be sure.\n\n> One\n>\n> Two.",
+            "- an item long enough to wrap at four hundred points wide, with more words to be sure it does wrap\n- b\n\nAfter.",
             "Text.\n\n```\nlet x = 1\nlet y = 2\n```\n\nAfter the code.",
             "#### Four\n\nText under it.\n\n##### Five\n\n###### Six\n\nEnd.",
         ]
@@ -895,7 +897,7 @@ enum SelfTest {
         let blankHeights = [0, 1, 7, 8, 9, 15].map { (blanks.attribute(.paragraphStyle, at: $0, effectiveRange: nil) as? NSParagraphStyle)?.minimumLineHeight ?? 0 }
         let line = MarkdownStyle.lineHeight(.body)
         check("each blank line in the editor shows: the first between blocks their gap, the others and those at the start and end a whole line",
-              blankHeights == [line, line, Space.md, line, line, line], "\(blankHeights)")
+              blankHeights == [line, line, Metric.markdownBlock - Metric.markdownLine, line, line, line], "\(blankHeights)")
         let titledNote = NSTextStorage(string: titled[0])
         MarkdownStyle.apply(to: titledNote, title: true)
         func size(_ needle: String) -> CGFloat? { (titledNote.attribute(.font, at: (titledNote.string as NSString).range(of: needle).location, effectiveRange: nil) as? NSFont)?.pointSize }
