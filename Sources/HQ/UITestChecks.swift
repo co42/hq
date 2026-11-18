@@ -626,8 +626,11 @@ extension UITest {
         await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), inSheet: true)
         await check("its toggle shows all of it, and no card runs over the next", height() > rest + Space.xl && overlaps().isEmpty,
                     "\(rest) → \(height()); \(overlaps().prefix(2))")
+        // The card grows over frames: its toggle is clicked where it rests.
+        await ui.settle(0.3)
         await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), inSheet: true)
-        await check("and three lines again", abs(height() - rest) < 1, "\(rest) → \(height())")
+        await check("and three lines again", abs(height() - rest) < 1,
+                    "\(rest) → \(height()), \(model.expandedNotices.contains(long.id.uuidString) ? "the click missed its toggle" : "folded, yet as tall")")
         model.notices.removeAll { $0.id == long.id }
         model.noticeSelection = nil
         // A session's next word replaces its unread one, kept under it; a ping is never folded into an update (T-511).
