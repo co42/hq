@@ -523,6 +523,8 @@ A UI step is done when every item holds, light and dark, at 1504 and 756 pt.
 
 What each gesture does on each element. Change this table before the code; a new kind of element gets its row here first.
 
+**A control inside a row is its own** (2026-11-18, T-572): a click on a button, toggle, chip or menu inside a row, card or notification never counts toward the row's double-click, and two quick clicks on it act twice, as AppKit's disclosure buttons do (a toggle shows all, then folds again), unless its own row below says otherwise (a face acts once). The row opens only on a double-click beside its controls (`opensOnDoubleClick`, through `SelectOpen`).
+
 | Element | Click | Double-click | Right-click | Keys and more |
 |---|---|---|---|---|
 | Task card | selects (one at a time, 2026-11-10) | opens the task (outside its title and description) | its menu: everything the card does | Space or ⌘I opens; Return edits the title; ⇧Return shows or hides its description; ⌘C copies its line; B, ⇧B and A block it, ask what blocks it and what it comes after; a drag from anywhere moves it (onto a task: the drop menu; onto a session card: linked; its line in another app); nothing appears under the pointer (2026-11-10) |

@@ -14,7 +14,7 @@ struct SelectOpen: ViewModifier {
         content
             .background(selected ? Ink.rowSelection : Color.clear, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) { // lint: ok SelectOpen itself
+            .opensOnDoubleClick {
                 select()
                 open()
             }
@@ -46,6 +46,14 @@ extension AppModel {
 }
 
 extension View {
+    /// A double-click on the item opens it; a click on a control inside it is the control's alone, never half of one (T-572).
+    func opensOnDoubleClick(_ open: @escaping () -> Void) -> some View {
+        // A single tap, which a control inside wins, on AppKit's second click.
+        onTapGesture { // lint: ok the double-click itself
+            if NSApp.currentEvent?.clickCount == 2 { open() }
+        }
+    }
+
     /// Click selects, double-click opens. On the page, the item's section takes the selection.
     func selectOpen(_ key: String, in section: PageSection? = nil, open: @escaping () -> Void) -> some View {
         modifier(SelectOpen(key: key, section: section, open: open))

@@ -229,7 +229,7 @@ private struct ArchiveCard: View {
             if hovering || selected { actions.padding(.top, Space.xs).padding(.trailing, Space.xs) }
         }
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { model.open(.archivedTask(story.id), push: true) } // lint: ok the Archive's cards keep their own selection
+        .opensOnDoubleClick { model.open(.archivedTask(story.id), push: true) } // the Archive's cards keep their own selection
         .contextMenu { menu }
         .help("\(story.key) \(story.title)")
         .uiTestAnchor("archived:\(story.id)")

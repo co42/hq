@@ -631,6 +631,15 @@ extension UITest {
         await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), inSheet: true)
         await check("and three lines again", abs(height() - rest) < 1,
                     "\(rest) → \(height()), \(model.expandedNotices.contains(long.id.uuidString) ? "the click missed its toggle" : "folded, yet as tall")")
+        // Two quick clicks on a row's control are the control's, each acting; the row opens on a double-click elsewhere (T-572).
+        await ui.click(await ui.steadyAnchor("more:\(long.id.uuidString)"), count: 2, inSheet: true)
+        await check("two quick clicks on its toggle show all of it and fold it again, and open nothing (T-572)",
+                    abs(height() - rest) < 1 && !model.expandedNotices.contains(long.id.uuidString) && model.modal == .notifications,
+                    "\(rest) → \(height()), modal \(String(describing: model.modal))")
+        await ui.click(await ui.steadyAnchor("notice-avatar:\(long.id.uuidString)"), count: 2, inSheet: true)
+        await check("a double-click on the row beside its controls opens what it links", model.modal == .task(40), "\(String(describing: model.modal))")
+        model.back()
+        await ui.until(2) { model.modal == .notifications }
         model.notices.removeAll { $0.id == long.id }
         model.noticeSelection = nil
         // A session's next word replaces its unread one, kept under it; a ping is never folded into an update (T-511).

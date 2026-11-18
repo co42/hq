@@ -2,7 +2,7 @@
 # Holds what review held by hand (CLAUDE.md, Rules; DESIGN.md §12):
 # - views use DesignKit's tokens: no raw color, font size, SF Symbol name or animation outside Sources/HQ/DesignKit;
 # - an `isFlipped` override is nonisolated: AppKit reads it off the main thread when a drag of several items starts;
-# - a double-click goes through SelectOpen, never onTapGesture(count: 2);
+# - a double-click goes through SelectOpen or opensOnDoubleClick, never onTapGesture(count: 2), which counts a click on a control inside;
 # - no cursor rects: they go stale as the page scrolls, and AppKit gives a click's pointer to the view it hits (T-453).
 # - markdown shows and is edited through MarkdownSurface, MarkdownField and MarkdownLine only, so every place looks and edits
 #   alike (T-469 item 8, DESIGN.md §9).
@@ -28,7 +28,7 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
       push @bad, "a raw font size" if /\.(?:system|monospacedSystemFont)\((?:size|ofSize):/;
       push @bad, "an SF Symbol by name" if /(?:systemName|systemSymbolName):\s*"/;
       push @bad, "a raw animation" if /\.(?:easeIn|easeOut|easeInOut|linear|spring|smooth)\(duration:/;
-      push @bad, "a double-click outside SelectOpen" if /onTapGesture\(count:\s*2/;
+      push @bad, "a double-click outside SelectOpen: use opensOnDoubleClick" if /onTapGesture\(count:\s*2/;
     }
     if (@bad) { $count++; my $l = $_; $l =~ s/^\s+//; print "$ARGV:$.: ", join(", ", @bad), ": $l"; }
   }

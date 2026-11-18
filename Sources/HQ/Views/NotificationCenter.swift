@@ -231,7 +231,7 @@ private struct BlockedRow: View {
                 .help("Bring its terminal forward to answer it (⌘O)")
         }
         .listCard(selected: selected, active: active)
-        .onTapGesture(count: 2) { model.open(session.id) } // lint: ok the center's rows keep their own selection
+        .opensOnDoubleClick { model.open(session.id) } // the center's rows keep their own selection
         .help("\(session.name): \(session.reason ?? session.status.title)")
         .uiTestAnchor("blocked:\(session.id)")
     }
@@ -304,7 +304,7 @@ private struct NoticeRow: View {
             }
         }
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { if reminder && notice.links.isEmpty { edit() } else { model.openNotice(notice) } } // lint: ok the center's rows keep their own selection
+        .opensOnDoubleClick { if reminder && notice.links.isEmpty { edit() } else { model.openNotice(notice) } } // the center's rows keep their own selection
         .contextMenu { menu }
         .help(MarkdownLine.plain(notice.text))
         .uiTestAnchor("notice:\(notice.id.uuidString)")
@@ -774,7 +774,7 @@ private struct ReviewRow: View {
                 .help("Open the pull request to review it (Return)")
         }
         .listCard(selected: selected, active: active)
-        .onTapGesture(count: 2) { model.open(.github(item.url), push: true) } // lint: ok the center's rows keep their own selection
+        .opensOnDoubleClick { model.open(.github(item.url), push: true) } // the center's rows keep their own selection
         .contextMenu {
             Button("Review") { model.open(.github(item.url), push: true) }
             Button("Open on GitHub") { if let link = URL(string: item.url) { NSWorkspace.shared.open(link) } }
