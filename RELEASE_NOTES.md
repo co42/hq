@@ -1,12 +1,14 @@
 # Release notes
 
-## v17 · unreleased
+## v17 · 2026-11-18 · Menus and headers that match
 
-- The markdown editor shows every blank line: the first between two blocks is their usual gap, any other, and those at the start or end, a whole line you can put the caret on.
-- HQ has a real version, from these notes: About HQ and `hq --version` say 17, or 17-unreleased and 17-dev for builds that aren't a release.
-- A window (a task, a note, Roles…) or a form (Start, New Task…) is never bigger than HQ's window: at a bigger zoom on a narrow window it no longer runs off its sides; a form's fields scroll, its title and buttons stay.
-- Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor.
+- Every right-click menu is redone, the same for each kind of item: at most four groups (open or start · set · view, remind, copy · remove), submenus named by what they set (Status ▸, Project ▸, Links ▸, Show ▸, Team ▸), one word per action. A window's ⋯ is exactly its item's right-click menu.
+- Every window's header has the same order (icons, one main action, ⋯ at the far right), with every control the same height and all glass. Randomize Face is a dice button in a session's window; Copy Link, Delete, Open in Obsidian and Close Session moved into ⋯.
+- Dismiss replaces Mark Reviewed: it takes a review request out of Needs You until your review is asked again, while its row in Reviews still waits; Next Review only moves on.
 - A section's header stays at the top of the page while you scroll through it, its search and buttons at hand; the next section's header pushes it away as it arrives.
+- Markdown breathes a little more everywhere: more room between blocks, list items and a paragraph's lines, the same in the editor. The editor shows every blank line: the first between two blocks is their usual gap, any other, and those at the start or end, a whole line you can put the caret on.
+- A window (a task, a note, Roles…) or a form (Start, New Task…) is never bigger than HQ's window: at a bigger zoom on a narrow window it no longer runs off its sides; a form's fields scroll, its title and buttons stay.
+- HQ has a real version, from these notes: About HQ and `hq --version` say 17, or 17-unreleased and 17-dev for builds that aren't a release.
 - Two quick clicks on a button inside a row (a notification's Show All, a chip, a pin) act on the button twice and no longer open the row too.
 - For HQ's own checks: the UI test's timing budgets get half again in the gate, beside the snapshots and the self-test that share the CPU, so a busy machine no longer fails them.
 
