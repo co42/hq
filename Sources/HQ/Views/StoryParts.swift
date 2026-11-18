@@ -57,7 +57,6 @@ struct HoldPicker: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .clickable()
                             .onHover { if $0 { index = position } }
                             .uiTestAnchor("hold-match:T-\(id)")
                         }

@@ -36,15 +36,6 @@ final class OutlineRowView: NSTableRowView {
     override func mouseEntered(with event: NSEvent) { setHovered(true) }
     override func mouseExited(with event: NSEvent) { setHovered(false) }
 
-    /// The hand over a card's links and blocking tasks: their clicks come to the outline, so AppKit sends the pointer's
-    /// update to this row (T-453).
-    override func cursorUpdate(with event: NSEvent) {
-        for case let cell as TaskCell in subviews {
-            if let hand = cell.handCursor(at: event.locationInWindow) { return hand.set() }
-        }
-        super.cursorUpdate(with: event)
-    }
-
     private func setHovered(_ value: Bool) {
         guard hovered != value else { return }
         hovered = value
@@ -142,19 +133,11 @@ final class GlyphButton: TaskGlyphView {
     /// A click: the next status, from Done back to Todo.
     var onNext: () -> Void = {}
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        trackHandCursor()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
     /// A click steps to the next status; ⌥-click picks one from the menu.
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.option) { showMenu() } else { onNext() }
         takeRelease()
     }
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
@@ -244,7 +227,7 @@ final class BlockProgressView: NSView {
 
 /// The tasks a task is blocked by, still open: a red capsule each, "⊘ T-268", first at its card's end; three, then "+2"
 /// (2026-11-10). A click on one selects that task and brings it into view; on "+2", a menu of the others.
-final class BlockersView: HandTrackingView, NSViewToolTipOwner {
+final class BlockersView: NSView, NSViewToolTipOwner {
     struct Chip: Equatable {
         /// The blocking tasks it stands for: one, or the rest behind "+2".
         var ids: [Int]
@@ -306,9 +289,6 @@ final class BlockersView: HandTrackingView, NSViewToolTipOwner {
         for (frame, chip) in zip(layoutFrames(), chips) where chip.ids.contains(id) { return convert(NSPoint(x: frame.midX, y: frame.midY), to: nil) }
         return nil
     }
-
-    /// The chips, where the hand shows.
-    override var handParts: [NSRect] { frames }
 
     override func draw(_ dirtyRect: NSRect) {
         for (frame, chip) in zip(layoutFrames(), chips) {
@@ -435,13 +415,6 @@ final class ProjectButton: LabelStripView {
     var onPick: (String?) -> Void = { _ in }
     private var popover: NSPopover?
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        trackHandCursor()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
     /// The project's chip; none, and none from a parent: the icon alone; else nothing.
     func show(_ project: String?, color: LabelColor?, inherited: Bool) {
         self.project = project
@@ -455,7 +428,6 @@ final class ProjectButton: LabelStripView {
         showMenu()
         takeRelease()
     }
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
     override func accessibilityLabel() -> String? { "Project: \(project ?? "none")" }
@@ -504,9 +476,6 @@ final class KeyField: NSTextField {
     private var flashes = 0
     private var shownFlash = 0
 
-    override var isHidden: Bool { didSet { if isHidden != oldValue { trackHandCursor(!isHidden) } } }
-
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -590,13 +559,13 @@ final class TaskCell: NSTableCellView {
     /// A block's progress, or a folded task's, at its line's end.
     let progress = BlockProgressView()
     /// A reminder that links the task, after its key (T-311).
-    let reminderMark = HandButton()
+    let reminderMark = NSButton()
     /// The fold chevron at the card's top right: its subtasks shown or hidden (2026-11-12).
-    let fold = HandButton()
+    let fold = NSButton()
     /// Beside the chevron, or a story's filter button: shows or hides the task's description in its card, on every card that has one.
-    let note = HandButton()
+    let note = NSButton()
     /// Beside the chevron, on a story with subtasks: on, its tree shows only its Blocked and doing tasks (2026-11-12).
-    let filter = HandButton()
+    let filter = NSButton()
     private var reminderNotice: Notice?
     let key = KeyField(labelWithString: "")
     /// The tasks it's blocked by, still open: "T-268, T-269", first at the line's end.
@@ -668,8 +637,6 @@ final class TaskCell: NSTableCellView {
         key.font = KitType.key.nsFont
         key.textColor = Ink.secondaryTextNS
         key.setAccessibilityLabel("Copy the task's line")
-        // Always shown now: the hand from the start, not from when it showed.
-        key.trackHandCursor()
         reason.font = KitType.secondary.nsFont
         reason.textColor = Ink.blockedTextNS
         reason.lineBreakMode = .byTruncatingTail
@@ -762,7 +729,7 @@ final class TaskCell: NSTableCellView {
         key.stringValue = task.key
         key.copied = model.line(of: .task(id))
         if shownDescription {
-            let view = AnyView(DescriptionBlock(id: id, root: coordinator.root).handCursors().environment(model))
+            let view = AnyView(DescriptionBlock(id: id, root: coordinator.root).environment(model))
             if let descriptionHost { descriptionHost.rootView = view } else {
                 let host = NSHostingView(rootView: view)
                 host.sizingOptions = []
@@ -809,8 +776,6 @@ final class TaskCell: NSTableCellView {
     /// Nothing shows or hides under the pointer (2026-11-10): the card reads the same.
     func setHovered(_ value: Bool) {}
 
-    /// The hand over its links or blocking tasks, for a point in window coordinates.
-    func handCursor(at point: NSPoint) -> NSCursor? { links.handCursor(at: point) ?? blockers.handCursor(at: point) }
 
     /// The links under a point in window coordinates, with their task.
     func links(at point: NSPoint) -> (routes: [ModalRoute], task: Int)? {
@@ -971,7 +936,7 @@ final class TaskCell: NSTableCellView {
 /// A task's links at its card's line end, in one family (2026-11-10): a PR or an issue its state's icon, its number and,
 /// for a PR, where it stands as a symbol (approved, changes requested, a draft); files, artifacts, Slack messages and web pages an icon
 /// each, with a count when several. Same size, same weight, secondary: only a PR's or an issue's state colors it.
-final class LinkTokensView: HandTrackingView, NSViewToolTipOwner {
+final class LinkTokensView: NSView, NSViewToolTipOwner {
     struct Token: Equatable {
         var routes: [ModalRoute]
         var icon: KitIcon?
@@ -1077,9 +1042,6 @@ final class LinkTokensView: HandTrackingView, NSViewToolTipOwner {
         return nil
     }
 
-    /// The tokens, where the hand shows.
-    override var handParts: [NSRect] { frames }
-
     /// The token's links under a point in this view.
     func routes(at point: NSPoint) -> [ModalRoute]? {
         for (frame, token) in zip(layoutFrames(), tokens) where frame.insetBy(dx: -Space.xs / 2, dy: 0).contains(point) { return token.routes }
@@ -1156,7 +1118,7 @@ extension ModalRoute {
 /// The face of the session that matters most on the task, in its slot at the card's left (2026-11-10), its parent's
 /// session too (T-452); a plain avatar when no session works on it. A click shows its
 /// session's menu, or offers to start one.
-final class FacesCell: NSTableCellView, HandParts {
+final class FacesCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
     private let faces = FaceStackView()
     let noSession = NoSessionFace()
@@ -1228,10 +1190,7 @@ final class FacesCell: NSTableCellView, HandParts {
         noSession.frame = NSRect(x: 0, y: faces.frame.minY, width: side, height: side)
     }
 
-    /// Its face, or the plain avatar.
-    var handParts: [NSRect] { [faces, noSession].filter { !$0.isHidden }.map(\.frame) }
-
-    /// The face takes the hit, so the hand shows over it; the rest of the cell drags the card.
+    /// The face takes the hit; the rest of the cell drags the card.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
         if !noSession.isHidden, noSession.frame.contains(local) { return noSession }
@@ -1384,7 +1343,6 @@ struct PendingLinkChip: View {
             OutputChip(route: .slack(url), short: true, plain: true)
             Button { model.pendingTaskLink = nil } label: { Label("Don’t Link It", icon: .close).labelStyle(.iconOnly) }
                 .buttonStyle(.borderless)
-                .clickable()
                 .help("Don’t link this Slack message")
                 .uiTestAnchor("quick-add-unlink")
         }
@@ -1449,12 +1407,10 @@ private struct TaskToggles: View {
         let backlog = model.tasks.filter { $0.status == .backlog }.count
         let done = model.tasks.filter { $0.status == .done }.count
         Toggle(isOn: $model.showBacklog) { HeaderIcon(icon: .showBacklog, count: backlog) }
-            .clickable()
             .help("Backlog: show the \(backlog) backlog tasks where they sit (⌃⌘B)")
             .accessibilityLabel("Show Backlog")
             .uiTestAnchor("toggle:backlog")
         Toggle(isOn: $model.showDone) { HeaderIcon(icon: .showDone, count: done) }
-            .clickable()
             .help("Done: show the \(done) done tasks where they sit")
             .accessibilityLabel("Show Done")
             .uiTestAnchor("toggle:done")
@@ -1463,7 +1419,6 @@ private struct TaskToggles: View {
             Button("Show Archive") { model.openArchive() }
             Button("Archive All Done…") { model.archiveAllDone() }
         } label: { HeaderIcon(icon: .archive) }
-            .clickable()
             .help("Archive: show the stories done and put away (⇧⌘A), or archive every done one")
             .accessibilityLabel("Archive")
             .uiTestAnchor("archive-button")
@@ -1501,7 +1456,6 @@ struct FilterPicker<Choices: View>: View {
             .foregroundStyle(active ? AnyShapeStyle(Ink.accentText) : AnyShapeStyle(.secondary))
         }
         .fixedSize()
-        .clickable()
         .help(help.map { "\(name): \(value). \($0)" } ?? "\(name): \(value)")
         .accessibilityLabel("\(name), \(value)")
     }
@@ -1620,7 +1574,6 @@ struct OutputChip: View {
             .background(compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
                         in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .modifier(ChipClick(route: route, task: task, active: !plain))
-            .clickable(task == nil)
             .help(LineCut.wrap(model.title(of: route)))
     }
 

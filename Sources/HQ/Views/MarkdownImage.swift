@@ -107,7 +107,6 @@ struct NoteEmbed: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .clickable()
         .help("Open \(name)")
     }
 }

@@ -20,7 +20,6 @@ struct FilesSection: View {
                     .help("Show the files and artifacts whose title has this (Escape clears)")
                     .uiTestAnchor("search:files")
                 Toggle(isOn: $model.pinnedOnly) { HeaderIcon(icon: model.pinnedOnly ? .pinned : .pin) }
-                    .clickable()
                     .help("Pinned Only: show pinned files and artifacts only")
                     .accessibilityLabel("Pinned Only")
                 Button { model.beginNewFile() } label: { HeaderIcon(icon: .new) }
@@ -143,10 +142,8 @@ private struct ItemRow: View {
                 .lineLimit(1)
                 .frame(width: Metric.rowStatus, alignment: .trailing)
             Button(item.pinned ? "Unpin" : "Pin", icon: item.pinned ? .pinned : .pin) { model.setPinned(route, !item.pinned) }
-                .clickable()
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .clickable()
                 .foregroundStyle(item.pinned ? AnyShapeStyle(Ink.accentText) : AnyShapeStyle(.secondary))
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
                 .opacity(item.pinned || hovering ? 1 : 0)

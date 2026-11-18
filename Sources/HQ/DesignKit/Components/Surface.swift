@@ -167,7 +167,6 @@ struct CardToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .clickable()
         .help(help)
         .accessibilityLabel(on ? "Show Less" : "Show More")
     }

@@ -24,7 +24,6 @@ struct ModelPickers: View {
             }
             .labelsHidden()
             .fixedSize()
-            .clickable()
             .help("The model it starts on; the first: Claude Code’s own")
             .uiTestAnchor("\(anchor)-model")
             .background(Self.shows("\(anchor)-model", shownModel.map(ClaudeModel.family) ?? ownModel ?? "Default"))
@@ -35,7 +34,6 @@ struct ModelPickers: View {
             }
             .labelsHidden()
             .fixedSize()
-            .clickable()
             .help("How hard it thinks; the first: Claude Code’s own")
             .uiTestAnchor("\(anchor)-effort")
             .background(Self.shows("\(anchor)-effort", shownEffort.map(ClaudeModel.effortTitle) ?? own.effort.map(ClaudeModel.effortTitle) ?? "Default"))

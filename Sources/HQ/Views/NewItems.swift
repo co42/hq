@@ -51,12 +51,10 @@ struct FormButtons: View {
             Spacer()
             Button("Cancel") { model.back() }
                 .keyboardShortcut(.cancelAction)
-                .clickable()
                 .uiTestAnchor("\(anchor)-cancel")
             Button(title, action: add)
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.return, modifiers: .command)
-                .clickable()
                 .disabled(!ready)
                 // Its anchor only while it's on: a test's click waits for it, as a user waits for the button to light (T-515).
                 .uiTestAnchor(ready ? anchor : "\(anchor)-off")
@@ -85,7 +83,6 @@ struct LinksField: View {
                     OutputChip(route: route, short: route.isSlack || route == subject || links.count > 2, plain: true)
                     Button { remove(route) } label: { Label("Don’t Link It", icon: .close).labelStyle(.iconOnly) }
                         .buttonStyle(.borderless)
-                        .clickable()
                         .help("Don’t link \(model.title(of: route))")
                         .uiTestAnchor("\(anchor)-unlink:\(route.selectionKey)")
                 }
@@ -290,7 +287,6 @@ struct NewReminderForm: View {
                 GridRow {
                     FormLabel("When")
                     Button { picking = true } label: { Label(ReminderTime.describe(due, now: model.now), icon: .later) }
-                        .clickable()
                         .fixedSize()
                         .help("When it comes back")
                         .popover(isPresented: $picking, arrowEdge: .bottom) {
@@ -305,7 +301,6 @@ struct NewReminderForm: View {
                 GridRow {
                     FormLabel("Important")
                     Toggle(isOn: $important) { Text("It needs you when it comes back, with a banner") }
-                        .clickable()
                         .uiTestAnchor("new-reminder-important")
                 }
             }

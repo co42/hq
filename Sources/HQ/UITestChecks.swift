@@ -161,8 +161,6 @@ extension UITest {
             await press(point, clicks: 1)
             await check("a click on a card's face focuses its session, no menu", shown == nil && model.ghosttyLog.count > logged,
                   "\(shown ?? "no menu"), \(model.ghosttyLog.suffix(1))")
-            let card = collection.item(at: IndexPath(item: 0, section: 0))?.view as? SessionGrid.CardView
-            await check("the card tracks the pointer for the hand over its face", card?.handOverFace == true)
             // In every state, needs-you ones first: their glow and badge must not take the click (T-327).
             if let grid = collection.delegate as? SessionGrid.Coordinator, let id = grid.ids.first, let original = model.session(id) {
                 let states: [SessionState] = [.waiting(.question), .waiting(.permission), .waiting(.plan), .failed, .working, .idle, .done]
@@ -417,49 +415,6 @@ extension UITest {
                 .filter { $0.identifier == NSOutlineView.disclosureButtonIdentifier && !$0.isHidden && !$0.frame.isEmpty }
         }
         await check("no AppKit disclosure on a task's row", parentRow() >= 0 && disclosures().isEmpty, "\(disclosures().count)")
-        // The pointing hand over the chevron, as the window would hit it, and over every AppKit button a task row
-        // shows (T-350).
-        if parentRow() >= 0, let button = (outline.view(atColumn: 1, row: parentRow(), makeIfNecessary: false) as? TaskCell)?.fold {
-            func hit() -> NSView? { ui.hitView(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)) }
-            await check("the pointing hand over a task's chevron", hit() === button && button.tracksHandCursor,
-                  "hit \(hit().map { String(describing: type(of: $0)) } ?? "none"), tracks \(button.tracksHandCursor)")
-        } else {
-            await check("the pointing hand over a task's chevron", false, "no chevron")
-        }
-        var bare: [String] = []
-        for row in 0..<outline.numberOfRows {
-            guard outline.item(atRow: row) is OutlineNode, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) else { continue }
-            // AppKit's views only: SwiftUI's give the hand themselves (clickable()). Buttons, and every other view a click acts on.
-            func shown(_ view: NSView) -> [NSView] {
-                let name = String(reflecting: type(of: view))
-                guard !view.isHidden, !name.hasPrefix("_"), !name.hasPrefix("SwiftUI."), !name.contains("HostingView") else { return [] }
-                let acts = (view as? NSButton)?.isEnabled == true || view is NoSessionFace || view is GlyphButton || view is ProjectButton
-                    || (view as? FaceStackView)?.clickable == true || view is KeyField
-                return (acts ? [view] : []) + view.subviews.flatMap(shown)
-            }
-            for view in shown(rowView) where !view.tracksHandCursor {
-                bare.append("row \(row): \(type(of: view)) \(view.identifier?.rawValue ?? view.toolTip ?? "-")")
-            }
-        }
-        await check("every AppKit view a click acts on in a row shows the pointing hand", bare.isEmpty, bare.prefix(5).joined(separator: "; "))
-        // Every part a click acts on shows the hand as the window gives it, the page scrolled: a card's links and
-        // blocking tasks too, whose clicks go to the outline (T-453).
-        model.link(.github("https://github.com/acme/registry/pull/9101"), to: parent.id)
-        model.link(.web("https://example.com/hand"), to: parent.id)
-        model.addLink(parent.id, .blockedBy, above.id)
-        await endUndoGroup(model)
-        if parentRow() >= 0 { outline.scrollRowToVisible(parentRow()) }
-        await ui.settle(0.5)
-        let card = (outline.view(atColumn: 1, row: parentRow(), makeIfNecessary: false) as? TaskCell)
-        var bareParts = ui.partsWithoutHand()
-        if let grid = ui.find(SessionGrid.CardCollection.self) {
-            grid.scrollToVisible(grid.bounds)
-            await ui.settle(0.4)
-            bareParts += ui.partsWithoutHand()
-        }
-        await check("every AppKit part a click acts on shows the pointing hand, as the window gives it, links and blockers too (T-453)",
-                    bareParts.isEmpty && card?.links.handParts.count == 2 && card?.blockers.handParts.count == 1,
-                    "links \(card?.links.handParts.count ?? -1), blockers \(card?.blockers.handParts.count ?? -1); " + bareParts.prefix(6).joined(separator: "; "))
         model.indentTasks([parent.id])
         await endUndoGroup(model)
         await ui.settle(0.6)
@@ -548,22 +503,6 @@ extension UITest {
         model.closeModal()
         await ui.settle(0.5)
         await check("the toolbar has the bell, breathing while something needs the user", ui.anchor("bell") != nil && model.bellBreathes)
-        // The toolbar's hand is AppKit's: it shows on entering an item and leaves with the pointer.
-        func hands(_ view: NSView?) -> [ToolbarHandView] {
-            guard let view else { return [] }
-            return ((view as? ToolbarHandView).map { [$0] } ?? []) + view.subviews.flatMap(hands)
-        }
-        let toolbarHands = hands(ui.window.contentView?.superview)
-        if let hand = toolbarHands.first, let event = ui.mouseDown(.zero, clicks: 1) {
-            hand.mouseEntered(with: event)
-            let entered = NSCursor.current == NSCursor.pointingHand
-            hand.mouseExited(with: event)
-            await check("the bell and New show the pointing hand, and leaving them gives the arrow back",
-                  toolbarHands.count == 2 && toolbarHands.allSatisfy { $0.trackingAreas.contains { $0.options.contains(.cursorUpdate) } }
-                  && entered && NSCursor.current == NSCursor.arrow, "\(toolbarHands.count) hands, entered \(entered)")
-        } else {
-            await check("the toolbar's items track the pointing hand", false, "\(toolbarHands.count) hands")
-        }
         await ui.click(ui.anchor("bell"))
         await ui.until(2) { model.modal == .notifications }
         await check("a click on the bell opens the center", model.modal == .notifications, "\(String(describing: model.modal))")
@@ -1307,8 +1246,8 @@ extension UITest {
     }
 
     /// Slack links and the new sheets (T-312, T-313, T-331, T-332, T-333): New Task… and New Reminder… come with the
-    /// copied Slack link until × drops that copy, named after its message; Link… adds anything, by keyboard too; the chips
-    /// under a task's row take the hand; a Slack link pasted in a list's New Task line becomes its link.
+    /// copied Slack link until × drops that copy, named after its message; Link… adds anything, by keyboard too; a click on a chip
+    /// under a task.s row opens it; a Slack link pasted in a list's New Task line becomes its link.
     static func slackLinks(_ model: AppModel, _ ui: Driver) async {
         let url = SlackService.fixtureLink
         let route = ModalRoute.slack(url)
@@ -1348,21 +1287,19 @@ extension UITest {
               "\(addedTask()?.title ?? "none") \(addedTask()?.links ?? []) selected \(model.selectedTasks)")
         let added = addedTask()
 
-        // The links on its card: the hand over each, the arrow beside; a click opens it (2026-11-10).
+        // A click on a link on its card opens it (2026-11-10).
         model.selectSection(nil)
         await ui.settle(0.5)
         if let added, let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator,
            let cell = outline.view(atColumn: 1, row: outline.row(forItem: coordinator.node(.task(added.id))), makeIfNecessary: false) as? TaskCell,
            let token = cell.links.windowPoint(of: route) {
-            let past = cell.links.convert(NSPoint(x: -Space.sm, y: cell.links.bounds.midY), to: nil)
-            await check("the hand over a link on a task's card, as the window gives it, the arrow beside", ui.cursorShown(at: token) == .pointingHand && ui.cursorShown(at: past) != .pointingHand)
             let opened = model.slackLog.count
             await ui.click(token)
             await ui.settle(0.4)
             await tableCheck(ui, "a click on the Slack link opens it in Slack", model.slackLog.count == opened + 1 && model.slackLog.last == url
                        && model.modal == nil, "\(model.slackLog)")
         } else {
-            await check("the hand over a link on a task's card, the arrow beside", false, "no link on the card")
+            await check("a link on a task's card", false, "no link on the card")
         }
 
         // A link added from the CLI shows under the task's row at once, every kind (T-352): through the socket, as `hq` does it.
@@ -1616,17 +1553,14 @@ extension UITest {
         editor.setSelectedRange((editor.string as NSString).range(of: "Last"))
         editor.paste(nil)
         await check("an address pasted over words links them", editor.string.contains("[Last](https://example.com/plan) line."), editor.string)
-        // A checkbox ticks on a click, with the pointing hand over it.
+        // A checkbox ticks on a click.
         if let layout = editor.layoutManager, let container = editor.textContainer {
             let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: at("[ ] two"), length: 3), actualCharacterRange: nil)
             let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
             let point = editor.convert(NSPoint(x: rect.midX + editor.textContainerOrigin.x, y: rect.midY + editor.textContainerOrigin.y), to: nil)
             if let click = ui.mouseDown(point, clicks: 1) {
-                NSCursor.arrow.set()
-                editor.cursorUpdate(with: click)
-                let hand = NSCursor.current == NSCursor.pointingHand
                 editor.mouseDown(with: click)
-                await check("a click on a checkbox in the editor ticks it, the pointing hand over it", editor.string.contains("- [x] two") && hand, editor.string)
+                await check("a click on a checkbox in the editor ticks it", editor.string.contains("- [x] two"), editor.string)
                 editor.mouseDown(with: click)
                 await check("and another unticks it", editor.string.contains("- [ ] two"), editor.string)
             }
@@ -2703,8 +2637,8 @@ extension UITest {
             if let click = ui.mouseDown(point, clicks: 1) { outline.mouseDown(with: click) }
             await ui.settle(0.2)
             let copied = Pasteboard.copied
-            await check("a click on a task's key copies its line, as Copy does (T-358)", copied == "Task \(task.key): \(task.title)" && cell.key.tracksHandCursor,
-                  "\(copied ?? "nothing"), hand \(cell.key.tracksHandCursor), hits \(cell.button(at: point).map { String(describing: type(of: $0)) } ?? "none"), row \(outline.row(at: outline.convert(point, from: nil))) of \(keyRow), in outline \(cell.superview != nil), key \(cell.key.frame) hidden \(cell.key.isHidden), copies \(cell.key.copied)")
+            await check("a click on a task's key copies its line, as Copy does (T-358)", copied == "Task \(task.key): \(task.title)",
+                  "\(copied ?? "nothing"), hits \(cell.button(at: point).map { String(describing: type(of: $0)) } ?? "none"), row \(outline.row(at: outline.convert(point, from: nil))) of \(keyRow), in outline \(cell.superview != nil), key \(cell.key.frame) hidden \(cell.key.isHidden), copies \(cell.key.copied)")
             await check("and the key turns the accent color", cell.key.textColor == Ink.accentNS)
             cell.setHovered(false)
         } else {
@@ -2727,7 +2661,6 @@ extension UITest {
                 FaceMenu.show = show
                 await check("a click on it offers Start Session…", offered == "no-session: Start Session…", offered ?? "nothing")
             }
-            await check("the hand over its status", cell.glyph.tracksHandCursor)
             model.beginStart(task: child)
             await ui.settle(0.6)
             // Closing keeps the sheet's size and content while it animates out: no jump, no flash.
@@ -2744,7 +2677,7 @@ extension UITest {
                 faces.layoutSubtreeIfNeeded()
                 func face() -> NSView? { faces.subviews.first { $0 is FaceStackView } }
                 func facePoint() -> NSPoint { face().map { $0.convert(NSPoint(x: $0.bounds.midX, y: $0.bounds.midY), to: nil) } ?? .zero }
-                await check("the face shows at the card's start, before its status, the hand over it", (ui.hitView(facePoint()) as? FaceStackView)?.tracksHandCursor == true
+                await check("the face shows at the card's start, before its status, and takes the click", ui.hitView(facePoint()) is FaceStackView
                       && (face().map { faces.convert($0.frame, to: outline).maxX <= cell.convert(cell.glyph.frame, to: outline).minX } ?? false),
                       String(describing: ui.hitView(facePoint()).map { type(of: $0) }))
                 let point = facePoint()

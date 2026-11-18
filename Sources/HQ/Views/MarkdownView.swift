@@ -258,7 +258,6 @@ private struct MarkdownBlockView: View {
             if let toggle, let task {
                 Button { toggle.run(task) } label: { mark }
                     .buttonStyle(.plain)
-                    .clickable()
                     .help(checked ? "Uncheck" : "Check")
                     .accessibilityLabel(text)
                     .accessibilityValue(checked ? "Done" : "To do")

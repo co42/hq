@@ -77,7 +77,6 @@ struct ProjectPicker: View {
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
-            .clickable()
             .contextMenu {
                 if let project { LabelColorMenu(kind: .project, name: project) }
             }
@@ -173,7 +172,6 @@ struct TagAdder: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .clickable()
             .help("Add a tag")
             .accessibilityLabel("Add a tag")
             .uiTestAnchor("tag-adder")
@@ -209,7 +207,6 @@ struct ItemLabels: View {
                 Label(pinned ? "Pinned" : "Pin", icon: pinned ? .pinned : .pin)
             }
             .buttonStyle(.borderless)
-            .clickable()
             .help(pinned ? "Unpin it" : "Pin it to the top of Files and Artifacts")
             ProjectPicker(project: project, empty: "No project", set: setProject)
             TagList(tags: tags, set: setTags)
@@ -285,7 +282,6 @@ struct TaskFinder: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .clickable()
                             .accessibilityAddTraits(position == index ? .isSelected : [])
                             .id(task.id)
                         }

@@ -222,11 +222,10 @@ struct MarkdownEditor: NSViewRepresentable {
     }
 
     /// ⌘Return commits: the menu's own ⌘Return isn't bound while an editor has the keyboard. ⌘B, ⌘I and ⌘K (the app's key
-    /// monitor) and Format's items mark the selection; a click on a checkbox ticks it, with the pointing hand over it.
+    /// monitor) and Format's items mark the selection; a click on a checkbox ticks it.
     final class EditorTextView: NSTextView {
         weak var coordinator: Coordinator?
         private var wantsFocus: (atEnd: Bool, point: CGPoint?)?
-        private var pointerArea: NSTrackingArea?
 
         /// The menus follow the keyboard in and out of editors (Find Next and Previous, Format), once the window has it.
         override func becomeFirstResponder() -> Bool {
@@ -252,11 +251,6 @@ struct MarkdownEditor: NSViewRepresentable {
             super.viewDidMoveToWindow()
             if window == nil { DispatchQueue.main.async { NotificationCenter.default.post(name: .editorKeyboard, object: nil) } }
             if window != nil, wantsFocus != nil { focusSoon() }
-            if window != nil, pointerArea == nil {
-                let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self)
-                addTrackingArea(area)
-                pointerArea = area
-            }
         }
 
         private func focusSoon() {
@@ -492,15 +486,6 @@ struct MarkdownEditor: NSViewRepresentable {
                 return
             }
             super.mouseDown(with: event)
-        }
-
-        override func mouseMoved(with event: NSEvent) {
-            super.mouseMoved(with: event)
-            if checkbox(at: convert(event.locationInWindow, from: nil)) != nil { NSCursor.pointingHand.set() }
-        }
-
-        override func cursorUpdate(with event: NSEvent) {
-            if checkbox(at: convert(event.locationInWindow, from: nil)) != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
         }
     }
 }

@@ -892,7 +892,7 @@ struct SessionGrid: NSViewRepresentable {
     }
 
     /// The card's root: clicks go to the collection view.
-    final class CardView: NSView, HandParts {
+    final class CardView: NSView {
         /// What a press on a team's tray reaches.
         enum Spot: Equatable, CustomStringConvertible {
             case toggle
@@ -925,7 +925,6 @@ struct SessionGrid: NSViewRepresentable {
 
         /// The face, at the card's top left inside its padding.
         static var face: NSRect { NSRect(x: Space.md, y: Space.md, width: Metric.faceCard, height: Metric.faceCard) }
-        private var pointerArea: NSTrackingArea?
 
         /// The team's toggle or one of its faces under a point of the card.
         func spot(at point: NSPoint) -> Spot? {
@@ -936,42 +935,6 @@ struct SessionGrid: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
-
-        /// Its face, and its team's faces and toggle.
-        var handParts: [NSRect] {
-            guard let content, !content.team.isEmpty else { return [Self.face] }
-            let spots = SessionCard.traySpots(content, in: tray)
-            return [Self.face, spots.toggle] + spots.faces.map(\.rect)
-        }
-
-        // The pointing hand over the faces and the toggle, which SwiftUI can't give: the card takes their clicks.
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            trackPointer()
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            trackPointer()
-        }
-
-        private func trackPointer() {
-            guard pointerArea == nil, window != nil else { return }
-            let area = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
-            addTrackingArea(area)
-            pointerArea = area
-        }
-
-        override func cursorUpdate(with event: NSEvent) { pointer(event) }
-        override func mouseMoved(with event: NSEvent) { pointer(event) }
-
-        private func pointer(_ event: NSEvent) {
-            let point = convert(event.locationInWindow, from: nil)
-            (Self.face.contains(point) || spot(at: point) != nil ? NSCursor.pointingHand : NSCursor.arrow).set()
-        }
-
-        /// Over the face, as the pointer sees it.
-        var handOverFace: Bool { pointerArea != nil }
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     }
@@ -999,7 +962,7 @@ struct OpenTeam: NSViewRepresentable {
 /// The open team's card (DESIGN.md §5): the card's row and a row per session, over the cards below. A click selects, a
 /// double-click opens, a face focuses, a right-click shows the menu, a drag moves a session, a drop asks; a press anywhere
 /// outside it folds it.
-final class TeamCardView: NSView, NSDraggingSource, HandParts {
+final class TeamCardView: NSView, NSDraggingSource {
     private let host = NSHostingView(rootView: AnyView(EmptyView()))
     weak var link: GridLink? { didSet { link?.team = self } }
     private weak var model: AppModel?
@@ -1016,7 +979,6 @@ final class TeamCardView: NSView, NSDraggingSource, HandParts {
     /// A press on a session: a click, or a drag once it moves.
     private var press: (id: String, at: NSPoint, face: Bool)?
     private var outside: Any?
-    private var pointerArea: NSTrackingArea?
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -1083,14 +1045,6 @@ final class TeamCardView: NSView, NSDraggingSource, HandParts {
     /// The toggle, as SwiftUI laid it out.
     var toggle: NSRect? { content.map { SessionCard.traySpots($0, in: tray).toggle } }
 
-    /// Its top session's face, the toggle and each row's face.
-    var handParts: [NSRect] {
-        guard let content else { return [] }
-        let top = Metric.card + SessionCard.rowsTop
-        let faces = content.team.indices.map { SessionCard.rowFace(depth: content.team[$0].depth).offsetBy(dx: 0, dy: top + CGFloat($0) * Metric.teamRow) }
-        return [SessionGrid.CardView.face] + (toggle.map { [$0] } ?? []) + faces
-    }
-
     // MARK: Clicks
 
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
@@ -1151,20 +1105,6 @@ final class TeamCardView: NSView, NSDraggingSource, HandParts {
             self?.clicked(event)
             return event
         }
-        if pointerArea == nil {
-            let area = NSTrackingArea(rect: .zero, options: [.cursorUpdate, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self)
-            addTrackingArea(area)
-            pointerArea = area
-        }
-    }
-
-    // The pointing hand over the faces and the toggle.
-    override func cursorUpdate(with event: NSEvent) { pointer(event) }
-    override func mouseMoved(with event: NSEvent) { pointer(event) }
-
-    private func pointer(_ event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        (toggle?.contains(point) == true || spot(at: point)?.face == true ? NSCursor.pointingHand : NSCursor.arrow).set()
     }
 
     // MARK: Drag

@@ -950,13 +950,13 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     /// Link… on a row: the link picker in a popover under the task's title, the row selected.
     func showLinkPicker(_ id: Int) {
-        showPicker(id) { [model] popover in AnyView(LinkPicker(task: id) { [weak popover] in popover?.close() }.environment(model).handCursors()) }
+        showPicker(id) { [model] popover in AnyView(LinkPicker(task: id) { [weak popover] in popover?.close() }.environment(model)) }
     }
 
     /// Block…, Blocked By… or After… on a row: their picker in a popover under the task's title, the row selected.
     func showHoldPicker(_ id: Int, _ kind: HoldPicker.Kind) {
         showPicker(id) { [model] popover in
-            AnyView(HoldPicker(task: id, kind: kind) { [weak popover] in popover?.close() }.environment(model).handCursors())
+            AnyView(HoldPicker(task: id, kind: kind) { [weak popover] in popover?.close() }.environment(model))
         }
     }
 

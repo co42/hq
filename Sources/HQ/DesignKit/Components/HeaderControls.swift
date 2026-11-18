@@ -45,7 +45,6 @@ private struct HeaderControl<Label: View>: View {
             .scaleEffect(pressed ? 0.96 : 1)
             .opacity(enabled ? 1 : 0.45)
             .onHover { hovering = $0 }
-            .pointerStyle(enabled ? .link : nil)
             .animation(Motion.hover, value: hovering)
             .animation(Motion.hover, value: pressed)
     }

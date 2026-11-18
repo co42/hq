@@ -291,7 +291,7 @@ final class MarkdownRuleRow: NSTableRowView {
 }
 
 /// A cell's text: selectable where the viewer's text is; its links open as the note's do.
-final class MarkdownCell: NSTextView, NSTextViewDelegate, HandParts {
+final class MarkdownCell: NSTextView, NSTextViewDelegate {
     static let id = NSUserInterfaceItemIdentifier("markdown-cell")
     private var opens: (URL) -> Void = { _ in }
 
@@ -338,19 +338,6 @@ final class MarkdownCell: NSTextView, NSTextViewDelegate, HandParts {
     }
 
     /// The pointing hand over its links (T-536), selectable or not.
-    var handParts: [NSRect] {
-        guard let layoutManager, let textContainer, let storage = textStorage else { return [] }
-        var rects: [NSRect] = []
-        storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            guard value != nil else { return }
-            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            layoutManager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: textContainer) { rect, _ in
-                rects.append(rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y))
-            }
-        }
-        return rects
-    }
-
     override func cursorUpdate(with event: NSEvent) {
         if link(at: convert(event.locationInWindow, from: nil)) != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
     }

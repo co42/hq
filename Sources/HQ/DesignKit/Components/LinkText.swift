@@ -73,7 +73,7 @@ private struct LinkHands: NSViewRepresentable {
 }
 
 /// Over a `LinkText`: takes the pointer and the click only over a link, the text below gets the rest.
-final class LinkHandView: HandTrackingView {
+final class LinkHandView: NSView {
     fileprivate var links: LinkRects
     fileprivate var open: (URL) -> Void
 
@@ -81,12 +81,26 @@ final class LinkHandView: HandTrackingView {
         self.links = links
         self.open = open
         super.init(frame: .zero)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var handParts: [NSRect] { links.all.map(\.rect) }
+    /// Where its links are drawn.
+    var handParts: [NSRect] { links.all.map(\.rect) }
+
+    /// The pointing hand over a link, the arrow between: from a tracking area, which follows scrolling.
+    private func pointer(_ event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        (handParts.contains { $0.contains(local) } ? NSCursor.pointingHand : NSCursor.arrow).set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) { pointer(event) }
+    override func mouseEntered(with event: NSEvent) { pointer(event) }
+    override func mouseMoved(with event: NSEvent) { pointer(event) }
+    override func mouseExited(with event: NSEvent) { NSCursor.arrow.set() }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)

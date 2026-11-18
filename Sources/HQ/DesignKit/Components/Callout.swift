@@ -59,7 +59,6 @@ struct CalloutBox<Content: View>: View {
             if foldable {
                 Button { folded.toggle() } label: { header.contentShape(Rectangle()) }
                     .buttonStyle(.plain)
-                    .clickable()
                     .help(folded ? "Show it" : "Hide it")
                     .accessibilityValue(folded ? "Folded" : "Open")
             } else {

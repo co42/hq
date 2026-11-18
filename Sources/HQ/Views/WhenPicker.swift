@@ -57,7 +57,6 @@ struct WhenPicker: View {
                         line(choice.title, detail: choice.detail, highlighted: position == index, dim: choice.date == nil)
                     }
                     .buttonStyle(.plain)
-                    .clickable()
                     .disabled(choice.date == nil)
                     .accessibilityAddTraits(position == index ? .isSelected : [])
                     .onHover { if $0 { index = position } }
@@ -67,7 +66,6 @@ struct WhenPicker: View {
                     line("Pick Date & Time…", detail: "", icon: .pickDate, highlighted: index == rows.count)
                 }
                 .buttonStyle(.plain)
-                .clickable()
                 .onHover { if $0 { index = rows.count } }
                 .uiTestAnchor("when-calendar")
             }
@@ -84,7 +82,6 @@ struct WhenPicker: View {
                     Spacer(minLength: Space.sm)
                     Button("Set") { pick(custom) }
                         .buttonStyle(.glassProminent)
-                        .clickable()
                         .disabled(custom <= now)
                         .uiTestAnchor("when-set")
                 }

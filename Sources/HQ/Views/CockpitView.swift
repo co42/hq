@@ -67,7 +67,6 @@ struct CockpitView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { model.selectSection(nil) }
                 .gridArea("page", inset: 0)
-                .handCursors()
                 .controlSize(Zoom.controlSize(zoom))
                 .id(zoom)
             }
@@ -119,7 +118,7 @@ struct CockpitView: View {
         .sheet(isPresented: Binding(get: { model.modal != nil }, set: { if !$0 { model.closeModal() } })) {
             ModalHost()
         }
-        .sheet(isPresented: $model.showSetup) { SetupSheet().handCursors().id(zoom) }
+        .sheet(isPresented: $model.showSetup) { SetupSheet().id(zoom) }
     }
 }
 
@@ -276,7 +275,6 @@ private struct SectionBar: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                    .pointerStyle(.link)
                     .help("Go to \(section.title)")
                     .accessibilityLabel(section.title)
                     .accessibilityAddTraits(current == section ? .isSelected : [])
@@ -315,7 +313,6 @@ struct CockpitToolbar: ToolbarContent {
             NotificationBell(needs: model.importantCount, updates: model.updateCount, breathing: model.bellBreathes) { model.openCenter() }
                 .id(zoom)
                 .help("\(model.noticeSummary). Open the notifications (⌘J)")
-                .toolbarClickable()
                 .uiTestAnchor("bell")
         }
         // Right of the bell at every width, the section bar there or not.
@@ -329,7 +326,6 @@ struct CockpitToolbar: ToolbarContent {
                 Label("New", icon: .new)
             }
             .menuIndicator(.hidden)
-            .toolbarClickable()
             .uiTestAnchor("new")
             .help("New task (⌘N), file, session or reminder (⌃⌘R)")
         }

@@ -68,7 +68,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .handCursors()
         .fitsContent()
         .frame(width: Metric.settingsWidth)
     }

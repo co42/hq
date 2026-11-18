@@ -87,7 +87,6 @@ struct RolesModal: View {
             .foregroundStyle(Ink.accentText)
             .kitType(.title)
             .padding(.horizontal, Space.sm)
-            .clickable()
             .help("Make a new role: name it, then write what a session with it gets")
             .uiTestAnchor("roles-new")
         }
@@ -319,7 +318,6 @@ private struct UsedBy: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .clickable()
         .help("\(session.name): select it on the page")
         .accessibilityLabel("Used by \(session.name)")
         .uiTestAnchor("role-user:\(session.id)")

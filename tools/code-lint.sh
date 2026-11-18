@@ -3,7 +3,8 @@
 # - views use DesignKit's tokens: no raw color, font size, SF Symbol name or animation outside Sources/HQ/DesignKit;
 # - an `isFlipped` override is nonisolated: AppKit reads it off the main thread when a drag of several items starts;
 # - a double-click goes through SelectOpen or opensOnDoubleClick, never onTapGesture(count: 2), which counts a click on a control inside;
-# - no cursor rects: they go stale as the page scrolls, and AppKit gives a click's pointer to the view it hits (T-453).
+# - the pointing hand only over a link in text (LinkText, a table's cells), as macOS does; no cursor rects, which go stale as the
+#   page scrolls (DESIGN.md §12).
 # - markdown shows and is edited through MarkdownSurface, MarkdownField and MarkdownLine only, so every place looks and edits
 #   alike (T-469 item 8, DESIGN.md §9).
 # Usage: tools/code-lint.sh       Silence one line with a reason: // lint: ok <why>
@@ -14,10 +15,12 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
   my $kit = $ARGV =~ m{/DesignKit/};
   my $tests = $ARGV =~ m{/(UITest|UITestChecks|SelfTest|Snapshot|SeedData)\.swift$};
   my $markdown = $ARGV =~ m{/Views/Markdown(?:Surface|View|Editor)\.swift$|/(?:UITest|SelfTest)[^/]*\.swift$};
+  my $textLink = $ARGV =~ m{/(?:LinkText|MarkdownTable)\.swift$};
   if (!/lint: ok/ && !/^\s*\/\//) {
     my @bad;
     push @bad, "isFlipped must be nonisolated" if /override var isFlipped/ && !/nonisolated/;
-    push @bad, "a cursor rect: use HandTrackingView or trackHandCursor()" if /\b(?:addCursorRect|resetCursorRects)\b/;
+    push @bad, "a cursor rect: use a tracking area" if /\b(?:addCursorRect|resetCursorRects)\b/;
+    push @bad, "a pointing hand outside a text link" if !$textLink && $ARGV !~ m{/(?:UITest|SelfTest)[^/]*\.swift$} && /\bpointingHand\b|\.pointerStyle\(/;
     if (!$markdown) {
       push @bad, "markdown outside MarkdownSurface" if /\b(?:MarkdownView|MarkdownEditor)\(/;
       push @bad, "a multi-line field: use MarkdownField" if /axis:\s*\.vertical/;

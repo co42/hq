@@ -56,7 +56,6 @@ struct ArchiveView: View {
                     if matches.count > visible.count {
                         Button("Show \(min(Self.page, matches.count - visible.count)) More") { limit += Self.page }
                             .buttonStyle(.borderless)
-                            .clickable()
                             .kitType(.callout)
                             .uiTestAnchor("archive-more")
                     }
@@ -255,7 +254,6 @@ private struct ArchiveCard: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, Space.xs)
         .surface(radius: Radius.control, lifted: true)
-        .clickable()
     }
 
 }
@@ -279,7 +277,6 @@ struct ArchivedTaskView: View {
                             Text("Subtask of")
                             Button("\(parent.key) \(parent.title)") { model.open(.archivedTask(parent.id), push: true) }
                                 .buttonStyle(.link)
-                                .clickable()
                                 .lineLimit(1)
                                 .help("Open \(parent.key)")
                         }
@@ -319,7 +316,7 @@ struct ArchivedTaskView: View {
                 if let links = model.archiveShown?.notes[id]?.links, !links.isEmpty {
                     ModalGroup(title: "Links") {
                         VStack(alignment: .leading, spacing: Space.xs) {
-                            ForEach(links, id: \.self) { link in Link(link.absoluteString, destination: link).lineLimit(1).truncationMode(.middle).clickable() }
+                            ForEach(links, id: \.self) { link in Link(link.absoluteString, destination: link).lineLimit(1).truncationMode(.middle) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(Metric.cardPadding)
@@ -357,7 +354,6 @@ private struct ArchivedSubtaskCard: View {
             .listCard(selected: false, active: false)
         }
         .buttonStyle(.plain)
-        .clickable()
         .help("Open \(entry.key)")
         .uiTestAnchor("archived-subtask:\(entry.id)")
     }

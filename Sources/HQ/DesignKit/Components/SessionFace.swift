@@ -90,7 +90,6 @@ struct SessionFace: View {
                 ClickTarget { Self.click?(session, $0) }
             }
         }
-        .pointerStyle(!inTray && (session == nil || Self.click == nil) ? nil : .link)
         // A team's faces leave the tooltip to their tray, which names them all.
         .modifier(FaceHelp(text: inTray ? nil : session == nil ? label ?? "" : "\(label ?? "Session"): click for its menu"))
         .accessibilityElement()
@@ -122,7 +121,7 @@ struct ClickTarget: NSViewRepresentable {
 
     func updateNSView(_ view: Target, context: Context) { view.action = action }
 
-    final class Target: HandTrackingView {
+    final class Target: NSView {
         var action: ((NSView) -> Void)?
 
         nonisolated override var isFlipped: Bool { true }
@@ -219,8 +218,8 @@ final class FaceStackView: NSView {
     var limit = 3
     /// "+n" after the faces past the limit; off where the column holds `limit` faces only.
     var showsMore = true
-    /// A click acts on the faces: the pointing hand over them, and clicks go on to the superview.
-    var clickable = false { didSet { if clickable && !tracksHandCursor { trackHandCursor() } } }
+    /// A click acts on the faces: it goes on to the superview, the window activated or not.
+    var clickable = false
     var dimmed = false
     /// VoiceOver's press, as a click: a face's menu, or a new session where there's none.
     var press: (() -> Void)?
@@ -290,10 +289,6 @@ final class FaceStackView: NSView {
         }
     }
 
-    override func cursorUpdate(with event: NSEvent) {
-        if clickable { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
-    }
-
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { clickable }
 
     /// The session whose face is under `point` (this view's coordinates); the one drawn on top wins.
@@ -346,16 +341,6 @@ final class FaceStackView: NSView {
 /// A task no session works on, in its face slot: a plain tile with a silhouette, quieter than any face (2026-11-10).
 final class NoSessionFace: NSView {
     nonisolated override var isFlipped: Bool { true }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        trackHandCursor()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    /// A click offers to start a session.
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func draw(_ dirtyRect: NSRect) {
         let side = min(bounds.width, bounds.height)

@@ -105,7 +105,6 @@ struct TaskModal: View {
                 Text("Subtask of")
                 Button("\(parent.key) \(parent.title)") { model.open(.task(parent.id), push: true) }
                     .buttonStyle(.link)
-                    .clickable()
                     .lineLimit(1)
                     .help("Open \(parent.key)")
                     .uiTestAnchor("modal-parent")
@@ -285,7 +284,6 @@ private struct StatusButton: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .clickable()
         .help("\(status.title): click for the next status, hold for the list")
         .accessibilityLabel("Status: \(status.title)")
         .uiTestAnchor("modal-status")
@@ -336,7 +334,6 @@ private struct RelationActions: View {
 
     private func button(_ title: String, _ kind: HoldPicker.Kind, help: String) -> some View {
         Button(title) { picking = kind }
-            .clickable()
             .help(help)
             .uiTestAnchor("relation-add:\(title)")
     }
@@ -395,7 +392,6 @@ private struct TaskRelations: View {
                 Button("Remove", icon: .close) { remove(other) }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .clickable()
                     .foregroundStyle(.secondary)
                     .frame(width: Metric.rowAction, height: Metric.rowAction)
                     .help("Take this link off")
@@ -454,10 +450,8 @@ struct SessionChip: View {
             .selectOpen(ModalRoute.session(session.id).selectionKey) { model.open(.session(session.id), push: true) }
             if let unlink {
                 Button("Unlink", icon: .close, action: unlink)
-                    .clickable()
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .clickable()
                     .foregroundStyle(.secondary)
                     .help("Unlink this session from the task")
             }
@@ -491,7 +485,6 @@ struct OutputRows: View {
                             Button("Unlink", icon: .close) { model.unlink(route, from: task) }
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
-                                .clickable()
                                 .foregroundStyle(.secondary)
                                 .frame(width: Metric.rowAction, height: Metric.rowAction)
                                 .help("Unlink it from the task")
@@ -616,7 +609,6 @@ struct LinkPicker: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .clickable()
                         .accessibilityAddTraits(position == index ? .isSelected : [])
                         .onHover { if $0 { index = position } }
                         .id(position)
@@ -741,10 +733,8 @@ struct SessionModal: View {
                                     .selectOpen(ModalRoute.task(task.id).selectionKey) { model.open(.task(task.id), push: true) }
                                 KeyLabel(key: task.key)
                                 Button("Unlink", icon: .close) { model.unlink(task: task.id, session: id) }
-                                    .clickable()
                                     .labelStyle(.iconOnly)
                                     .buttonStyle(.borderless)
-                                    .clickable()
                                     .foregroundStyle(.secondary)
                                     .help("Unlink this task from the session")
                             }
@@ -779,7 +769,6 @@ struct SessionModal: View {
                             DetailRow(label: "Role") {
                                 Button { model.openRoles(role.name, push: true) } label: { RoleChip(role: role) }
                                     .buttonStyle(.plain)
-                                    .clickable()
                                     .help("\(role.name): open it in Roles")
                                     .uiTestAnchor("session-role")
                             }
@@ -793,7 +782,6 @@ struct SessionModal: View {
                                     }
                                 }
                                 .buttonStyle(.link)
-                                .clickable()
                                 .help("Open \(parent.name)")
                                 .accessibilityLabel("Started by \(parent.name)")
                                 .uiTestAnchor("session-parent")
@@ -1136,7 +1124,6 @@ struct GitHubModal: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .clickable()
                 .help("Open \(task.key) \(task.title)")
             }
             ForEach(model.sessions(onPullRequest: item)) { session in
@@ -1158,7 +1145,6 @@ struct GitHubModal: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            .clickable()
             .help("Link it to a task or a session")
         }
     }
@@ -1224,7 +1210,6 @@ struct StartSessionForm: View {
                             .labelsHidden()
                             .uiTestAnchor("start-folder")
                             .frame(width: Metric.startPicker, alignment: .leading)
-                            .clickable()
                         }
                         GridRow {
                             label("Role")
@@ -1278,7 +1263,6 @@ struct StartSessionForm: View {
                     Button("Cancel") { model.closeModal() }
                     Button("Start") { model.startFromDraft() }
                         .buttonStyle(.glassProminent)
-                        .clickable()
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                         .help(model.windowTTY(forChildOf: draft.parent).flatMap { _ in model.session(draft.parent) }
@@ -1319,7 +1303,6 @@ struct StartSessionForm: View {
         // The control itself, before its column: the checks hold its leading edge to the name field's.
         .uiTestAnchor("start-role")
         .frame(width: Metric.startPicker, alignment: .leading)
-        .clickable()
         .background(Self.shows("start-role", model.role(named: draft.role)?.name ?? "None"))
     }
 
@@ -1339,7 +1322,6 @@ struct StartSessionForm: View {
         .labelsHidden()
         .uiTestAnchor(anchor)
         .frame(width: Metric.startPicker, alignment: .leading)
-        .clickable()
         .background(Self.shows(anchor, picked?.name ?? none))
     }
 
@@ -1446,7 +1428,6 @@ struct ClosedSessionsModal: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .clickable()
                     Text(closed).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
                     Button("Resume") { model.open(session.id) }
                         .help("Resume it in a new Ghostty tab")

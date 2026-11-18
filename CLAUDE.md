@@ -11,6 +11,7 @@ Native macOS app (SwiftUI, AppKit where needed) that runs the user's day with Cl
 - `hq hook` always exits 0, fast, and never opens the app.
 - Claude Code's transcript format is internal: read it best effort, never depend on it.
 - Views use DesignKit tokens and parts only: no raw colors, radii, durations, fonts or SF Symbol names outside `Sources/HQ/DesignKit/`.
+- The pointer is the arrow over every button, menu, icon, face, chip and row, as macOS does; the pointing hand only over a link in text (`LinkText`, table cells). `tools/code-lint.sh` enforces it.
 - Work on a branch in this checkout, never in a git worktree. One HQ session works here at a time (2026-11-04): it shares one branch, one build folder, one dev copy and the test files in `/tmp`. Before changing anything, check `hq ls sessions --here` (the sessions in this repository) and `git status`: if another session is working on HQ or the tree has changes that aren't yours, stop and tell the user.
 - macOS 27 only (2026-11-05): use any macOS 27 API, no back compatibility. Keep it simple: no feature, setting or abstraction the plan doesn't ask for.
 - The repo is public: no employer, colleague or other personal detail in code, docs or commits.

@@ -196,7 +196,6 @@ struct ShowMoreButton: View {
             let open = model.expandedCards.contains(card)
             Button(open ? "Show Fewer" : "Show \(count - PRCards.shown) More") { model.toggleExpanded(card) }
                 .buttonStyle(.borderless)
-                .clickable()
                 .kitType(.callout)
                 .help(open ? "Show the first \(PRCards.shown) only" : "Show every \(card.rows) in this card")
                 .uiTestAnchor("show-more:\(card.rawValue)")
@@ -255,10 +254,8 @@ struct OpenOnGitHubButton: View {
 
     var body: some View {
         Button("Open on GitHub", icon: .openExternal) { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
-            .clickable()
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
-            .clickable()
             .foregroundStyle(.secondary)
             .frame(width: Metric.rowAction, height: Metric.rowAction)
             .help("Open on GitHub")

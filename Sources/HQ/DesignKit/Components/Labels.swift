@@ -21,7 +21,6 @@ struct SectionHeader<Trailing: View>: View {
                     titleLine(open: open.wrappedValue).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerStyle(.link)
                 .help((open.wrappedValue ? "Hide \(title)" : "Show \(title)") + (key.map { " (\($0))" } ?? ""))
                 .accessibilityLabel(count.map { "\(title), \($0)" } ?? title)
                 .accessibilityValue(open.wrappedValue ? "Shown" : "Folded")
@@ -283,7 +282,6 @@ struct ModalGroup<Content: View, Actions: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .pointerStyle(.link)
                 .help(open.wrappedValue ? "Hide \(title)" : "Show \(title)")
                 .accessibilityValue(open.wrappedValue ? "Shown" : "Folded")
             } else {
@@ -360,10 +358,8 @@ struct CodeBlock: View {
             .overlay(alignment: .topTrailing) {
                 if copies {
                     Button("Copy", icon: .copy) { Pasteboard.copy(text) }
-                        .clickable()
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .clickable()
                         .imageScale(.small)
                         .padding(Space.xs)
                         .help("Copy this code")
@@ -391,10 +387,8 @@ struct CopyableValue: View {
                 .help(value)
             Spacer(minLength: Space.sm)
             Button("Copy \(label)", icon: .copy) { Pasteboard.copy(value) }
-                .clickable()
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .clickable()
                 .imageScale(.small)
                 .help("Copy the \(label.lowercased())")
         }

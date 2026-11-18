@@ -58,7 +58,6 @@ struct NotificationCenterView: View {
                             if earlier.count > Self.earlierShown {
                                 Button(allEarlier ? "Show Fewer" : "Show \(earlier.count - Self.earlierShown) More") { allEarlier.toggle() }
                                     .buttonStyle(.borderless)
-                                    .clickable()
                                     .kitType(.callout)
                                     .padding(.leading, Space.sm)
                                     .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
@@ -227,7 +226,6 @@ private struct BlockedRow: View {
             Button(session.isRunning ? "Focus" : "Resume") { model.open(session.id) }
                 .buttonStyle(.glassProminent)
                 .tint(Ink.needsYou)
-                .clickable()
                 .help("Bring its terminal forward to answer it (⌘O)")
         }
         .listCard(selected: selected, active: active)
@@ -291,7 +289,6 @@ private struct NoticeRow: View {
                 Button("Restart Idle Sessions (\(count))") { model.restartIdleSessions() }
                     .buttonStyle(.glassProminent)
                     .tint(Ink.accent)
-                    .clickable()
                     .help("Restart the sessions on an older Claude Code that wait at their prompt; working ones keep running")
                     .uiTestAnchor("restart-idle:\(notice.id.uuidString)")
             }
@@ -347,7 +344,6 @@ private struct NoticeRow: View {
         if let source {
             Button { model.markRead(notice.id); model.open(source, from: notice) } label: { label }
                 .buttonStyle(.plain)
-                .clickable()
                 .help("Open \(name)")
         } else {
             label
@@ -420,7 +416,6 @@ private struct NoticeRow: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, Space.xs)
         .surface(radius: Radius.control, lifted: true)
-        .clickable()
     }
 
     private var doneTitle: String {
@@ -499,7 +494,6 @@ private struct NoticeChip: View {
             OutputChip(route: route, plain: true)
         }
         .buttonStyle(.plain)
-        .clickable()
         .help("Open \(model.title(of: route))")
         .uiTestAnchor("notice-chip:\(notice?.id.uuidString ?? "blocked"):\(route.selectionKey)")
     }
@@ -540,7 +534,6 @@ struct ReminderEditor: View {
                 Label(due.map { ReminderTime.describe($0, now: model.now) } ?? "Now", icon: .later)
             }
             .buttonStyle(.bordered)
-            .clickable()
             .fixedSize()
             .help("When it comes back")
             .popover(isPresented: $picking, arrowEdge: .bottom) {
@@ -554,16 +547,13 @@ struct ReminderEditor: View {
             Toggle(isOn: $important) { Label("Important", icon: important ? .importantOn : .important) }
                 .toggleStyle(.button)
                 .tint(Ink.needsYou)
-                .clickable()
                 .fixedSize()
                 .help(important ? "Important: it needs you when it comes back, with a banner" : "An update when it comes back")
                 .uiTestAnchor("reminder-important")
             Button("Cancel", action: finish)
                 .keyboardShortcut(.cancelAction)
-                .clickable()
             Button("Save", action: save)
                 .buttonStyle(.glassProminent)
-                .clickable()
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .uiTestAnchor("reminder-add")
         }
@@ -640,7 +630,6 @@ private struct ChipLine: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .clickable()
         .help(rest.map { model.title(of: $0) }.joined(separator: "\n"))
     }
 }
@@ -694,7 +683,6 @@ struct ReminderMark: View {
                     .foregroundStyle(mark.due && notice.level == .important ? AnyShapeStyle(Ink.needsYou) : AnyShapeStyle(.secondary))
             }
             .buttonStyle(.plain)
-            .clickable()
             .help(mark.help)
             .accessibilityLabel(mark.help)
             .uiTestAnchor("reminder-mark:\(route.selectionKey)")
@@ -751,7 +739,6 @@ private struct ReviewRow: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
-                .clickable()
                 .help(until == nil ? "Put it away until later (L)" : "Change when it comes back (L)")
                 .popover(isPresented: $showLater, arrowEdge: .bottom) {
                     WhenPicker(now: model.now, current: until) { date in
@@ -763,7 +750,6 @@ private struct ReviewRow: View {
             Button("Review") { model.open(.github(item.url), push: true) }
                 .buttonStyle(.glassProminent)
                 .tint(Ink.needsYou)
-                .clickable()
                 .help("Open the pull request to review it (Return)")
         }
         .listCard(selected: selected, active: active)

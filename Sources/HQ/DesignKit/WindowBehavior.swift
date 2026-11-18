@@ -75,3 +75,17 @@ private struct WindowHook: NSViewRepresentable {
         }
     }
 }
+
+extension NSView {
+    /// A press a view acts on without tracking it takes its release too: the page's tap, which unselects everything, would
+    /// get it. A menu's tracking may have taken it already; a button still held waits for it, only while it's held: a
+    /// release that went elsewhere ends the wait too.
+    func takeRelease() {
+        var held = NSEvent.pressedMouseButtons & 1 != 0
+        repeat {
+            let until = held ? Date(timeIntervalSinceNow: 0.05) : .now
+            if window?.nextEvent(matching: .leftMouseUp, until: until, inMode: .eventTracking, dequeue: true) != nil { return }
+            held = NSEvent.pressedMouseButtons & 1 != 0
+        } while held
+    }
+}

@@ -70,6 +70,10 @@ retired=(
   'Copy Text' 'Copy (T-540)'
   'Show Details' 'Open (T-540)'
   'Mark as Unread' 'Unread (T-540)'
+  'clickable()' 'nothing: the arrow over controls, the hand over text links only (T-601)'
+  'handCursors()' 'nothing: the arrow over controls, the hand over text links only (T-601)'
+  'trackHandCursor' 'nothing: the arrow over controls, the hand over text links only (T-601)'
+  'HandTrackingView' 'nothing: the arrow over controls, the hand over text links only (T-601)'
 )
 
 lint='

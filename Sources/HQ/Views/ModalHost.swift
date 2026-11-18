@@ -72,7 +72,6 @@ struct ModalHost: View {
         .environment(\.modalRoute, route)
         .onPreferenceChange(OwnsEscape.self) { contentEscapes = $0 }
         .noInitialFocus()
-        .handCursors()
         .controlSize(Zoom.controlSize(model.zoom))
         .id(model.zoom)
         .gridArea("modal", inset: 0)
@@ -130,7 +129,6 @@ private struct ModalHeader: View {
             Button("Close", icon: .close) { model.closeModal() }
                 .labelStyle(.iconOnly)
                 .buttonStyle(ModalButtonStyle(circle: true))
-                .clickable()
                 .keyboardShortcut(escapes && !escapesBack ? .cancelAction : nil)
                 .help(escapes && !escapesBack ? "Close (Escape)" : "Close")
                 .uiTestAnchor("modal-close")
@@ -236,14 +234,12 @@ private struct ModalActions: View {
                 }
                 Button("Randomize Face", icon: .randomize) { model.randomizeFace(id) }
                     .labelStyle(.iconOnly)
-                    .clickable()
                     .help("Give it another face")
                     .uiTestAnchor("randomize-face")
                 CopyItemButton(route: .session(id))
                 Button(session.isRunning ? "Focus" : "Resume") { model.open(id) }
                     .disabled(session.isRunning && session.tty == nil)
                     .buttonStyle(ModalButtonStyle(prominent: true))
-                    .clickable()
                     .help(session.isRunning ? "Bring its terminal forward (⌘O)" : "Resume it in a new Ghostty tab (⌘O)")
                     .uiTestAnchor("session-main-action")
                 ModalMore(anchor: "session-more") { SessionMenu(session: session) }
@@ -254,14 +250,12 @@ private struct ModalActions: View {
                     Button("Cancel") { model.editingFile = nil }.help("Drop the changes")
                     Button("Save") { model.saveModalEdits() }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Save the changes (Escape or ⌘Return)")
                 } else {
                     RemindMeButton(route: .file(id))
                     CopyItemButton(route: .file(id))
                     Button("Edit") { model.beginFileEdit(id) }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Edit the note in markdown (⌘E)")
                         .uiTestAnchor("file-edit")
                     ModalMore(anchor: "file-more") { OutputMenu(route: .file(id)) }
@@ -273,7 +267,6 @@ private struct ModalActions: View {
             CopyItemButton(route: .artifact(url))
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
                 .buttonStyle(ModalButtonStyle(prominent: true))
-                .clickable()
                 .help("Open the artifact in the browser (⇧⌘O)")
                 .uiTestAnchor("artifact-main-action")
             ModalMore(anchor: "artifact-more") { OutputMenu(route: .artifact(url)) }
@@ -286,13 +279,11 @@ private struct ModalActions: View {
                 if let next = model.nextReview(after: url) {
                     Button("Next Review") { model.goToNextReview(from: url) }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Open the next PR of Reviews: \(model.title(of: .github(next.url)))")
                         .uiTestAnchor("next-review")
                 } else {
                     Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Open it on github.com (⇧⌘O)")
                 }
                 ModalMore(anchor: "github-more") { PullRequestMenu(item: item) }
@@ -305,7 +296,6 @@ private struct ModalActions: View {
                         .uiTestAnchor("role-cancel")
                     Button("Save") { model.commitRoleEdit() }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Save the changes (Return in a name or a line; Escape or ⌘Return in the text)")
                         .uiTestAnchor("role-save")
                 } else {
@@ -313,7 +303,6 @@ private struct ModalActions: View {
                                help: "Copy \u{201C}\(model.line(ofRole: role))\u{201D}", anchor: "copy-item")
                     Button("Edit") { model.beginRoleEdit(.text) }
                         .buttonStyle(ModalButtonStyle(prominent: true))
-                        .clickable()
                         .help("Edit what a session with this role gets (⌘E)")
                         .uiTestAnchor("role-edit")
                     ModalMore(anchor: "role-more") { RoleMenu(role: role) }
@@ -326,7 +315,6 @@ private struct ModalActions: View {
             Button(story == id ? "Unarchive" : "Unarchive T-\(story)", icon: .unarchive) { model.unarchiveFromWindow(story) }
                 .labelStyle(.titleAndIcon)
                 .buttonStyle(ModalButtonStyle(prominent: true))
-                .clickable()
                 .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
                 .uiTestAnchor("unarchive-task")
             ModalMore(anchor: "archived-more") { ArchivedMenu(id: id) }
@@ -379,7 +367,6 @@ private struct ExpandedActions: View {
         let zoom = model.diagramZoom
         Button("Zoom Out", icon: .zoomOut) { zoom.step(-1) }
             .labelStyle(.iconOnly)
-            .clickable()
             .help("Zoom Out (⌘−)")
         Button { zoom.fit() } label: {
             // As wide at every zoom: the glass doesn't move.
@@ -389,12 +376,10 @@ private struct ExpandedActions: View {
             }
             .monospacedDigit()
         }
-        .clickable()
         .help("Zoom to Fit (⌘9)")
         .uiTestAnchor("diagram-zoom")
         Button("Zoom In", icon: .zoomIn) { zoom.step(1) }
             .labelStyle(.iconOnly)
-            .clickable()
             .help("Zoom In (⌘+)")
     }
 }
@@ -407,7 +392,6 @@ private struct ReloadButton: View {
     var body: some View {
         let loading = model.loadingPage == page
         Button("Reload", icon: .reload) { model.artifactReloads += 1 }
-            .clickable()
             .labelStyle(.iconOnly)
             .symbolEffect(.rotate, isActive: loading)
             .help(loading ? "Loading…" : "Load the page again (⌘R)")
@@ -434,7 +418,6 @@ private struct RemindMeButton: View {
 
     var body: some View {
         Button("Remind Me…", icon: .reminder) { model.beginReminder(about: route) }
-            .clickable()
             .labelStyle(.iconOnly)
             .help("Set a reminder linked to it")
             .uiTestAnchor("item-remind-me")
@@ -471,7 +454,6 @@ private struct CopyButton: View {
                 }
             }
         }
-        .clickable()
         .labelStyle(.iconOnly)
         .help(copied ? "Copied" : help)
         .accessibilityLabel(copied ? done : title)
