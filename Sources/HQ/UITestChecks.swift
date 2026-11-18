@@ -1801,8 +1801,18 @@ extension UITest {
         routes += (model.github?.items ?? []).filter { $0.kind == .pullRequest }.prefix(1).map { .github($0.url) }
         for route in routes {
             model.open(route)
-            await ui.until(2) { ui.window.attachedSheet != nil }
-            await ui.settle(0.6)
+            // Its own page shown and holding still, the header's actions laid out for it: a click before lands on the last
+            // item's header (T-518).
+            let page = switch route {
+            case .task: "task-main-action"
+            case .session: "session-main-action"
+            case .file: "file-page"
+            case .artifact: "artifact-page"
+            default: "github-page"
+            }
+            await ui.until(3) { ui.window.attachedSheet != nil && model.modal == route && ui.anchor(page) != nil }
+            _ = await ui.steadyAnchor(page)
+            await ui.settle(0.3)
             Pasteboard.copied = nil
             await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
             await check("the modal's Copy copies the item's line: \(route.selectionKey.prefix(12))", Pasteboard.copied == model.line(of: route),
