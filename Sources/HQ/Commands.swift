@@ -246,7 +246,7 @@ struct HQCommands: Commands {
             Button(menu.sessionRunning || session == nil ? "Focus" : "Resume") { if let session { model.open(session) } }
                 .keyboardShortcut("o")
                 .disabled(session == nil || !menu.sessionCanFocus)
-            Button("Show Details") { if let session { model.open(.session(session)) } }
+            Button("Open") { if let session { model.open(.session(session)) } }
                 .disabled(session == nil)
             // ⌘↓ shows and ⌘↑ hides, as Finder's open and enclosing keys, only while the cards have the keyboard.
             Button(menu.teamShown ? "Hide Its Sessions" : "Show Its Sessions") {

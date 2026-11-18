@@ -68,6 +68,7 @@ retired=(
   'Move to Tasks' 'Move Out of the Backlog (T-471)'
   'Mark Reviewed' 'Dismiss (T-540)'
   'Copy Text' 'Copy (T-540)'
+  'Show Details' 'Open (T-540)'
   'Mark as Unread' 'Unread (T-540)'
 )
 

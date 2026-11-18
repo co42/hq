@@ -257,7 +257,7 @@ struct QuickOpenView: View {
             HStack(spacing: Space.sm) {
                 Spacer()
                 if results.indices.contains(index) {
-                    actionHint("Show Details", key: "↩")
+                    actionHint("Open", key: "↩")
                     Text("·").foregroundStyle(.tertiary)
                     actionHint(QuickOpen.actionTitle(results[index], model: model), key: "⌘↩")
                 }

@@ -224,6 +224,16 @@ private struct ModalActions: View {
             }
         case .session(let id):
             if let session = model.session(id) {
+                // What it runs on, "Opus VH · 442k" (T-446, T-475); Model ▸ and Effort ▸ are in ⋯.
+                if session.isRunning, let line = session.modelLine {
+                    Text(line)
+                        .kitType(.secondary)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help(session.modelHelp ?? "")
+                        .uiTestAnchor("session-model")
+                }
                 Button("Randomize Face", icon: .randomize) { model.randomizeFace(id) }
                     .labelStyle(.iconOnly)
                     .clickable()
