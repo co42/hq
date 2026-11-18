@@ -8,6 +8,8 @@ import SwiftUI
 ///   tools/uitest.sh   (APP_STORE and HQ_VAULT in /tmp, then HQ --uitest)
 enum UITest {
     static var requested: Bool { CommandLine.arguments.contains("--uitest") }
+    /// The group running, for what a test copy logs.
+    static var group: String?
     /// The views the test clicks.
     /// Every probe by name: a sheet on its way out may still hold one beside the live window's.
     static var anchors: [String: [WeakView]] = [:]
@@ -91,6 +93,7 @@ enum UITest {
             for (name, run) in groups where only?.contains(name) ?? !except.contains(name) {
                 let start = Date.now
                 Motion.still = still && name != "storyFlow"
+                group = name
                 await scenario(model, ui)
                 let logged = AppLog.written["outline.log", default: 0]
                 await run(model, ui)
@@ -102,7 +105,7 @@ enum UITest {
                 Driver.settledAtMost = 0
                 Driver.settledAtMostSeconds = 0
             }
-            if Store.background { await check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times") }
+            if Store.background { await check("the test copy never took the focus", Store.stolenFocus == 0, "activated \(Store.stolenFocus) times: \(Store.stolenFocusWhen.joined(separator: "; "))") }
 
             let skips = skipped == 0 ? "" : ", \(skipped) skipped"
             print(failures == 0 ? "UITEST PASS \(count) checks\(skips)" : "UITEST FAIL \(failures) of \(count) checks\(skips)")

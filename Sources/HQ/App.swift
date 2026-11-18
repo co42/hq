@@ -289,6 +289,8 @@ enum Store {
 
     /// How often a background run was activated anyway; each time it handed the focus straight back.
     static var stolenFocus = 0
+    /// When each of those activations came: the UI test group that ran, the key window, the event.
+    static var stolenFocusWhen: [String] = []
 
     /// Where test runs put their window: the user's second screen when there is one, else nil.
     static var testScreen: NSScreen? { NSScreen.screens.dropFirst().first }
@@ -313,6 +315,7 @@ enum Store {
         center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
                 stolenFocus += 1
+                stolenFocusWhen.append("during \(UITest.group ?? "launch"), key \(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none"), event \(NSApp.currentEvent.map { "\($0.type)" } ?? "none")")
                 NSApp.hide(nil)
                 NSApp.unhideWithoutActivation()
                 for window in NSApp.windows where window.isVisible { window.orderBack(nil) }
