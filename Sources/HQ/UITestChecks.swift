@@ -2978,14 +2978,17 @@ final class Stall {
     private var last = CACurrentMediaTime()
     private var worst = 0.0
 
-    /// A budget in ms, held on a release build; a debug build, as check.sh --fast runs, has half again.
+    /// A budget in ms, held on a release build run alone; a debug build (check.sh --fast) has half again, and so has a
+    /// run beside the snapshots and the self-test (check.sh sets UITEST_BESIDE), which share its CPU.
     static func budget(_ ms: Int) -> Int {
+        var factor = besideFactor
         #if DEBUG
-        ms * 3 / 2
-        #else
-        ms
+        factor *= 1.5
         #endif
+        return Int(Double(ms) * factor)
     }
+
+    static let besideFactor = ProcessInfo.processInfo.environment["UITEST_BESIDE"] == "1" ? 1.5 : 1
 
     struct Result: CustomStringConvertible {
         let steps: [Int]

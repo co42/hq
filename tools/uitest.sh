@@ -35,7 +35,7 @@ one() {
   [[ ${HQ_FOREGROUND:-0} == 1 ]] || flags=(-g $flags)
   $tools/watchdog.sh $log $store 45 open $flags $app --env APP_STORE=$store --env HQ_VAULT=$vault --env UITEST_VERBOSE=${UITEST_VERBOSE:-0} \
     --env HQ_FOREGROUND=${HQ_FOREGROUND:-0} --env UITEST_ONLY=$only --env UITEST_EXCEPT=$except --env UITEST_SLOWDOWN=$slowdown \
-    --env UITEST_TIMES=${UITEST_TIMES:-0} --env HQ_MOTION=${HQ_MOTION:-0} $slow --stdout $log --stderr $log --args --uitest -ApplePersistenceIgnoreState YES
+    --env UITEST_TIMES=${UITEST_TIMES:-0} --env UITEST_BESIDE=${UITEST_BESIDE:-0} --env HQ_MOTION=${HQ_MOTION:-0} $slow --stdout $log --stderr $log --args --uitest -ApplePersistenceIgnoreState YES
 }
 
 if [[ -n ${UITEST_ONLY:-} || ${UITEST_SHARDS:-4} == 1 || ${HQ_FOREGROUND:-0} == 1 ]]; then

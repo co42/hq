@@ -64,7 +64,8 @@ fi
 # docs-lint reads `hq help` from the test copy the build just installed.
 step docs-lint tools/docs-lint.sh
 step selftest tools/selftest.sh
-step uitest tools/uitest.sh
+# Beside the self-test and the snapshots, the UI test's timing budgets get half again (UITEST_BESIDE).
+step uitest env UITEST_BESIDE=1 tools/uitest.sh
 step snap tools/snap.sh
 # The perf budgets measure the CPU of a test copy at rest: its own, so the runs beside it change it little.
 [[ $mode == release ]] && step perf tools/perf.sh --check
