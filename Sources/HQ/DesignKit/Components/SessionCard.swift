@@ -414,16 +414,32 @@ extension SessionItem {
 /// A running session's model, effort and context on a pill, "Opus VH · 442k", the whole of it on hover (T-446, T-475).
 struct ModelChip: View {
     let session: SessionItem
+    /// Beside the session window's state pill: its height and type.
+    var tall = false
     /// Absent where a card is drawn alone (a drag's image): no version line there.
     @Environment(AppModel.self) private var model: AppModel?
 
     var body: some View {
         if session.isRunning, let line = session.modelLine {
             let help = [session.modelHelp ?? line, session.claudeVersionLine(installed: model?.installedClaude)].compactMap(\.self).joined(separator: "\n")
-            FactChip(text: line)
-                .fixedSize()
-                .help(help)
-                .accessibilityLabel(help)
+            Group {
+                if tall {
+                    Text(line)
+                        .kitType(.callout)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.horizontal, Space.sm + 2)
+                        .frame(height: Metric.statePill + Space.xs)
+                        .background(Ink.labelFill, in: Capsule())
+                } else {
+                    FactChip(text: line)
+                }
+            }
+            .fixedSize()
+            .help(help)
+            .accessibilityLabel(help)
         }
     }
 }

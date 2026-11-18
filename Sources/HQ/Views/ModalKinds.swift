@@ -700,17 +700,22 @@ struct SessionModal: View {
                     VStack(alignment: .leading, spacing: Space.xs) {
                         Text(session.name).kitType(.pageTitle).lineLimit(2)
                         Text(session.place).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        HStack(spacing: Space.xs + 2) {
-                            SessionGlyph(kind: SessionGlyphKind(session.status))
-                            Text(stateLine(session))
-                                .kitType(.callout)
-                                .fontWeight(session.status.needsYou ? .semibold : .medium)
-                                .foregroundStyle(session.status.needsYou ? AnyShapeStyle(session.status.state == .failed ? Ink.failedText : Ink.needsYouText) : AnyShapeStyle(.primary))
+                        HStack(spacing: Space.sm) {
+                            HStack(spacing: Space.xs + 2) {
+                                SessionGlyph(kind: SessionGlyphKind(session.status))
+                                Text(stateLine(session))
+                                    .kitType(.callout)
+                                    .fontWeight(session.status.needsYou ? .semibold : .medium)
+                                    .foregroundStyle(session.status.needsYou ? AnyShapeStyle(session.status.state == .failed ? Ink.failedText : Ink.needsYouText) : AnyShapeStyle(.primary))
+                            }
+                            .padding(.leading, Space.xs)
+                            .padding(.trailing, Space.sm + 2)
+                            .frame(height: Metric.statePill + Space.xs)
+                            .background(session.status.needsYou ? AnyShapeStyle(session.status.state == .failed ? Ink.failedFill : Ink.needsYouFill) : AnyShapeStyle(Ink.labelFill), in: Capsule())
+                            // What it runs on, "Opus VH · 442k", while it runs (T-446, T-475); Model ▸ and Effort ▸ are in ⋯.
+                            ModelChip(session: session, tall: true)
+                                .uiTestAnchor("session-model")
                         }
-                        .padding(.leading, Space.xs)
-                        .padding(.trailing, Space.sm + 2)
-                        .frame(height: Metric.statePill + Space.xs)
-                        .background(session.status.needsYou ? AnyShapeStyle(session.status.state == .failed ? Ink.failedFill : Ink.needsYouFill) : AnyShapeStyle(Ink.labelFill), in: Capsule())
                     }
                 }
                 if session.status.needsYou { needsYouBox(session) }
