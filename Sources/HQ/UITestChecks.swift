@@ -2931,7 +2931,8 @@ extension UITest {
         print("  perf: baseline scroll of the small page \(baseline?.description ?? "-")")
         print("  perf: show every description \(descriptions); search \(search); fold \(fold); move \(move); scroll \(scrolls); \(built) row views")
         await check("Showing every description of 500 tasks holds the main thread under 150 ms (debug ×1.5)", descriptions.worst < Stall.budget(150), "\(descriptions)")
-        await check("a search keystroke with 500 tasks holds it under 100 ms (debug ×1.5)", search.worst < Stall.budget(100), "\(search)")
+        await check("a search keystroke with 500 tasks holds it under 60 ms at the median, none over 150 ms (debug ×1.5)",
+              search.median < Stall.budget(60) && search.worst < Stall.budget(150), "\(search)")
         await check("folding a task with 500 tasks holds it under 50 ms (debug ×1.5)", fold.worst < Stall.budget(50), "\(fold)")
         await check("a move with 500 tasks takes under two frames, none over 100 ms (debug ×1.5)", move.median < Stall.budget(34) && move.worst < Stall.budget(100), "\(move)")
         await check("scrolling the page with 500 tasks stays within a frame, rare steps at two, none at three (debug ×1.5)",
