@@ -407,7 +407,7 @@ private struct NoticeRow: View {
             Button(doneTitle, icon: doneIcon) { model.setDone(notice.id, !done) }
                 .foregroundStyle(done && reminder ? AnyShapeStyle(Ink.done) : AnyShapeStyle(.secondary))
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
-                .help("\(doneTitle) (E)")
+                .help("\(reminder ? (done ? "Mark it not done" : "Mark it done") : (done ? "Mark it unread" : "Mark it read")) (E)")
                 .uiTestAnchor("read:\(notice.id.uuidString)")
             Menu { menu } label: { Label("More", icon: .more) }
                 .menuIndicator(.hidden)
@@ -424,7 +424,7 @@ private struct NoticeRow: View {
     }
 
     private var doneTitle: String {
-        reminder ? (done ? "Mark as Not Done" : "Done") : (done ? "Mark as Unread" : "Mark as Read")
+        reminder ? (done ? "Not Done" : "Done") : (done ? "Unread" : "Read")
     }
 
     private var doneIcon: KitIcon {
@@ -435,22 +435,15 @@ private struct NoticeRow: View {
     private var menu: some View {
         if source != nil || !notice.links.isEmpty { Button("Open") { model.openNotice(notice) } }
         if reminder { Button("Edit…", action: edit) }
+        Divider()
         Button(doneTitle) { model.setDone(notice.id, !done) }
         Divider()
         if section == .later {
             Button("Bring Back Now") { model.bringBack(notice.id) }
         } else {
-            // A reminder comes back as Mail's do: Remind Me › In 1 Hour.
-            Menu(reminder ? "Remind Me" : "Later") {
-                ForEach(ReminderTime.Preset.available(now: model.now), id: \.self) { preset in
-                    let date = ReminderTime.date(preset, now: model.now)
-                    Button("\(preset.title), \(ReminderTime.brief(date, now: model.now))") { model.snooze(notice.id, until: date) }
-                }
-                Divider()
-                Button("Pick a Time…") { showLater = true }
-            }
+            LaterMenu(pickTime: { showLater = true }) { model.snooze(notice.id, until: $0) }
         }
-        Button("Copy Text") { Pasteboard.copy(notice.text) }
+        Button("Copy") { Pasteboard.copy(notice.text) }
         Divider()
         Button("Delete") { model.removeNotice(notice.id) }
     }
@@ -775,25 +768,8 @@ private struct ReviewRow: View {
         }
         .listCard(selected: selected, active: active)
         .opensOnDoubleClick { model.open(.github(item.url), push: true) } // the center's rows keep their own selection
-        .contextMenu {
-            Button("Review") { model.open(.github(item.url), push: true) }
-            Button("Open on GitHub") { if let link = URL(string: item.url) { NSWorkspace.shared.open(link) } }
-            Button("Mark Reviewed") { model.markReviewed(item.url) }
-            Divider()
-            if until != nil {
-                Button("Bring Back Now") { model.putReviewLater(item.url, until: nil) }
-            } else {
-                Menu("Later") {
-                    ForEach(ReminderTime.Preset.available(now: model.now), id: \.self) { preset in
-                        let date = ReminderTime.date(preset, now: model.now)
-                        Button("\(preset.title), \(ReminderTime.brief(date, now: model.now))") { model.putReviewLater(item.url, until: date) }
-                    }
-                    Divider()
-                    Button("Pick a Time…") { showLater = true }
-                }
-            }
-            Button("Copy Link") { Pasteboard.copy(item.url) }
-        }
+        .contextMenu { ReviewMenu(item: item, later: until) { showLater = true } }
+        .menuPicks()
         .help("\(item.author) asked for your review: \(item.title)")
         .uiTestAnchor("review:\(item.url)")
     }

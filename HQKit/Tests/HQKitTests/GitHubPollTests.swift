@@ -87,10 +87,8 @@ private func item(_ url: String, _ state: GitHubItem.State = .open, at: Date = n
     let snapshot = try GitHubQuery.parse([GitHubFixture.poll], linked: GitHubFixture.linked, now: GitHubFixture.reference)
     // The user commented after the last commit: quiet, until their review is asked again.
     var shard = try #require(snapshot.items.first { $0.number == 233 })
-    #expect(!shard.waitsForReview(markedReviewedAt: nil))
+    #expect(!shard.waitsForReview)
     let review = try #require(shard.myReviewAt)
     shard.reviewRequestedAt = review.addingTimeInterval(600)
-    #expect(shard.waitsForReview(markedReviewedAt: nil))
-    // Mark Reviewed after that request quiets it again.
-    #expect(!shard.waitsForReview(markedReviewedAt: review.addingTimeInterval(900)))
+    #expect(shard.waitsForReview)
 }

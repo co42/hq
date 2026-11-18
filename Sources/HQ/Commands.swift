@@ -149,8 +149,6 @@ struct HQCommands: Commands {
             Button("Archive") { model.openArchive() }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
             Divider()
-            Button("Mark Reviewed") { if case .github(let url) = model.menuRoute { model.markReviewed(url) } }
-                .disabled(!menu.reviewable)
             Button("Next Review") { if case .github(let url) = model.modal { model.goToNextReview(from: url) } }
                 .disabled(!menu.nextReview)
         }

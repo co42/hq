@@ -109,12 +109,15 @@ extension SelfTest {
         model.open(.github(waiting[0].url), push: true)
         check("Next Review goes to the next PR of the Reviews list", model.nextReview(after: waiting[0].url)?.url == waiting[1].url)
         model.goToNextReview(from: waiting[0].url)
-        check("it marks this one reviewed and shows the next in its place, Back still to the center",
-              model.githubItem(waiting[0].url).map(model.waitsForReview) == false && model.modal == .github(waiting[1].url)
+        check("it shows the next in its place, the one it leaves still waiting, Back still to the center",
+              model.githubItem(waiting[0].url).map(model.waitsForReview) == true && model.modal == .github(waiting[1].url)
               && model.modalStack == [.notifications], "\(String(describing: model.modal)) \(model.modalStack)")
         check("from the last one it goes around to the first the list shows",
               model.nextReview(after: waiting[waiting.count - 1].url)?.url == model.reviewRequests.first?.url)
         // The list as it shows: a reviewed PR is next with All or Not Approved, never with Waiting.
+        var reviewedOne = snapshot
+        if let index = reviewedOne.items.firstIndex(where: { $0.url == waiting[0].url }) { reviewedOne.items[index].myReviewAt = .now }
+        model.github = reviewedOne
         model.reviewFilter = .all
         let all = model.reviewRequests
         let reviewed = all.firstIndex { $0.url == waiting[0].url }
@@ -122,8 +125,13 @@ extension SelfTest {
         check("with All, a PR already reviewed is next too", before.flatMap { model.nextReview(after: $0) }?.url == waiting[0].url,
               "\(all.map(\.number))")
         model.reviewFilter = .waiting
-        for item in waiting.dropFirst(2) { model.markReviewed(item.url) }
-        check("with no other in the list, there is none: Mark Reviewed stays", model.nextReview(after: waiting[1].url) == nil, "\(model.reviewRequests.map(\.number))")
+        var reviewedAll = reviewedOne
+        for item in waiting.dropFirst(2) {
+            if let index = reviewedAll.items.firstIndex(where: { $0.url == item.url }) { reviewedAll.items[index].myReviewAt = .now }
+        }
+        model.github = reviewedAll
+        check("with no other in the list, there is none: Open on GitHub instead", model.nextReview(after: waiting[1].url) == nil,
+              "\(model.reviewRequests.map(\.number))")
     }
 
     /// T-457: a draft that asks for the user's review leaves Reviews and Needs You until Show Drafts.

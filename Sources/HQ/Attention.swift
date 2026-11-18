@@ -3,11 +3,16 @@ import HQKit
 
 /// What the page shows under items, and the PRs' review state.
 extension AppModel {
-    /// Mark Reviewed on a PR: quiet until its next commit.
-    func markReviewed(_ url: String) {
-        let old = seen["review:\(url)"]
-        seen["review:\(url)"] = .now
-        registerUndo("Mark Reviewed") { $0.seen["review:\(url)"] = old }
+    /// Dismiss on a review request: out of Needs You until the user's review is asked again; it still waits in Reviews.
+    func dismissReview(_ url: String) {
+        let old = seen["dismiss:\(url)"]
+        seen["dismiss:\(url)"] = .now
+        registerUndo("Dismiss") { $0.seen["dismiss:\(url)"] = old }
+    }
+
+    /// Dismissed since its review was last asked.
+    func dismissed(_ item: GitHubItem) -> Bool {
+        seen["dismiss:\(item.url)"].map { $0 >= item.reviewAskedAt } ?? false
     }
 
     /// After a PR in Reviews, the next one the list shows, with its filter and search, and around; nil when it shows no
@@ -18,15 +23,14 @@ extension AppModel {
         return (order[(index + 1)...] + order[..<index]).first
     }
 
-    /// Next Review in a review PR's window: marks it reviewed while it waits and shows the next one in its place.
+    /// Next Review in a review PR's window: the next one in its place.
     func goToNextReview(from url: String) {
         guard let next = nextReview(after: url) else { return }
-        if let item = githubItem(url), waitsForReview(item) { markReviewed(url) }
         open(.github(next.url), replacing: true)
     }
 
     func waitsForReview(_ item: GitHubItem) -> Bool {
-        item.waitsForReview(markedReviewedAt: seen["review:\(item.url)"])
+        item.waitsForReview
     }
 
     func githubItem(_ url: String?) -> GitHubItem? {

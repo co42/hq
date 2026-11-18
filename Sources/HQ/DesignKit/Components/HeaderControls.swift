@@ -51,6 +51,40 @@ private struct HeaderControl<Label: View>: View {
     }
 }
 
+/// A modal header's control (DESIGN.md §8): glass, every button, menu and icon one height; `prominent` tinted with the
+/// accent, `circle` for Close. ModalHeader applies it to everything it holds.
+struct ModalButtonStyle: ButtonStyle {
+    var prominent = false
+    var circle = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        ModalControl(prominent: prominent, circle: circle, pressed: configuration.isPressed) { configuration.label }
+    }
+}
+
+private struct ModalControl<Label: View>: View {
+    let prominent: Bool
+    let circle: Bool
+    let pressed: Bool
+    @ViewBuilder let label: Label
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: circle ? Metric.modalButton / 2 : Radius.control)
+        label
+            .imageScale(.medium)
+            .lineLimit(1)
+            .foregroundStyle(prominent ? AnyShapeStyle(Ink.onAccent) : AnyShapeStyle(.primary))
+            .padding(.horizontal, circle ? 0 : Space.sm + 2)
+            .frame(minWidth: Metric.modalButton, minHeight: Metric.modalButton, maxHeight: Metric.modalButton)
+            .contentShape(shape)
+            .glassEffect(prominent ? .regular.tint(Ink.accent).interactive() : .regular.interactive(), in: shape)
+            .scaleEffect(pressed ? 0.96 : 1)
+            .opacity(enabled ? 1 : 0.45)
+            .animation(Motion.hover, value: pressed)
+    }
+}
+
 /// A section's own search, as tall as its buttons: Escape clears it.
 struct HeaderSearch: View {
     let prompt: String

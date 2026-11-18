@@ -11,14 +11,15 @@ struct LabelColorMenu: View {
 
     var body: some View {
         let current = model.labelColor(kind, name)
+        let automatic = model.labelColors["\(kind.rawValue):\(name.lowercased())"] == nil
         Menu("Color") {
+            Toggle("Automatic", isOn: Binding(get: { automatic }, set: { _ in model.setLabelColor(nil, kind, name) }))
+            Divider()
             ForEach(LabelColor.allCases) { color in
-                Toggle(isOn: Binding(get: { current == color }, set: { _ in model.setLabelColor(color, kind, name) })) {
+                Toggle(isOn: Binding(get: { !automatic && current == color }, set: { _ in model.setLabelColor(color, kind, name) })) {
                     Label { Text(color.title) } icon: { Image(nsImage: color.swatch) }
                 }
             }
-            Divider()
-            Button("Automatic") { model.setLabelColor(nil, kind, name) }
         }
         if kind == .project {
             Button("Folder and GitHub…") {

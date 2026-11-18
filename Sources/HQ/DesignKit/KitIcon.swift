@@ -87,6 +87,7 @@ enum KitIcon: String, CaseIterable {
     case link = "link"
     case slack = "text.bubble"
     case copied = "checkmark"
+    case randomize = "dice"
     case filter = "line.3.horizontal.decrease"
     case importItem = "square.and.arrow.down"
     // Health and Settings

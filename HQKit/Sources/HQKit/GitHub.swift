@@ -108,13 +108,12 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
         self.checkRuns = checkRuns
     }
 
-    /// Waits for the user's review: requested, open, and neither reviewed nor marked reviewed since the last commit or
-    /// the last time their review was asked.
-    public func waitsForReview(markedReviewedAt: Date?) -> Bool {
+    /// Waits for the user's review: requested, open, and not reviewed since the last commit or the last time their review
+    /// was asked.
+    public var waitsForReview: Bool {
         guard reviewRequested, state == .open || state == .draft else { return false }
         let since = max(lastCommitAt ?? .distantPast, reviewRequestedAt ?? .distantPast)
         if let mine = myReviewAt, mine >= since { return false }
-        if let marked = markedReviewedAt, marked >= since { return false }
         return true
     }
 }

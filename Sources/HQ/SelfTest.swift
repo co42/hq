@@ -66,6 +66,7 @@ enum SelfTest {
             await slackChecks(model)
             labelChecks(model)
             spoolChecks(model)
+            menuChecks(model)
             keysChecks()
             await pageFixChecks(model)
             await stabilityChecks(model)
@@ -102,10 +103,20 @@ enum SelfTest {
                   !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 7)
             model.putReviewLater(review.url, until: nil)
             check("Bring Back Now returns it to Needs You", model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.isEmpty)
-            model.markReviewed(review.url)
-            check("Mark Reviewed takes it out", !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7)
+            model.dismissReview(review.url)
+            check("Dismiss takes it out of Needs You; it still waits in Reviews",
+                  !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7 && model.waitsForReview(review))
             model.undoManager?.undo()
             check("and Undo brings it back", model.waitingReviews.contains { $0.url == review.url })
+            model.dismissReview(review.url)
+            let saved = model.github
+            if var asked = saved, let index = asked.items.firstIndex(where: { $0.url == review.url }) {
+                asked.items[index].reviewRequestedAt = .now.addingTimeInterval(60)
+                model.github = asked
+                check("a new review request brings a dismissed one back", model.waitingReviews.contains { $0.url == review.url })
+            }
+            model.github = saved
+            model.undoManager?.undo()
         }
         check("Updates counts unread updates; Later and Earlier wait", model.updateCount == 4 && model.notices(in: .later).count == 3
               && model.notices(in: .earlier).count == 2, "\(model.updateCount)")
@@ -401,7 +412,7 @@ enum SelfTest {
         if let first = open.first {
             let menu = NSHostingMenu(rootView: SessionMenu(session: first).environment(model))
             menu.update()
-            check("a session's menu has Randomize Face", menu.items.contains { $0.title == "Randomize Face" })
+            check("Randomize Face is out of a session's menu: a button in its window", !menu.items.contains { $0.title == "Randomize Face" })
             model.randomizeFace(first.id)
             let changed = model.session(first.id)?.faceSalt ?? first.faceSalt
             check("Randomize Face gives the session another face", changed != first.faceSalt && changed >= FaceSpec.tries)

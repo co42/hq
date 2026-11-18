@@ -108,7 +108,6 @@ private struct ItemRow: View {
     let route: ModalRoute
     @Environment(AppModel.self) private var model
     @State private var hovering = false
-    @State private var linking = false
 
     var body: some View {
         let item = model.listed(route)
@@ -162,29 +161,8 @@ private struct ItemRow: View {
         .onHover { hovering = $0 }
         .animation(Motion.hover, value: hovering)
         .help("\(model.title(of: route))\n\(detail(item))")
-        .contextMenu {
-            Button("Open") { model.open(route) }
-            Button(item.pinned ? "Unpin" : "Pin") { model.setPinned(route, !item.pinned) }
-            Button("Link to Task…") { linking = true }
-            Button("Remind Me…") { model.beginReminder(about: route) }
-            Divider()
-            switch route {
-            case .file(let id):
-                Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
-                Button("Copy") { model.copy([route]) }
-                Divider()
-                Button("Delete") { model.deleteFile(id) }
-            case .artifact(let url):
-                Button("Open in Browser") { NSWorkspace.shared.open(url) }
-                Button("Copy") { model.copy([route]) }
-                Button("Copy Link") { Pasteboard.copy(url.absoluteString) }
-                Divider()
-                Button("Remove from HQ") { model.removeArtifact(url) }
-            default:
-                EmptyView()
-            }
-        }
-        .popover(isPresented: $linking, arrowEdge: .bottom) { TaskFinder { model.link(route, to: $0); linking = false } }
+        .contextMenu { OutputMenu(route: route) }
+        .menuPicks()
         .uiTestAnchor("item:\(route.selectionKey)")
     }
 

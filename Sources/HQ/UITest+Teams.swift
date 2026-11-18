@@ -271,25 +271,34 @@ extension UITest {
             menu.update()
             return menu
         }
-        let titles = menu(top).items.map(\.title)
-        await check("a team's top card's menu: its sessions, a child, its history, Move Under, Close Team with its count; no Fork Session",
-                    ["Show Its Sessions", "Start Child Session…", "Start Session from Its History…", "Move Under", "Make Root", "Close Team (5 sessions)…"]
-                        .allSatisfy(titles.contains) && !titles.contains("Fork Session"), titles.joined(separator: ", "))
-        await check("Make Root is off on a top-level session", menu(top).items.first { $0.title == "Make Root" }?.isEnabled == false)
+        func titles(_ menu: NSMenu, _ path: String...) -> [String] {
+            path.reduce(Optional(menu)) { menu, title in menu?.items.first { $0.title == title }?.submenu }?.items.map(\.title) ?? []
+        }
+        let topMenu = menu(top)
+        await check("a team's top card's menu: Start ▸ a child, its history; Team ▸ its sessions, Move Under, Make Root; Close Team with its count",
+                    ["Child Session…", "From Its History…"].allSatisfy(titles(topMenu, "Start").contains)
+                        && ["Show Its Sessions", "Move Under", "Make Root"].allSatisfy(titles(topMenu, "Team").contains)
+                        && titles(topMenu).contains("Close Team (5 sessions)…"), titles(topMenu).joined(separator: ", "))
+        await check("Make Root is off on a top-level session",
+                    topMenu.items.first { $0.title == "Team" }?.submenu?.items.first { $0.title == "Make Root" }?.isEnabled == false)
         let rowMenu = menu(worker)
+        let rowTeam = rowMenu.items.first { $0.title == "Team" }?.submenu
         await check("a team's session can be made top-level, and shows no team of its own",
-                    rowMenu.items.first { $0.title == "Make Root" }?.isEnabled == true && !rowMenu.items.contains { $0.title.hasSuffix("Its Sessions") },
-                    rowMenu.items.map(\.title).joined(separator: ", "))
-        let under = menu(other).items.first { $0.title == "Move Under" }?.submenu?.items.map(\.title) ?? []
+                    rowTeam?.items.first { $0.title == "Make Root" }?.isEnabled == true && !titles(rowMenu, "Team").contains { $0.hasSuffix("Its Sessions") },
+                    titles(rowMenu, "Team").joined(separator: ", "))
+        let under = titles(menu(other), "Team", "Move Under")
         await check("Move Under lists the open sessions on the page, not itself", under.contains(MenuAction.short(top.name)) && under.contains(MenuAction.short(worker.name))
                     && !under.contains(MenuAction.short(other.name)), under.joined(separator: ", "))
 
         // Show Its Sessions, then Start Child Session… from the menu.
-        let topMenu = menu(top)
-        if let index = topMenu.items.firstIndex(where: { $0.title == "Show Its Sessions" }) { topMenu.performActionForItem(at: index) }
+        func perform(_ menu: NSMenu, _ submenu: String, _ title: String) {
+            guard let items = menu.items.first(where: { $0.title == submenu })?.submenu,
+                  let index = items.items.firstIndex(where: { $0.title == title }) else { return }
+            items.performActionForItem(at: index)
+        }
+        perform(menu(top), "Team", "Show Its Sessions")
         await check("Show Its Sessions opens the team", model.openTeam == lead)
-        let child = menu(top)
-        if let index = child.items.firstIndex(where: { $0.title == "Start Child Session…" }) { child.performActionForItem(at: index) }
+        perform(menu(top), "Start", "Child Session…")
         await check("Start Child Session… opens Start a Session under it", model.modal == .start && model.startDraft?.parent == lead,
                     "\(String(describing: model.modal))")
         model.closeModal()

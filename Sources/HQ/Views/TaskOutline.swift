@@ -44,6 +44,7 @@ private struct OutlineHost: NSViewRepresentable {
         // A row's menu acts through the outline that shows it: the task's window's over the page's.
         model.showLinkPicker = { id in OutlineCoordinator.owner(of: id)?.showLinkPicker(id) }
         model.showHoldPicker = { id, kind in OutlineCoordinator.owner(of: id)?.showHoldPicker(id, kind) }
+        model.showNewProject = { ids in ids.first.flatMap(OutlineCoordinator.owner(of:))?.showNewProject(ids) }
         model.foldTasks = { [weak model] ids, mode in
             if let coordinator = ids.first.flatMap(OutlineCoordinator.owner(of:)) { coordinator.fold(ids, mode) } else { for id in ids { model?.setFold(id, mode) } }
         }
@@ -956,6 +957,17 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func showHoldPicker(_ id: Int, _ kind: HoldPicker.Kind) {
         showPicker(id) { [model] popover in
             AnyView(HoldPicker(task: id, kind: kind) { [weak popover] in popover?.close() }.environment(model).handCursors())
+        }
+    }
+
+    /// New Project… on rows: its name in a popover under the first task's title; Return sets it on every one.
+    func showNewProject(_ ids: [Int]) {
+        guard let first = ids.first else { return }
+        showPicker(first) { [model] popover in
+            AnyView(NewProjectField { [weak popover] name in
+                popover?.close()
+                if let name { for id in ids { model.setProject(id, name) } }
+            })
         }
     }
 
@@ -2479,80 +2491,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private func treeIndex(before index: Int, of shown: [Int], in all: [Int]) -> Int {
         if index < shown.count { return all.firstIndex(of: shown[index]) ?? all.count }
         return shown.last.flatMap { all.firstIndex(of: $0) }.map { $0 + 1 } ?? all.count
-    }
-}
-
-/// A task's context menu: the Task menu's commands for this row.
-struct TaskMenu: View {
-    let ids: [Int]
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        if ids.count > 1 {
-            several
-        } else if let id = ids.first, let task = model.task(id) {
-            Button("Open") { model.open(.task(id)) }
-            Button("Start Session…") { model.beginStart(task: id) }
-            Button("Link…") { model.showLinkPicker(id) }
-            if task.status != .done {
-                if task.blocked { Button("Unblock") { model.unblock(id) } } else { Button("Block…") { model.showHoldPicker(id, .block) } }
-                Button("Blocked By…") { model.showHoldPicker(id, .blockedBy) }
-                Button("After…") { model.showHoldPicker(id, .after) }
-            }
-            ForEach(task.blockedBy, id: \.self) { other in Button("Not Blocked by T-\(other)") { model.removeLink(id, .blockedBy, other) } }
-            ForEach(task.after, id: \.self) { other in Button("Not After T-\(other)") { model.removeLink(id, .after, other) } }
-            Menu("Link to Session") {
-                ForEach(model.gridSessions) { session in
-                    Button(session.name) { model.link(task: id, session: session.id) }
-                        .disabled(task.sessions.contains(session.id))
-                }
-            }
-            .disabled(model.gridSessions.isEmpty)
-            Divider()
-            Button(task.status == .done ? "Mark Not Done" : "Mark Done") { model.toggleDone(id) }
-            Menu("Status") {
-                ForEach(TaskStatus.allCases) { status in
-                    Toggle(status.title, isOn: Binding(get: { task.status == status }, set: { _ in model.setStatus(id, status) }))
-                }
-            }
-            Divider()
-            Button(model.descriptionShownInOutline(id) ? "Hide Description" : "Show Description") { model.toggleDescription(id) }
-            if !model.taskTree.children(of: id).isEmpty {
-                let shown = model.fold[id] != .hidden
-                Button(shown ? "Hide Subtasks" : "Show Subtasks") { model.foldTasks([id], shown ? .hidden : .all) }
-                if model.taskTree.parent(of: id) == nil {
-                    Toggle("Only Blocked and Doing", isOn: Binding(get: { model.storyFilter.contains(id) }, set: { _ in model.filterStory(id) }))
-                }
-            }
-            Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }
-            Button(model.task(id)?.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
-            if model.taskTree.parent(of: id) == nil { Button("Archive") { model.archive([id]) } }
-            Button("Remind Me…") { model.beginReminder(about: .task(id)) }
-            Divider()
-            Button("Copy") { model.copy([.task(id)]) }
-            Button("Delete") { model.deleteTasks([id]) }
-        }
-    }
-
-    /// Several selected rows: what applies to all of them.
-    @ViewBuilder
-    private var several: some View {
-        let tasks = ids.compactMap { model.task($0) }
-        let toBacklog = tasks.contains { $0.status != .backlog }
-        let allDone = tasks.allSatisfy { $0.status == .done }
-        Button(allDone ? "Mark \(tasks.count) Not Done" : "Mark \(tasks.count) Done") { model.markDone(tasks.map(\.id)) }
-        Menu("Status") {
-            ForEach(TaskStatus.allCases) { status in
-                Button(status.title) { for task in tasks { model.setStatus(task.id, status) } }
-            }
-        }
-        Divider()
-        Button(toBacklog ? "Move \(tasks.count) to Backlog" : "Move \(tasks.count) Out of the Backlog") {
-            model.toggleBacklog(tasks.map(\.id))
-        }
-        Divider()
-        Button("Copy") { model.copy(tasks.map { .task($0.id) }) }
-        Button("Delete \(tasks.count) Tasks") { model.deleteTasks(tasks.map(\.id)) }
     }
 }
 

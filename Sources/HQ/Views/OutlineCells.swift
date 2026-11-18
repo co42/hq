@@ -1671,43 +1671,6 @@ extension AppModel {
     }
 }
 
-/// What a task's link offers: open it, its own actions, unlink it from the task, delete it.
-struct LinkMenu: View {
-    let route: ModalRoute
-    let task: Int
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        switch route {
-        case .web: Button("Open in Browser") { model.open(route) }
-        case .slack: Button("Open in Slack") { model.open(route) }
-        default: Button("Open") { model.open(route, push: model.modal != nil) }
-        }
-        switch route {
-        case .file(let id): Button("Open in Obsidian") { model.openInObsidian(model.file(id)?.path) }
-        case .artifact(let url): Button("Open in Browser") { NSWorkspace.shared.open(url) }
-        case .github(let url): Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
-        default: EmptyView()
-        }
-        Button("Copy") { model.copy([route]) }
-        if let link = model.link(of: route) ?? route.address { Button("Copy Link") { Pasteboard.copy(link) } }
-        if model.isLinked(route, to: task) {
-            Divider()
-            Button("Unlink from \(model.task(task)?.key ?? "the Task")") { model.unlink(route, from: task) }
-        }
-        switch route {
-        case .file(let id):
-            Divider()
-            Button("Delete") { model.deleteFile(id) }
-        case .artifact(let url):
-            Divider()
-            Button("Remove from HQ") { model.removeArtifact(url) }
-        default:
-            EmptyView()
-        }
-    }
-}
-
 /// Lays out views left to right, wrapping to the next line.
 struct FlowLayout: Layout {
     var spacing: CGFloat

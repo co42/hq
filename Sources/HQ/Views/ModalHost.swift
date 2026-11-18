@@ -129,8 +129,7 @@ private struct ModalHeader: View {
         HStack(spacing: Space.sm) {
             Button("Close", icon: .close) { model.closeModal() }
                 .labelStyle(.iconOnly)
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+                .buttonStyle(ModalButtonStyle(circle: true))
                 .clickable()
                 .keyboardShortcut(escapes && !escapesBack ? .cancelAction : nil)
                 .help(escapes && !escapesBack ? "Close (Escape)" : "Close")
@@ -141,9 +140,8 @@ private struct ModalHeader: View {
                         KitIcon.back.image
                         Text(backTitle(previous)).lineLimit(1).truncationMode(.tail)
                     }
-                    .frame(maxWidth: 220)
+                    .frame(maxWidth: 220).fixedSize(horizontal: true, vertical: false)
                 }
-                .buttonStyle(.glass)
                 .keyboardShortcut(escapesBack ? .cancelAction : nil)
                 .help("Back to \(model.title(of: previous)) (\(escapesBack ? "Escape" : "⌘["))")
                 .uiTestAnchor("modal-back")
@@ -157,9 +155,12 @@ private struct ModalHeader: View {
             // The kind's actions float as one glass group, as a toolbar's do.
             GlassEffectContainer(spacing: Space.sm) {
                 HStack(spacing: Space.sm) { ModalActions(route: route, page: page) }
-                    .buttonStyle(.glass)
             }
         }
+        // One height for every control: buttons, menus and icons (2026-11-18, T-569).
+        .buttonStyle(ModalButtonStyle())
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
         .padding(.horizontal, Metric.modalEdge)
         .frame(height: Metric.modalHeader)
     }
@@ -196,7 +197,7 @@ private struct ModalHeader: View {
     }
 }
 
-/// The open item's actions, one prominent at most.
+/// The open item's actions (DESIGN.md §8): icons, one prominent action, then ⋯, its right-click menu.
 private struct ModalActions: View {
     let route: ModalRoute?
     let page: GitHubItem?
@@ -205,95 +206,86 @@ private struct ModalActions: View {
     var body: some View {
         switch route {
         case .task(let id):
-            if let task = model.task(id) {
-                CopyItemButton(route: .task(id))
+            if model.task(id) != nil {
                 RemindMeButton(route: .task(id))
-                // The main action prominent, then the rare ones in More at the far right, with their keys (2026-11-16, T-526).
+                CopyItemButton(route: .task(id))
                 if let session = model.byImportance(model.sessions(on: id)).first(where: \.isRunning), session.tty != nil {
                     Button("Focus") { model.open(session.id) }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ModalButtonStyle(prominent: true))
                         .help("Bring \(session.name)’s terminal forward")
                         .uiTestAnchor("task-main-action")
                 } else {
                     Button("Start Session…") { model.beginStart(task: id, push: true) }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ModalButtonStyle(prominent: true))
                         .help("Start a Claude session on this task (⌥⌘Return)")
                         .uiTestAnchor("task-main-action")
                 }
-                ModalMore(help: "Move to Backlog or Tasks (⇧⌘B), Open in Obsidian (⇧⌘O), Delete (⌘⌫; Undo brings it back)", anchor: "task-more") {
-                    Button(task.status == .backlog ? "Move Out of the Backlog" : "Move to Backlog") { model.toggleBacklog([id]) }
-                    if task.parent == nil { Button("Archive") { model.archive([id]) } }
-                    Button("Open in Obsidian") { model.openInObsidian(task.path) }.disabled(task.path == nil)
-                    Divider()
-                    Button("Delete") { model.deleteTasks([id]) }
-                }
+                ModalMore(anchor: "task-more") { TaskMenu(ids: [id]) }
             }
         case .session(let id):
             if let session = model.session(id) {
-                // What it runs on, "Opus VH · 442k", and Model ▸ Effort ▸ (T-446, T-475).
-                if session.isRunning {
-                    Menu { RunMenus(session: session) } label: { Text(session.modelLine ?? "Model") }
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help([session.modelHelp, model.canChangeRun(session) ? "Change its model or effort" : "Its model or effort changes while it waits for its next message"]
-                            .compactMap(\.self).joined(separator: "\n"))
-                        .uiTestAnchor("session-model")
-                }
+                Button("Randomize Face", icon: .randomize) { model.randomizeFace(id) }
+                    .labelStyle(.iconOnly)
+                    .clickable()
+                    .help("Give it another face")
+                    .uiTestAnchor("randomize-face")
                 CopyItemButton(route: .session(id))
-                if session.isRunning, session.tty != nil {
-                    Button("Close Session") { model.closeSession(id) }
-                        .help("Type /exit in its terminal, then close the terminal")
-                }
                 Button(session.isRunning ? "Focus" : "Resume") { model.open(id) }
                     .disabled(session.isRunning && session.tty == nil)
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(ModalButtonStyle(prominent: true))
                     .clickable()
                     .help(session.isRunning ? "Bring its terminal forward (⌘O)" : "Resume it in a new Ghostty tab (⌘O)")
+                    .uiTestAnchor("session-main-action")
+                ModalMore(anchor: "session-more") { SessionMenu(session: session) }
             }
         case .file(let id):
-            if let file = model.file(id) {
+            if model.file(id) != nil {
                 if model.editingFile == id {
                     Button("Cancel") { model.editingFile = nil }.help("Drop the changes")
                     Button("Save") { model.saveModalEdits() }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ModalButtonStyle(prominent: true))
                         .clickable()
                         .help("Save the changes (Escape or ⌘Return)")
                 } else {
-                    CopyItemButton(route: .file(id))
                     RemindMeButton(route: .file(id))
-                    Button("Delete") { model.deleteFile(id) }.help("Move the note to the Trash; Undo brings it back")
-                    Button("Edit") { model.beginFileEdit(id) }.help("Edit the note in markdown (⌘E)")
-                    Button("Open in Obsidian") { model.openInObsidian(file.path) }.disabled(file.path == nil)
-                        .help("Open the note in Obsidian (⇧⌘O)")
+                    CopyItemButton(route: .file(id))
+                    Button("Edit") { model.beginFileEdit(id) }
+                        .buttonStyle(ModalButtonStyle(prominent: true))
+                        .clickable()
+                        .help("Edit the note in markdown (⌘E)")
+                        .uiTestAnchor("file-edit")
+                    ModalMore(anchor: "file-more") { OutputMenu(route: .file(id)) }
                 }
             }
         case .artifact(let url):
             ReloadButton(page: url.absoluteString)
-            CopyItemButton(route: .artifact(url))
             RemindMeButton(route: .artifact(url))
-            CopyLinkButton(link: url.absoluteString)
+            CopyItemButton(route: .artifact(url))
             Button("Open in Browser") { NSWorkspace.shared.open(url) }
+                .buttonStyle(ModalButtonStyle(prominent: true))
+                .clickable()
                 .help("Open the artifact in the browser (⇧⌘O)")
+                .uiTestAnchor("artifact-main-action")
+            ModalMore(anchor: "artifact-more") { OutputMenu(route: .artifact(url)) }
         case .github(let url):
             if let item = page {
                 ReloadButton(page: url)
-                CopyItemButton(route: .github(url))
                 RemindMeButton(route: .github(url))
-                CopyLinkButton(link: url)
-                // Next Review while another PR waits for the user, else Mark Reviewed (T-456).
+                CopyItemButton(route: .github(url))
+                // Next Review while Reviews lists another PR, else Open on GitHub (T-456).
                 if let next = model.nextReview(after: url) {
                     Button("Next Review") { model.goToNextReview(from: url) }
-                        .help((model.waitsForReview(item) ? "Mark it reviewed and open the next PR waiting for you: " : "Open the next PR waiting for you: ")
-                              + model.title(of: .github(next.url)))
+                        .buttonStyle(ModalButtonStyle(prominent: true))
+                        .clickable()
+                        .help("Open the next PR of Reviews: \(model.title(of: .github(next.url)))")
                         .uiTestAnchor("next-review")
-                } else if model.waitsForReview(item) {
-                    Button("Mark Reviewed") { model.markReviewed(url) }
-                        .help("Mark it reviewed: quiet until its next commit")
+                } else {
+                    Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
+                        .buttonStyle(ModalButtonStyle(prominent: true))
+                        .clickable()
+                        .help("Open it on github.com (⇧⌘O)")
                 }
-                Button("Open on GitHub") { if let link = URL(string: url) { NSWorkspace.shared.open(link) } }
-                    .buttonStyle(.glassProminent)
-                    .clickable()
-                    .help("Open it on github.com (⇧⌘O)")
+                ModalMore(anchor: "github-more") { PullRequestMenu(item: item) }
             }
         case .roles:
             // The picked role's actions, in the File modal's order; while editing, Cancel and Save.
@@ -302,42 +294,32 @@ private struct ModalActions: View {
                     Button("Cancel") { model.cancelRoleEdit() }.help("Drop the changes (Escape in a name or a line)")
                         .uiTestAnchor("role-cancel")
                     Button("Save") { model.commitRoleEdit() }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(ModalButtonStyle(prominent: true))
                         .clickable()
                         .help("Save the changes (Return in a name or a line; Escape or ⌘Return in the text)")
                         .uiTestAnchor("role-save")
                 } else {
                     CopyButton(text: { model.line(ofRole: role) }, title: "Copy", icon: .copy, done: "Copied",
                                help: "Copy \u{201C}\(model.line(ofRole: role))\u{201D}", anchor: "copy-item")
-                    if model.isChangedDefault(role) {
-                        Button("Restore Default") { model.restoreDefault(role.name) }
-                            .help("Give \(role.name) HQ’s text and line again; Undo brings yours back")
-                            .uiTestAnchor("role-restore")
-                    }
-                    Button("Delete") { model.deleteRole(role.name, picking: true) }
-                        .help("Move the role’s note to the Trash; sessions that have it keep what they started with. Undo brings it back")
-                        .uiTestAnchor("role-delete")
-                    Button("Edit") { model.beginRoleEdit(.text) }.help("Edit what a session with this role gets (⌘E)")
+                    Button("Edit") { model.beginRoleEdit(.text) }
+                        .buttonStyle(ModalButtonStyle(prominent: true))
+                        .clickable()
+                        .help("Edit what a session with this role gets (⌘E)")
                         .uiTestAnchor("role-edit")
-                    Button("Open in Obsidian") { model.openInObsidian(role.path) }.disabled(role.path == nil)
-                        .help("Open the role’s note in Obsidian")
+                    ModalMore(anchor: "role-more") { RoleMenu(role: role) }
                 }
             }
         case .archivedTask(let id):
-            // Read only: Copy, the rare ones in More, and Unarchive (its story, for a task under one), prominent.
+            // Read only: Copy, Unarchive (its story, for a task under one), prominent, then ⋯.
             let story = model.archiveShown?.index.entry(id)?.root ?? id
             CopyItemButton(route: .archivedTask(id))
             Button(story == id ? "Unarchive" : "Unarchive T-\(story)", icon: .unarchive) { model.unarchiveFromWindow(story) }
-            .labelStyle(.titleAndIcon)
-            .buttonStyle(.glassProminent)
-            .clickable()
-            .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
-            .uiTestAnchor("unarchive-task")
-            ModalMore(help: "Open in Obsidian, Delete", anchor: "archived-more") {
-                Button("Open in Obsidian") { model.openInObsidian(model.vault?.archivedURL(id).path) }
-                Divider()
-                Button("Delete") { model.deleteArchived(story) }
-            }
+                .labelStyle(.titleAndIcon)
+                .buttonStyle(ModalButtonStyle(prominent: true))
+                .clickable()
+                .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
+                .uiTestAnchor("unarchive-task")
+            ModalMore(anchor: "archived-more") { ArchivedMenu(id: id) }
         case .block(let block):
             ExpandedActions(block: block)
         case .archive, .notifications, .start, .closedSessions, .web, .slack, .newTask, .newReminder, .newFile, .importArtifact, nil:
@@ -346,20 +328,17 @@ private struct ModalActions: View {
     }
 }
 
-/// A modal header's rare actions: the three dots alone, last at the far right (T-526).
+/// ⋯ at the far right of a header: the item's right-click menu, from the same builder; its pickers open under it.
 private struct ModalMore<Items: View>: View {
-    let help: String
     let anchor: String
     @ViewBuilder let items: () -> Items
 
     var body: some View {
-        // The glyph in a square: the ellipsis alone is shorter than the icons beside it.
-        Menu { items() } label: { KitIcon.more.image.frame(width: Metric.glyphSlot, height: Metric.glyphSlot) }
+        Menu { items() } label: { KitIcon.more.image }
             .accessibilityLabel("More")
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
             .fixedSize()
-            .help(help)
+            .help("More")
+            .menuPicks()
             .uiTestAnchor(anchor)
     }
 }
@@ -449,15 +428,6 @@ private struct RemindMeButton: View {
             .labelStyle(.iconOnly)
             .help("Set a reminder linked to it")
             .uiTestAnchor("item-remind-me")
-    }
-}
-
-/// Copies the open item's link.
-private struct CopyLinkButton: View {
-    let link: String
-
-    var body: some View {
-        CopyButton(text: { link }, title: "Copy Link", icon: .link, done: "Link Copied", help: "Copy the link (⇧⌘C)", anchor: "copy-link")
     }
 }
 

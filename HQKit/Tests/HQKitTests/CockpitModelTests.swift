@@ -108,16 +108,15 @@ private func fixture() throws -> GitHubSnapshot {
     #expect(snapshot.viewer == "alex")
     let cdn = try #require(snapshot.items.first { $0.number == 512 })
     #expect(cdn.reviewRequested && !cdn.mine && cdn.review == .required && cdn.checks == .passed && cdn.reference == "static-cdn #512")
-    #expect(cdn.waitsForReview(markedReviewedAt: nil))
-    #expect(!cdn.waitsForReview(markedReviewedAt: cdn.reviewRequestedAt))
+    #expect(cdn.waitsForReview)
     let tokio = try #require(snapshot.items.first { $0.number == 430 })
     #expect(tokio.checks == .running && tokio.checkRuns == [.init(name: "ci / test", checks: .running)])
     // The user commented after the last commit: quiet until the next commit.
     let shard = try #require(snapshot.items.first { $0.number == 233 })
-    #expect(shard.myReviewAt != nil && !shard.waitsForReview(markedReviewedAt: nil))
+    #expect(shard.myReviewAt != nil && !shard.waitsForReview)
     var pushed = shard
     pushed.lastCommitAt = shard.myReviewAt?.addingTimeInterval(60)
-    #expect(pushed.waitsForReview(markedReviewedAt: nil))
+    #expect(pushed.waitsForReview)
 }
 
 @Test func githubReviewAskedAndApproved() throws {

@@ -204,7 +204,7 @@ extension UITest {
         await ui.until { ui.sheetIsTyping }
         await check("⌘E (Edit) edits its text in place", model.roleEdit?.field == .text && ui.anchorFrame("role-editor") != nil, ui.sheetResponder)
         await check("while editing, the header shows Cancel and Save", ui.anchorFrame("role-save") != nil && ui.anchorFrame("role-cancel") != nil
-                    && ui.anchorFrame("role-delete") == nil)
+                    && ui.anchorFrame("role-more") == nil)
         await typeInSheet(ui, "\n\nOne more line.")
         await sheetKey(ui, .escape)
         await check("Escape saves the text", model.role(named: "Builder")?.text.hasSuffix("One more line.") == true && model.roleEdit == nil
@@ -214,8 +214,8 @@ extension UITest {
         model.changeRole("Builder") { $0.text = String(repeating: "Do the work well. ", count: AppModel.roleTextLimit / 18 + 2) }
         await check("a text near the hook's limit shows a warning", ui.anchorFrame("role-limit") != nil)
 
-        // Delete, then Undo: sessions lose the chip and get it back.
-        await ui.click(await ui.steadyAnchor("role-delete"), inSheet: true)
+        // Delete in its menu (the header's ⋯ too), then Undo: sessions lose the chip and get it back.
+        if let builder = model.role(named: "Builder") { perform(menu(RoleMenu(role: builder), model), "Delete") }
         await check("Delete removes the role and picks another; its sessions lose the chip",
                     model.role(named: "Builder") == nil && model.pickedRole != nil && model.role(named: model.session(team.worker.id)?.role) == nil)
         await endUndoGroup(model)
@@ -224,11 +224,13 @@ extension UITest {
 
         // Restore Default shows once a shipped role changed, and gives its text back.
         await ui.click(await ui.steadyAnchor("role:Leader"), inSheet: true)
-        await check("Restore Default hides while Leader is as shipped", model.pickedRole?.name == "Leader" && ui.anchorFrame("role-restore") == nil)
+        func leaderMenu() -> NSMenu { model.role(named: "Leader").map { menu(RoleMenu(role: $0), model) } ?? NSMenu() }
+        await check("Restore Default hides while Leader is as shipped", model.pickedRole?.name == "Leader"
+                    && !leaderMenu().items.contains { $0.title == "Restore Default" })
         model.changeRole("Leader") { $0.text = "Lead, briefly." }
-        await ui.click(await ui.steadyAnchor("role-restore"), inSheet: true)
+        await check("Restore Default shows once Leader changed", perform(leaderMenu(), "Restore Default"))
         await check("Restore Default gives Leader its text back", model.role(named: "Leader")?.text == RoleItem.defaults[0].text
-                    && ui.anchorFrame("role-restore") == nil)
+                    && !leaderMenu().items.contains { $0.title == "Restore Default" })
 
         // Copy: the role's line.
         await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)

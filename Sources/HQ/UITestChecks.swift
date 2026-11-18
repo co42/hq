@@ -89,7 +89,7 @@ extension UITest {
         let cardMenu = coordinator.menu(at: ui.cardLocal(collection, 0))
         cardMenu?.update()
         let titles = cardMenu?.items.map(\.title) ?? []
-        await check("a card has a context menu, with no Hide", titles.contains("Show Details") && !titles.contains { $0.hasPrefix("Hide") }, titles.joined(separator: ", "))
+        await check("a card has a context menu, with no Hide", titles.first == "Focus" && !titles.contains { $0.hasPrefix("Hide") }, titles.joined(separator: ", "))
         model.deleteTasks([task.id])
     }
 
@@ -532,11 +532,11 @@ extension UITest {
             await ui.click(point)
             await ui.settle(0.3)
             shown?.menu.update()
-            let titles = shown?.menu.items.map(\.title) ?? []
+            let titles = shown?.menu.items.first { $0.title == "Start" }?.submenu?.items.map(\.title) ?? []
             await check("a click on a PR's face in \(group) shows its session's menu under the face, not Start Session",
                   shown?.id == first && shown?.view != nil && model.modal == nil,
                   "shown \(shown?.id ?? "-"), first \(first ?? "-"), hit \(hit.map { String(describing: type(of: $0)) } ?? "-"), \(String(describing: model.modal))")
-            await check("its menu starts another session on the PR", titles.contains { $0.hasPrefix("Start Another Session on \(pr.reference)") },
+            await check("its menu starts another session on the PR", titles.contains { $0.hasPrefix("Another Session on \(pr.reference)") },
                   titles.joined(separator: ", "))
             if model.modal != nil { model.closeModal(); await ui.settle(0.5) }
             if var item = model.session(ended.id) { item.links.removeAll { $0 == pr.url }; model.put(item) }
@@ -1266,15 +1266,44 @@ extension UITest {
             await ui.settle(0.8)
             await check("its Reload stops turning once the page has loaded", model.loadingPage == nil, model.loadingPage ?? "")
             Pasteboard.copied = nil
-            func copyLinkSize() -> CGSize? { UITest.anchors["copy-link", default: []].compactMap(\.view).last?.frame.size }
-            let before = copyLinkSize()
-            await ui.click(ui.anchor("copy-link"), inSheet: true)
-            await check("a PR's modal copies its link", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
-            await check("Copy Link keeps its size while it says Copied", before != nil && copyLinkSize() == before,
-                  "\(String(describing: before)) → \(String(describing: copyLinkSize()))")
+            UITest.perform(UITest.menu(PullRequestMenu(item: pr), model), "Copy", "Copy Link")
+            await check("a PR's ⋯ copies its link (Copy ▸ Copy Link)", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
+            func copySize() -> CGSize? { UITest.anchors["copy-item", default: []].compactMap(\.view).last?.frame.size }
+            let before = copySize()
+            await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
+            await check("Copy keeps its size while it says Copied", before != nil && copySize() == before,
+                  "\(String(describing: before)) → \(String(describing: copySize()))")
+            await headerHeights(ui, "a PR's", ["modal-close", "reload", "item-remind-me", "copy-item", "github-more"])
+            model.closeModal()
+            await ui.settle(0.5)
+            // Every header's controls one height, ⋯ included (T-569).
+            if let task = model.tasks.first {
+                model.open(.task(task.id))
+                await headerHeights(ui, "a task's", ["modal-close", "item-remind-me", "copy-item", "task-main-action", "task-more"])
+            }
+            if let session = model.gridRoots.first {
+                model.open(.session(session.id))
+                await headerHeights(ui, "a session's", ["modal-close", "randomize-face", "copy-item", "session-main-action", "session-more"])
+            }
+            if let file = model.files.first {
+                model.open(.file(file.id))
+                await headerHeights(ui, "a file's", ["modal-close", "item-remind-me", "copy-item", "file-edit", "file-more"])
+            }
+            if let artifact = model.artifacts.first {
+                model.open(.artifact(artifact.id))
+                await headerHeights(ui, "an artifact's", ["modal-close", "reload", "item-remind-me", "copy-item", "artifact-main-action", "artifact-more"])
+            }
             model.closeModal()
             await ui.settle(0.5)
         }
+    }
+
+    /// The open modal's header controls share one height, the ⋯ included (T-569).
+    static func headerHeights(_ ui: Driver, _ kind: String, _ anchors: [String]) async {
+        _ = await ui.steadyAnchor(anchors[anchors.count - 1])
+        func heights() -> [String] { anchors.map { name in ui.anchorFrame(name).map { "\(name) \(Int($0.height.rounded()))" } ?? "\(name) missing" } }
+        await check("\(kind) header: every control one height", Set(anchors.compactMap { ui.anchorFrame($0)?.height.rounded() }).count == 1
+                    && anchors.allSatisfy { ui.anchorFrame($0) != nil }, heights().joined(separator: ", "))
     }
 
     /// Slack links and the new sheets (T-312, T-313, T-331, T-332, T-333): New Task… and New Reminder… come with the

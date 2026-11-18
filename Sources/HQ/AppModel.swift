@@ -374,6 +374,8 @@ final class AppModel {
     @ObservationIgnored var showLinkPicker: (Int) -> Void = { _ in }
     /// Block…, Blocked By… and After… on a task's row: the outline shows their picker under it.
     @ObservationIgnored var showHoldPicker: (Int, HoldPicker.Kind) -> Void = { _, _ in }
+    /// New Project… on task rows: the outline asks for its name under the first.
+    @ObservationIgnored var showNewProject: ([Int]) -> Void = { _ in }
     /// Sets what tasks show of their subtasks, as the outline does it: the selection moves to a task that hid it.
     @ObservationIgnored var foldTasks: ([Int], FoldMode) -> Void = { _, _ in }
     /// Turns a story's filter on or off, as its button does.
@@ -813,7 +815,6 @@ final class MenuState: ObservableObject {
     @Published private(set) var outside: String?
     @Published private(set) var link: String?
     @Published private(set) var pullRequest = false
-    @Published private(set) var reviewable = false
     @Published private(set) var nextReview = false
     @Published private(set) var artifact = false
     /// What Remind Me… acts on: the open or selected task, PR, file or artifact.
@@ -897,7 +898,6 @@ final class MenuState: ObservableObject {
         set(\.link, model.link(of: model.menuRoute))
         let item: GitHubItem? = if case .github(let url) = model.menuRoute { model.githubItem(url) } else { nil }
         set(\.pullRequest, item?.kind == .pullRequest)
-        set(\.reviewable, item.map(model.waitsForReview) ?? false)
         set(\.nextReview, model.modal == model.menuRoute && item.flatMap { model.nextReview(after: $0.url) } != nil)
         let artifact: Bool = switch model.modal { case .artifact, .github: true; default: false }
         set(\.artifact, artifact)

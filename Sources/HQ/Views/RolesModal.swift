@@ -161,41 +161,6 @@ private struct RoleRow: View {
     }
 }
 
-/// A role's menu, on its row: what its header and chip do.
-private struct RoleMenu: View {
-    let role: RoleItem
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Button("Rename") { model.pickRole(role.name); model.beginRoleEdit(.name) }
-        RoleColorMenu(role: role)
-        Divider()
-        Button("Copy") { Pasteboard.copy(model.line(ofRole: role)) }
-        Button("Open in Obsidian") { model.openInObsidian(role.path) }.disabled(role.path == nil)
-        Divider()
-        if model.isChangedDefault(role) {
-            Button("Restore Default") { model.restoreDefault(role.name) }
-        }
-        Button("Delete") { model.deleteRole(role.name, picking: role.name == model.pickedRole?.name) }
-    }
-}
-
-/// The colors to pick for a role, the current one checked, as a project's chip has them.
-private struct RoleColorMenu: View {
-    let role: RoleItem
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Menu("Color") {
-            ForEach(LabelColor.allCases) { color in
-                Toggle(isOn: Binding(get: { role.color == color }, set: { _ in model.changeRole(role.name, "Change Color") { $0.color = color } })) {
-                    Label { Text(color.title) } icon: { Image(nsImage: color.swatch) }
-                }
-            }
-        }
-    }
-}
-
 /// The role picked, laid out like a File: path and byline, its chip and who has it, its name and line, then its text.
 private struct RoleDetail: View {
     let role: RoleItem

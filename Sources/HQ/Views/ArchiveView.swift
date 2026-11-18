@@ -230,7 +230,7 @@ private struct ArchiveCard: View {
         }
         .onHover { hovering = $0 }
         .opensOnDoubleClick { model.open(.archivedTask(story.id), push: true) } // the Archive's cards keep their own selection
-        .contextMenu { menu }
+        .contextMenu { ArchivedMenu(id: match.story.id) }
         .help("\(story.key) \(story.title)")
         .uiTestAnchor("archived:\(story.id)")
     }
@@ -243,7 +243,7 @@ private struct ArchiveCard: View {
                 .frame(height: Metric.rowAction)
                 .help("Bring it back to Tasks, at the end of the list (⌃⌘A)")
                 .uiTestAnchor("unarchive:\(match.story.id)")
-            Menu { menu } label: { Label("More", icon: .more) }
+            Menu { ArchivedMenu(id: match.story.id) } label: { Label("More", icon: .more) }
                 .labelStyle(.iconOnly)
                 .menuIndicator(.hidden)
                 .fixedSize()
@@ -258,17 +258,6 @@ private struct ArchiveCard: View {
         .clickable()
     }
 
-    @ViewBuilder
-    private var menu: some View {
-        let id = match.story.id
-        Button("Open") { model.open(.archivedTask(id), push: true) }
-        Button("Unarchive") { model.unarchiveFromWindow(id) }
-        Divider()
-        Button("Copy") { model.copy([.archivedTask(id)]) }
-        Button("Open in Obsidian") { model.openInObsidian(model.vault?.archivedURL(id).path) }
-        Divider()
-        Button("Delete") { model.deleteArchived(id) }
-    }
 }
 
 /// An archived task's window (T-471, T-525): a task's, read only. Its description is read from its note when it opens.

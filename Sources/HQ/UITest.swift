@@ -225,6 +225,26 @@ enum UITest {
               Set(outside).sorted().prefix(6).joined(separator: "; "))
     }
 
+    /// An item's menu as its builder makes it, for the right-click and the ⋯ alike.
+    static func menu(_ view: some View, _ model: AppModel) -> NSMenu {
+        let menu = NSHostingMenu(rootView: view.environment(model))
+        menu.update()
+        return menu
+    }
+
+    /// Picks the item at `path` ("Team", "Make Root"), as a click on it does. False when it isn't there or is off.
+    @discardableResult
+    static func perform(_ menu: NSMenu, _ path: String...) -> Bool {
+        var current = menu
+        for title in path.dropLast() {
+            guard let next = current.items.first(where: { $0.title == title })?.submenu else { return false }
+            current = next
+        }
+        guard let index = current.items.firstIndex(where: { $0.title == path.last }), current.items[index].isEnabled else { return false }
+        current.performActionForItem(at: index)
+        return true
+    }
+
     static func skip(_ name: String, because reason: String? = nil) {
         skipped += 1
         print("SKIP \(name): " + (reason ?? (Store.background ? "a background run is never the active app (HQ_FOREGROUND=1 runs it)" : "HQ can't become the active app (is the screen locked?)")))

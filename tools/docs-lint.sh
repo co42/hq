@@ -66,6 +66,9 @@ retired=(
   'top of the Backlog' 'the end of the list, the backlog a status (T-471)'
   'Search Backlog' 'Search Tasks: one list (T-471)'
   'Move to Tasks' 'Move Out of the Backlog (T-471)'
+  'Mark Reviewed' 'Dismiss (T-540)'
+  'Copy Text' 'Copy (T-540)'
+  'Mark as Unread' 'Unread (T-540)'
 )
 
 lint='

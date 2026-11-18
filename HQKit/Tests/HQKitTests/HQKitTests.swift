@@ -207,5 +207,5 @@ private func event(_ name: String, _ extra: String = "") -> HookEvent {
     """#
     let snapshot = try GitHubQuery.parse([Data(json.utf8)], linked: [])
     let item = try #require(snapshot.items.first)
-    #expect(item.reviewedByMe && !item.reviewRequested && !item.waitsForReview(markedReviewedAt: nil))
+    #expect(item.reviewedByMe && !item.reviewRequested && !item.waitsForReview)
 }

@@ -31,11 +31,12 @@ Most of what the user sent back in v1–v9 was one of these. Settle them before 
 
 1. **Look first.** How two or three of the best native apps do the same thing (Apple's own, then Things, Linear, Raycast…), and what DESIGN.md already says. A new surface gets a plan (an HQ file) and, when it's a new screen or a new way to act, a mockup artifact the user reviews before the build.
 2. **Siblings match.** List the parts that do the same job elsewhere: task, PR, file, artifact and notification rows; link chips; faces on cards, rows and chips; header controls; pickers; empty states. Use their DesignKit part and change them together, never one kind alone (DESIGN.md §1.9).
-3. **Interactions follow the table** in DESIGN.md §18: what a click, double-click, right-click and key do on each kind of element. Change the table first, then the code.
-4. **Less on screen.** At rest a row shows what tells its story; actions show under the pointer or when selected. Read DESIGN.md §19 (what was removed and why) before adding a control. A feature whose use isn't clear is a question for the user, not a build: they'd rather remove it.
-5. **Every state works.** Nothing dimmed and inert; every item has its actions in every state, and its whole text readable somewhere (selected, tooltip, modal).
-6. **A control that already moved twice**: show two or three options before moving it again (the description toggle moved seven times).
-7. **Check it as the user sees it**: the snapshots at 1504 and 756 pt, light and dark; rows with their optional parts missing and their longest values; real clicks for an interaction (ITERATION.md, Release).
+3. **Menus and headers follow their rules**: a new menu item follows DESIGN.md §18 Context menus, a new header control §8 Header bar; a change to either rule is asked of Co first.
+4. **Interactions follow the table** in DESIGN.md §18: what a click, double-click, right-click and key do on each kind of element. Change the table first, then the code.
+5. **Less on screen.** At rest a row shows what tells its story; actions show under the pointer or when selected. Read DESIGN.md §19 (what was removed and why) before adding a control. A feature whose use isn't clear is a question for the user, not a build: they'd rather remove it.
+6. **Every state works.** Nothing dimmed and inert; every item has its actions in every state, and its whole text readable somewhere (selected, tooltip, modal).
+7. **A control that already moved twice**: show two or three options before moving it again (the description toggle moved seven times).
+8. **Check it as the user sees it**: the snapshots at 1504 and 756 pt, light and dark; rows with their optional parts missing and their longest values; real clicks for an interaction (ITERATION.md, Release).
 
 ## Fixing a bug
 

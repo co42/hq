@@ -311,7 +311,6 @@ struct PRRow: View {
     let item: GitHubItem
     @Environment(AppModel.self) private var model
     @State private var hovering = false
-    @State private var linking = false
 
     var body: some View {
         let waits = model.waitsForReview(item)
@@ -364,19 +363,8 @@ struct PRRow: View {
         .onHover { hovering = $0 }
         .animation(Motion.hover, value: hovering)
         .help("\(item.title) (\(item.reference))")
-        .contextMenu {
-            Button("Show Details") { model.open(.github(item.url)) }
-            Button("Open on GitHub") { if let url = URL(string: item.url) { NSWorkspace.shared.open(url) } }
-            if waits { Button("Mark Reviewed") { model.markReviewed(item.url) } }
-            Divider()
-            Button("Start Review Session…") { model.beginStart(pullRequest: item) }
-            Button("Link to Task…") { linking = true }
-            Button("Remind Me…") { model.beginReminder(about: .github(item.url)) }
-            Divider()
-            Button("Copy") { model.copy([.github(item.url)]) }
-            Button("Copy Link") { Pasteboard.copy(item.url) }
-        }
-        .popover(isPresented: $linking, arrowEdge: .bottom) { TaskFinder { model.link(.github(item.url), to: $0); linking = false } }
+        .contextMenu { PullRequestMenu(item: item) }
+        .menuPicks()
         .uiTestAnchor("pr:\(item.number)")
     }
 
