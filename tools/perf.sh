@@ -50,9 +50,6 @@ measure() {
   if [[ ${PERF_SEED:-0} == 1 ]]; then
     mkdir -p $vault/hq/tasks $vault/hq/files
     env+=(--env APP_SEED=1)
-    # Tasks in the vault (T-543): the seed's tasks live in memory only, and the vault's first scan empties them.
-    perl -e 'for my $i (1..40) { my $story = $i - ($i % 5 || 5) + 1; my $up = $i == $story ? "" : "parent: T-$story\n";
-      open my $f, ">", "$ARGV[0]/T-$i.md" or die; print $f "---\ntitle: Task $i\nstatus: ", ($i % 3 ? "todo" : "doing"), "\n${up}order: $i\n---\nA description.\n"; close $f }' $vault/hq/tasks
     if [[ -n ${PERF_ARCHIVE:-} ]]; then
       # An Archive of PERF_ARCHIVE tasks, stories of five (T-471): launch reads none of them.
       mkdir -p $vault/hq/tasks/archive
@@ -107,6 +104,11 @@ measure() {
     kill $busy
     local sent=$(cat /tmp/HQ-perf.busy 2>/dev/null)
     events=$(( ${sent:-0} * 2 ))
+  fi
+  if [[ ${PERF_SEED:-0} == 1 ]]; then
+    # The seed's tasks outlive the vault's scans (T-563).
+    local seeded=$(APP_AGENT_SOCKET=$store.sock "$app/Contents/MacOS/HQ" ls tasks --all --json 2>/dev/null | jq '.tasks | length' 2>/dev/null)
+    (( ${seeded:-0} > 0 )) || { print "FAIL perf: the seed's tasks are gone once the vault was read ($log)"; kill $pid; exit 1 }
   fi
   local summary=$(vmmap --summary $pid 2>/dev/null)
   memory=$(megabytes "$(print -r -- $summary | awk -F: '/^Physical footprint:/ {print $2}')")

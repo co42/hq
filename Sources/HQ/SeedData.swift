@@ -17,6 +17,34 @@ enum SeedData {
         }
         fill(model, now: .now)
         if large { fillLarge(model, now: .now) }
+        writeNotes(model)
+    }
+
+    /// The seed's tasks and files as notes in a test vault in /tmp, so its scans read them back instead of emptying them (T-563).
+    private static func writeNotes(_ model: AppModel) {
+        guard let vault = model.vault, ["/tmp/", "/private/tmp/"].contains(where: vault.root.standardizedFileURL.path.hasPrefix) else { return }
+        do {
+            try FileManager.default.createDirectory(at: vault.tasksDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: vault.filesDirectory, withIntermediateDirectories: true)
+            let tasks = try model.tasks.map { task in
+                var task = task
+                task.path = vault.tasksDirectory.appending(path: "T-\(task.id).md").path
+                try vault.save(task)
+                return task
+            }
+            let files = try model.files.map { file in
+                var file = file
+                file.path = vault.filesDirectory.appending(path: file.id).path
+                try "# \(file.title)\n".write(toFile: file.path!, atomically: true, encoding: .utf8)
+                try vault.save(file)
+                return file
+            }
+            for path in tasks.map(\.path) + files.map(\.path) { model.wrote(path) }
+            model.tasks = tasks
+            model.files = files
+        } catch {
+            AppLog.write("seed: couldn't write its notes: \(error.localizedDescription)", to: "vault.log")
+        }
     }
 
     static func fill(_ model: AppModel, now: Date) {
