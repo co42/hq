@@ -428,15 +428,15 @@ enum Snapshot {
                 let names = ["T-201 Map region filter", "T-302 Retry loop", "T-304/305 Pooled buffers", "T-363 Token only to registry",
                              "T-310 Logs everywhere", "T-467 HQ v15"]
                 for (var session, name) in zip(model.sessions.filter(\.isRunning), names) {
-                    session.role = "Worker"
+                    session.role = "Builder"
                     session.customName = name
                     model.put(session)
                 }
-                model.openRoles("Worker")
+                model.openRoles("Builder")
             },
             Page(name: "modal-roles-edit", capture: .sheet) { model in
                 reset(model)
-                model.openRoles("Worker")
+                model.openRoles("Builder")
                 model.beginRoleEdit(.text)
             },
             Page(name: "modal-session-team", capture: .sheet) { model in

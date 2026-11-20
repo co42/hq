@@ -345,7 +345,7 @@ nonisolated struct RoleItem: Identifiable, Hashable, Sendable {
     /// The model and effort a session with it starts on, as `claude --model --effort` takes them; nil, Claude Code's own (T-446).
     var model: String?
     var effort: String?
-    /// One that ships with HQ (Leader, Worker): Restore Default brings its text back.
+    /// One that ships with HQ (Leader, Builder, Planner…): Restore Default brings its text back.
     var builtin = false
     var modified: Date = .distantPast
     /// The note on disk; nil for sample data.

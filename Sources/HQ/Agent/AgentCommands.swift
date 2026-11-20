@@ -330,7 +330,7 @@ enum AgentCommands {
                               .init(name: "history", help: "a session whose conversation it starts with: its id or name"),
                               .init(name: "cwd", help: "its directory (default: the --history session's, else this session's, else the current one)"),
                               .init(name: "message", help: "its first message, markdown; - reads stdin (default: one that sends it to the task)")],
-                     example: "hq session new \"T-12 Dedup layers\" --task T-12 --role Worker", output: sessionOutput + "; started") { args, model in
+                     example: "hq session new \"T-12 Dedup layers\" --task T-12 --role Builder", output: sessionOutput + "; started") { args, model in
             try newSessionCommand(args, model)
         },
         AgentCommand(name: "session edit", summary: "Move a session under another, as Move Under does in HQ, or to the top level with --parent none. Never under its own team.",
@@ -372,7 +372,7 @@ enum AgentCommands {
                               .init(name: "model", help: "the model its sessions start on: opus, sonnet, haiku, fable or a full name (default: Claude Code's own)"),
                               .init(name: "effort", help: "their effort: low, medium, high, xhigh or max (default: Claude Code's own)"),
                               .init(name: "body", help: "its text in markdown; - reads stdin")],
-                     example: "hq role new Reviewer --line \"Reviews one pull request, never pushes.\" --color pink --body -", output: roleOutput + "; text") { args, model in
+                     example: "hq role new Scribe --line \"Keeps the docs in step with one change.\" --color mint --body -", output: roleOutput + "; text") { args, model in
             try roleNewCommand(args, model)
         },
         AgentCommand(name: "role edit", summary: "Change a role's name, line, color, model, effort or text. Its sessions get a new text when they next start, resume or compact; a new name follows to them.",
