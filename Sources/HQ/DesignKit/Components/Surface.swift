@@ -340,8 +340,6 @@ struct CardShape: Equatable {
     var key = ""
     /// Unrelated to the selected tasks: faded (2026-11-10).
     var dimmed = false
-    /// The task the keys act on while several are selected: a second ring outside it (2026-11-20, T-568).
-    var focused = false
 }
 
 /// Raised cards in AppKit, as Core Animation layers (DESIGN.md §12): the surface, its hairline, a contact and a far
@@ -407,7 +405,6 @@ final class CardsView: NSView {
             card.body.shadowOffset = CGSize(width: 0, height: Metric.shadowNearY)
             card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .blocked ? 1.5 : shape.kind == .newTask ? 0 : 1
             dash(card.body, shape, key)
-            focusRing(card.body, shape, key)
             CATransaction.commit()
             let opacity: Float = shape.dimmed ? Float(Motion.dimmedOpacity) : 1
             if card.body.opacity != opacity || fresh {
@@ -424,8 +421,6 @@ final class CardsView: NSView {
         for (key, card) in cards where !keyed.contains(key) {
             dashes[key]?.removeFromSuperlayer()
             dashes[key] = nil
-            focusRings[key]?.removeFromSuperlayer()
-            focusRings[key] = nil
             card.body.removeFromSuperlayer()
             card.far.removeFromSuperlayer()
             cards[key] = nil
@@ -454,28 +449,6 @@ final class CardsView: NSView {
         line.lineWidth = 1
         line.lineDashPattern = Metric.newCardDash.map { NSNumber(value: Double($0)) }
         line.fillColor = nil
-    }
-
-    /// The focused cards' outer rings, by key.
-    private(set) var focusRings: [String: CALayer] = [:]
-
-    /// A focused card's second ring, `focusRingGap` outside its body; gone once it isn't focused.
-    private func focusRing(_ body: CALayer, _ shape: CardShape, _ key: String) {
-        guard shape.focused else {
-            focusRings[key]?.removeFromSuperlayer()
-            focusRings[key] = nil
-            return
-        }
-        let ring = focusRings[key] ?? CALayer()
-        if focusRings[key] == nil {
-            focusRings[key] = ring
-            body.addSublayer(ring)
-        }
-        let out = Metric.focusRingGap + Metric.selectionRing
-        ring.frame = CGRect(origin: .zero, size: shape.rect.size).insetBy(dx: -out, dy: -out)
-        ring.cornerRadius = shape.radius + out
-        ring.cornerCurve = .continuous
-        ring.borderWidth = Metric.selectionRing
     }
 
     /// Where a dragged task would land between cards: an accent line with a ring at its start, over the cards
@@ -510,7 +483,6 @@ final class CardsView: NSView {
                 card.far.shadowOpacity = raised ? 1 : 0
                 card.body.backgroundColor = (shape.ring == .drop ? Ink.dropCardNS : shape.kind == .tray ? Ink.trayNS : shape.kind == .flat ? Ink.doneCardNS : shape.kind == .newTask && shape.ring == nil ? .clear : Ink.surfaceNS).cgColor
                 dashes[shape.key.isEmpty ? "#\(index)" : shape.key]?.strokeColor = Ink.newCardLineNS.cgColor
-                focusRings[shape.key.isEmpty ? "#\(index)" : shape.key]?.borderColor = Ink.accentNS.cgColor
                 card.body.borderColor = (shape.ring == .selected || shape.ring == .drop ? Ink.accentNS : shape.ring == .blocked ? Ink.blockedRingNS : Ink.cardHairlineNS).cgColor
                 card.body.shadowColor = Ink.shadowNearNS.cgColor
                 card.body.shadowOpacity = raised ? 1 : 0

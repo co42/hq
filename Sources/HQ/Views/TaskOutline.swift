@@ -463,9 +463,8 @@ final class TaskOutlineView: NSOutlineView {
         addSubview(view, positioned: .below, relativeTo: nil)
         return view
     }()
-    /// The cards as drawn, and the ones with a focus ring, for the UI test.
+    /// The cards as drawn, for the UI test.
     var cardShapes: [CardShape] { cards.shapes }
-    var focusRingKeys: Set<String> { Set(cards.focusRings.keys) }
 
     /// The selection's ring and the fade follow the window becoming key or not.
     private var keyObservers: [NSObjectProtocol] = []
@@ -534,6 +533,9 @@ final class TaskOutlineView: NSOutlineView {
             }
             let card = cardFrame(ofRow: row).map { rowView.convert($0, from: self) }
             if rowView.card != card { rowView.card = card }
+            // The task the keys act on, unselected: the hover fill, no ring (2026-11-20, T-708).
+            let focused = task != nil && task == coordinator?.focus && hasKeyboard
+            if rowView.focused != focused { rowView.focused = focused }
             // The face's column keeps its width as the outline resizes, so AppKit leaves its cell where it was.
             if let faces = rowView.view(atColumn: 0) as? FacesCell {
                 let frame = rowView.convert(frameOfCell(atColumn: 0, row: row), from: self)
@@ -628,8 +630,6 @@ final class TaskOutlineView: NSOutlineView {
             guard let id = (item(atRow: row) as? OutlineNode)?.task, let card = cardFrame(ofRow: row) else { continue }
             // A Blocked card's red edge, a selected one's accent ring; no yellow edge for doing (2026-11-10).
             let ring: CardShape.Ring? = dropOnto == id ? .drop : selected.contains(row) && keyboard ? .selected : flow.state(id) == .blocked ? .blocked : nil
-            // Among several selected, the task the keys act on (2026-11-20, T-568).
-            let focused = keyboard && coordinator.focus == id
             let top = coordinator.plan.depth[id] == 0
             // Raised means now: a backlog or done card is flat (2026-11-16, T-471).
             let status = coordinator.model.task(id)?.status
@@ -649,11 +649,11 @@ final class TaskOutlineView: NSOutlineView {
                 let tray = NSRect(x: edges.left, y: card.minY - above, width: max(cardsRight - edges.left - edges.right, 0), height: bottom - card.minY + above)
                 trays.append(CardShape(rect: tray, radius: top ? Radius.card : Radius.row + 2, kind: .tray, key: "tray:\(id)"))
                 // A block's header sits on its tray, but a story's big card; selected, its header gets the ring too.
-                guard top || ring == .selected || ring == .drop || ring == .blocked || focused else { continue }
-                cards.append(CardShape(rect: coordinator.plan.flush.contains(id) ? card.insetBy(dx: 2, dy: 2) : card, radius: top ? Radius.row + 4 : Radius.row, kind: top && !flat ? .card : .flat, ring: ring, key: "card:\(id)", focused: focused))
+                guard top || ring == .selected || ring == .drop || ring == .blocked else { continue }
+                cards.append(CardShape(rect: coordinator.plan.flush.contains(id) ? card.insetBy(dx: 2, dy: 2) : card, radius: top ? Radius.row + 4 : Radius.row, kind: top && !flat ? .card : .flat, ring: ring, key: "card:\(id)"))
             } else {
                 cards.append(CardShape(rect: card, radius: top ? Radius.row + 4 : Radius.row, kind: flat ? .flat : .card, ring: ring,
-                                       key: "card:\(id)", focused: focused))
+                                       key: "card:\(id)"))
             }
         }
         return trays + cards

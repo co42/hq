@@ -2,7 +2,7 @@ import AppKit
 import HQKit
 
 /// Several tasks selected (T-568, DESIGN.md §7 Keys, §18): ⌘-click and ⇧-click, X on the focus, the arrows moving the
-/// focus while the selection stays, its second ring, the keys that act on all of them or on the focus alone, Escape back
+/// focus while the selection stays, the keys that act on all of them or on the focus alone, Escape back
 /// to one; and several cards dragged together, through AppKit's own drag (moving several crashed in v10, T-391).
 extension UITest {
     static func severalTasks(_ model: AppModel, _ ui: Driver) async {
@@ -13,37 +13,40 @@ extension UITest {
             return await check("the outline's tasks", false)
         }
         let state = {
-            "selected \(model.selectedTasks) focus \(String(describing: coordinator.focus)) menu \(MenuState.shared.tasks) on \(String(describing: MenuState.shared.task)) rings \(outline.focusRingKeys.sorted()) responder \(ui.responder)"
+            "selected \(model.selectedTasks) focus \(String(describing: coordinator.focus)) menu \(MenuState.shared.tasks) on \(String(describing: MenuState.shared.task)) responder \(ui.responder)"
         }
-        /// The focused card alone has the second ring, every selected card its own ring.
-        func rings(focus: Int?, selected: [Int]) -> Bool {
-            // Rings show only while the rows have the keyboard in the key window: never in a background run.
-            guard outline.hasKeyboard else { return outline.focusRingKeys.isEmpty }
-            let shapes = outline.cardShapes
-            let focused = Set(shapes.filter(\.focused).map(\.key))
-            let ringed = Set(shapes.filter { $0.ring == .selected }.map(\.key))
-            return focused == Set(focus.map { ["card:\($0)"] } ?? []) && outline.focusRingKeys == focused && ringed == Set(selected.map { "card:\($0)" })
+        /// Every selected card has its ring and nothing more; the focus, unselected, has the hover fill alone (T-708).
+        func rings(selected: [Int]) -> Bool {
+            var filled: Set<Int> = []
+            outline.enumerateAvailableRowViews { view, row in
+                if let view = view as? OutlineRowView, view.focused, !view.isSelected, let id = (outline.item(atRow: row) as? OutlineNode)?.task { filled.insert(id) }
+            }
+            // Rings and the fill show only while the rows have the keyboard in the key window: never in a background run.
+            guard outline.hasKeyboard else { return filled.isEmpty }
+            let ringed = Set(outline.cardShapes.filter { $0.ring == .selected }.map(\.key))
+            let focus = coordinator.focus.flatMap { selected.contains($0) ? nil : $0 }
+            return ringed == Set(selected.map { "card:\($0)" }) && filled == Set(focus.map { [$0] } ?? [])
         }
 
         // X on a lone task starts keeping it; ↓ moves the focus, the selection stays; X adds, X again removes.
         coordinator.select(a)
         await ui.settle(0.3)
-        await check("one task selected has no focus ring", coordinator.focus == nil && rings(focus: nil, selected: [a]), state())
+        await check("one task selected has no focus", coordinator.focus == nil && rings(selected: [a]), state())
         await ui.key("x", code: 7)
-        await check("X on a lone task keeps it: the focus ring shows, still one task", coordinator.focus == a && model.selectedTasks == [a]
-                    && rings(focus: a, selected: [a]), state())
+        await check("X on a lone task keeps it: still one task", coordinator.focus == a && model.selectedTasks == [a]
+                    && rings(selected: [a]), state())
         await ui.key(.down)
-        await check("Down moves the focus, the selection stays", coordinator.focus == a1 && model.selectedTasks == [a] && rings(focus: a1, selected: [a]), state())
+        await check("Down moves the focus, shown by the hover fill; the selection stays", coordinator.focus == a1 && model.selectedTasks == [a] && rings(selected: [a]), state())
         await ui.key("x", code: 7)
         await ui.key(.down)
         await ui.key(.down)
         await ui.key("x", code: 7)
-        await check("X adds the focused task each time", model.selectedTasks == [a, a1, b] && coordinator.focus == b && rings(focus: b, selected: [a, a1, b]), state())
+        await check("X adds the focused task each time", model.selectedTasks == [a, a1, b] && coordinator.focus == b && rings(selected: [a, a1, b]), state())
         await ui.key(.up)
         await ui.key(.up)
         await ui.key("x", code: 7)
         await check("X on a selected focus takes it out, the focus stays on it", model.selectedTasks == [a, b] && coordinator.focus == a1
-                    && rings(focus: a1, selected: [a, b]), state())
+                    && rings(selected: [a, b]), state())
         await check("the Task menu acts on the selection, its one-task items on the focus", MenuState.shared.tasks == [a, b] && MenuState.shared.task == a1, state())
 
         // Keys on several: ⌘Return on every selected task, B nothing, Space opens the focus.
@@ -67,7 +70,7 @@ extension UITest {
         // Escape: back to one, the focus; again, none.
         if ui.window.firstResponder !== outline { ui.window.makeFirstResponder(outline) }
         await ui.key(.escape)
-        await check("Escape goes back to one task, the focused one", model.selectedTasks == [a1] && coordinator.focus == nil && rings(focus: nil, selected: [a1]), state())
+        await check("Escape goes back to one task, the focused one", model.selectedTasks == [a1] && coordinator.focus == nil && rings(selected: [a1]), state())
         await ui.key(.escape)
         await check("Escape again unselects", model.selectedTasks.isEmpty, state())
 
@@ -75,7 +78,7 @@ extension UITest {
         coordinator.select(b)
         await ui.key("x", code: 7)
         await ui.key("x", code: 7)
-        await check("X on the last one kept goes back to one task", model.selectedTasks == [b] && coordinator.focus == nil && rings(focus: nil, selected: [b]), state())
+        await check("X on the last one kept goes back to one task", model.selectedTasks == [b] && coordinator.focus == nil && rings(selected: [b]), state())
 
         // ⇧ with the arrows moves them together; ⌫ deletes them all, one Undo.
         coordinator.select([a, b])
@@ -98,14 +101,14 @@ extension UITest {
         // Clicks: ⌘-click adds and removes, ⇧-click a range, a plain click back to one.
         await ui.click(ui.titlePoint(b))
         await ui.click(ui.titlePoint(c), flags: .command)
-        await tableCheck(ui, "Command-click adds a task; the focus goes to it", model.selectedTasks == [b, c] && coordinator.focus == c && rings(focus: c, selected: [b, c]), state())
+        await tableCheck(ui, "Command-click adds a task; the focus goes to it", model.selectedTasks == [b, c] && coordinator.focus == c && rings(selected: [b, c]), state())
         await ui.click(ui.titlePoint(b), flags: .command)
         await tableCheck(ui, "Command-click on a selected task takes it out", model.selectedTasks == [c] && coordinator.focus == nil, state())
         await ui.click(ui.titlePoint(a))
         await ui.click(ui.titlePoint(b), flags: .shift)
         await tableCheck(ui, "Shift-click selects the range", model.selectedTasks == [a, a1, a2, b] && coordinator.focus == b, state())
         await ui.click(ui.titlePoint(a1))
-        await tableCheck(ui, "a plain click goes back to one task", model.selectedTasks == [a1] && coordinator.focus == nil && rings(focus: nil, selected: [a1]), state())
+        await tableCheck(ui, "a plain click goes back to one task", model.selectedTasks == [a1] && coordinator.focus == nil && rings(selected: [a1]), state())
 
         await severalDrag(model, ui, outline, coordinator, b, c, a)
     }

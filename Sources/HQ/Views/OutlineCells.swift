@@ -23,6 +23,8 @@ final class OutlineRowView: NSTableRowView {
     }
     /// The task's card, in this row's coordinates: its selection fills it.
     var card: NSRect? { didSet { if card != oldValue { needsDisplay = true } } }
+    /// The task the keys act on: the hover fill while it isn't selected.
+    var focused = false { didSet { if focused != oldValue { needsDisplay = true } } }
     private(set) var hovered = false
 
     override init(frame: NSRect) {
@@ -48,6 +50,11 @@ final class OutlineRowView: NSTableRowView {
         let active = (window?.firstResponder as? NSView).map { $0.isDescendant(of: superview ?? self) } ?? false
         guard card != nil else { return fill(active ? Ink.rowSelectionNS : Ink.rowSelectionInactiveNS) }
         fill(active ? Ink.cardSelectionNS : Ink.rowSelectionInactiveNS)
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        if focused, !isSelected, card != nil { fill(Ink.hoverFillNS) }
     }
 
     override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {

@@ -272,8 +272,6 @@ nonisolated enum Metric {
     static var faceRow: CGFloat { 22 * Zoom.factor }
     /// A selected card's ring, as a session card's.
     static var selectionRing: CGFloat { 2 * Zoom.factor }
-    /// The focused card while several are selected: a second ring this far outside it (2026-11-20, T-568).
-    static var focusRingGap: CGFloat { 3 * Zoom.factor }
     static var faceChip: CGFloat { 16 * Zoom.factor }
     /// A face in a menu: the menu bar icon's Focus items. Menus don't zoom.
     static let faceMenu: CGFloat = 16

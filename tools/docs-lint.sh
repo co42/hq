@@ -35,6 +35,7 @@ retired=(
   'Unfiled' 'projects'
   'hq ls folders' 'hq ls projects'
   'blue dot' 'nothing: v9 removed them'
+  'second accent ring' 'nothing: the focus has the hover fill (T-708)'
   '--reason' 'hq notify'
   'Open in Ghostty' 'Focus'
   'Start in Ghostty' 'Start'
