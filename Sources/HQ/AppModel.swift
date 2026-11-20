@@ -187,7 +187,7 @@ final class AppModel {
     }
     var files: [FileItem] = [] { didSet { outputsCache = nil; persistFiles(from: oldValue) } }
     /// The roles a session can start with: notes in <vault>/hq/roles/, Leader and Worker first.
-    var roles: [RoleItem] = []
+    var roles: [RoleItem] = [] { didSet { if roles.map(\.name) != oldValue.map(\.name) { syncMenu() } } }
     /// Pages Claude published, captured from its hooks. Saved at once.
     var artifacts: [ArtifactItem] = [] { didSet { outputsCache = nil; if artifacts != oldValue { storage?.save(artifacts) } } }
     /// GitHub's last answer, shown while the next one comes.
@@ -777,6 +777,12 @@ final class MenuState: ObservableObject {
     @Published private(set) var sessionCanStartAgain = false
     @Published private(set) var sessionNotReporting = false
     @Published private(set) var sessionRestartable = false
+    /// Model ▸, Effort ▸ and Role ▸, as its context menu has them (T-694): its values, the roles, and whether it takes a change now.
+    @Published private(set) var sessionModel = ""
+    @Published private(set) var sessionEffort = ""
+    @Published private(set) var sessionRole = ""
+    @Published private(set) var roleNames: [String] = []
+    @Published private(set) var sessionCanChangeRun = false
     /// Outdated sessions at their prompt: Restart Idle Sessions (N) (T-454).
     @Published private(set) var restartIdleCount = 0
     @Published private(set) var hasClosed = false
@@ -841,6 +847,11 @@ final class MenuState: ObservableObject {
         set(\.sessionCanStartAgain, session?.startTrouble == .didntStart)
         set(\.sessionNotReporting, session?.startTrouble == .notReporting)
         set(\.sessionRestartable, session.map { model.restartBlocked($0) == nil } ?? false)
+        set(\.sessionModel, session?.model.map { ClaudeModel.family($0).lowercased() } ?? "")
+        set(\.sessionEffort, session?.effort ?? "")
+        set(\.sessionRole, session.flatMap { model.role(named: $0.role)?.name } ?? "")
+        set(\.roleNames, model.roles.map(\.name))
+        set(\.sessionCanChangeRun, session.map(model.canChangeRun) ?? false)
         set(\.restartIdleCount, model.restartableIdle.count)
         let tree = model.sessionTree
         let root = session.map { tree.root(of: $0.id) }

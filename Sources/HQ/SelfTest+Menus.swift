@@ -75,4 +75,48 @@ extension SelfTest {
         let titles = shown.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.hasSubmenu ? "\($0.title) ▸" : $0.title }
         check("\(name) in order", titles == expected, titles.joined(separator: " | "))
     }
+
+    /// The menu bar's Session menu has everything a running session's context menu has (DESIGN.md §18): Model ▸, Effort ▸
+    /// and Role ▸ with the same choices, checked and on alike (T-694).
+    static func sessionMenuBarChecks(_ model: AppModel) async {
+        guard let bar = NSApp.mainMenu?.items.first(where: { $0.title == "Session" })?.submenu else { return check("the menu bar has a Session menu", false) }
+        let running = model.sessions.filter { $0.isRunning && $0.tty != nil }
+        guard !running.isEmpty else { return check("the seed has running sessions for the Session menu", false) }
+        // The context menu's names where the menu bar's say more.
+        let renamed = ["Child Session…": "Start Child Session…", "From Its History…": "Start Session from Its History…", "Copy": "Copy Session"]
+        let runMenus: Set = ["Model", "Effort", "Role"]
+        /// Each item a click acts on: inside Model, Effort or Role by its path, with its check and whether its submenu is on.
+        func leaves(_ menu: NSMenu, under run: NSMenuItem? = nil) -> [String: String] {
+            menu.update()
+            var found: [String: String] = [:]
+            for item in menu.items where !item.isHidden && !item.isSeparatorItem {
+                if let sub = item.submenu {
+                    found.merge(leaves(sub, under: runMenus.contains(item.title) ? item : run)) { first, _ in first }
+                } else if let run {
+                    found["\(run.title) ▸ \(item.title)"] = "\(item.state == .on ? "checked" : "-") \(run.isEnabled && item.isEnabled ? "on" : "off")"
+                } else {
+                    found[renamed[item.title] ?? item.title] = ""
+                }
+            }
+            return found
+        }
+        let selected = model.selectedSession
+        let selectedTasks = model.selectedTasks
+        model.selectedTasks = []
+        for session in running.prefix(3) {
+            model.selectedSession = session.id
+            let context = leaves(NSHostingMenu(rootView: SessionMenu(session: session).environment(model)))
+            var shown: [String: String] = [:]
+            var missing: [String] = []
+            await expect("the Session menu has what \(session.name)'s context menu has (\(model.canChangeRun(session) ? "it takes a change" : "busy"))", {
+                bar.delegate?.menuNeedsUpdate?(bar)
+                shown = leaves(bar)
+                missing = context.filter { shown[$0.key] != $0.value }.map { "\($0.key) \($0.value) ≠ \(shown[$0.key] ?? "none")" }.sorted()
+                let off = context.values.filter { $0.hasSuffix("off") }.count
+                return missing.isEmpty && context.keys.contains { $0.hasPrefix("Role ▸") } && (off == 0) == model.canChangeRun(session)
+            }(), missing.joined(separator: " | "))
+        }
+        model.selectedSession = selected
+        model.selectedTasks = selectedTasks
+    }
 }

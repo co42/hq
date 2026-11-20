@@ -261,12 +261,28 @@ struct HQCommands: Commands {
             Button("Start Session from Its History…") { if let session { model.beginStart(history: session, push: model.modal != nil) } }
                 .disabled(session == nil)
             Divider()
+            // As its context menu's (T-694): typed in its terminal while it waits.
+            Picker("Model", selection: Binding(get: { menu.sessionModel }, set: { if let session { model.changeRun(session, model: $0) } })) {
+                ForEach(ClaudeModel.aliases, id: \.self) { Text(ClaudeModel.family($0)).tag($0) }
+            }
+                .disabled(!menu.sessionCanChangeRun)
+            Picker("Effort", selection: Binding(get: { menu.sessionEffort }, set: { if let session { model.changeRun(session, effort: $0) } })) {
+                ForEach(ClaudeModel.efforts, id: \.self) { Text(ClaudeModel.effortTitle($0)).tag($0) }
+            }
+                .disabled(!menu.sessionCanChangeRun)
+            Picker("Role", selection: Binding(get: { menu.sessionRole }, set: { if let session { model.changeRole(session, to: $0.isEmpty ? nil : $0) } })) {
+                Text("None").tag("")
+                Divider()
+                ForEach(menu.roleNames, id: \.self) { Text($0).tag($0) }
+            }
+                .disabled(!menu.sessionCanChangeRun)
+            Divider()
             Menu("Move Under") {
                 if let session {
                     ForEach(menu.moveUnder, id: \.self) { id in
                         if let row = model.sessionRows.first(where: { $0.session.id == id }) {
                             Button { model.setParent(session, to: id) } label: {
-                                Label { Text(row.session.name) } icon: { Image(nsImage: MenuBarMenu.face(row.session, depth: row.depth)) }
+                                Label { Text(MenuAction.short(row.session.name)) } icon: { Image(nsImage: MenuBarMenu.face(row.session, depth: row.depth)) }
                             }
                         }
                     }
@@ -297,7 +313,7 @@ struct HQCommands: Commands {
             Button("Close Session") { if let session { model.closeSession(session) } }
                 .disabled(session == nil || !menu.sessionClosable)
                 .help(menu.sessionNotReporting ? "Removes the card; its Claude keeps running in its tab, where /exit quits it" : "")
-            Button(menu.teamOpenCount > 0 ? "Close Team (\(menu.teamOpenCount) sessions)…" : "Close Team…") {
+            Button(menu.teamOpenCount > 0 ? "Close Team (\(menu.teamOpenCount) session\(menu.teamOpenCount == 1 ? "" : "s"))…" : "Close Team…") {
                 if let session { model.closeTeam(session) }
             }
                 .disabled(menu.teamOpenCount == 0)

@@ -67,6 +67,7 @@ enum SelfTest {
             labelChecks(model)
             spoolChecks(model)
             menuChecks(model)
+            await sessionMenuBarChecks(model)
             keysChecks()
             await pageFixChecks(model)
             await stabilityChecks(model)
