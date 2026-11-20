@@ -253,6 +253,7 @@ extension SelfTest {
         turnEvent("UserPromptSubmit", id, pid: pid, #","prompt":"deploy""#)
         let cases: [(name: String, event: String, extra: String, wait: WaitReason, claude: String, after: SessionState)] = [
             ("an approved permission", "PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"cargo run"}"#, .permission, "busy", .working),
+            ("an approved long command", "PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"cargo run --release"}"#, .permission, "shell", .working),
             ("a refused permission", "PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"rm -rf target"}"#, .permission, "idle", .idle),
             ("a question answered", "PreToolUse", #","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Ship?","options":[{"label":"Yes"}]}]}"#, .question, "busy", .working),
             ("a plan approved", "PreToolUse", #","tool_name":"ExitPlanMode","tool_input":{"plan":"Do it"}"#, .plan, "busy", .working),

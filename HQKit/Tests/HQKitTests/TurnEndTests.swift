@@ -97,7 +97,7 @@ func turnEndingWithoutStopGoesIdle(_ index: Int) throws {
     let said = try #require(ClaudeSessionFile.status(busy, sessionID: TurnEndFixture.session))
     #expect(said.status == "busy" && abs(said.since.timeIntervalSince(base.addingTimeInterval(5))) < 0.01)
     #expect(ClaudeSessionFile.status(other, sessionID: TurnEndFixture.session) == nil, "a pid reused by another session")
-    for (wait, claude, after) in [(WaitReason.permission, "busy", SessionState.working), (.permission, "idle", .idle), (.question, "busy", .working), (.plan, "idle", .idle)] {
+    for (wait, claude, after) in [(WaitReason.permission, "busy", SessionState.working), (.permission, "shell", .working), (.permission, "idle", .idle), (.question, "busy", .working), (.plan, "idle", .idle)] {
         var live = SessionLive(status: SessionStatus(state: .waiting(wait), since: base))
         let stale = live.claudeAnswered(claude, since: base.addingTimeInterval(-1))
         #expect(!stale, "a record from before the wait")

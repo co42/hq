@@ -323,15 +323,25 @@ public struct SessionLive: Sendable, Hashable {
         return true
     }
 
-    /// Claude Code says it no longer waits (`status` other than "waiting", written at `since`, after the wait began): the
-    /// user answered in the terminal, where no hook reports it. Busy: an approved command or an answer runs, Working; else
-    /// the turn ended (a refusal), idle.
+    /// What a status in Claude Code's record means for a wait: "waiting" a dialog waits on the user, "busy" a turn runs,
+    /// "shell" a command runs (an approved long Bash), "idle" at its prompt. An unknown one says nothing.
+    public static func afterWait(_ claude: String) -> SessionState? {
+        switch claude {
+        case "busy", "shell": .working
+        case "idle": .idle
+        default: nil
+        }
+    }
+
+    /// Claude Code says it no longer waits (written at `since`, after the wait began): the user answered in the terminal,
+    /// where no hook reports it. Busy or shell: an approved command or an answer runs, Working; idle: the turn ended
+    /// (a refusal).
     @discardableResult
     public mutating func claudeAnswered(_ claude: String, since: Date) -> Bool {
-        guard case .waiting = status.state, claude != "waiting", since > status.since else { return false }
+        guard case .waiting = status.state, let next = Self.afterWait(claude), since > status.since else { return false }
         question = nil
         options = []
-        set(claude == "busy" ? .working : .idle, since)
+        set(next, since)
         return true
     }
 

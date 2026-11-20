@@ -176,7 +176,7 @@ A user token pasted in Settings › Slack, kept in the Keychain (`io.github.co42
 | PreCompact → PostCompact | compacting → the previous state |
 | SessionEnd (`clear` too: see /clear), pid exit | ended |
 
-**Answered in the terminal** (2026-11-20, T-691): no hook says a question, a plan or a permission was answered, and an approved command runs with no tool event until it ends. While a session waits, HQ reads its Claude's record (`~/.claude/sessions/<pid>.json`, every 2 s, off the main thread, best effort): Claude writes `"status": "waiting"` while a dialog waits on the user; a status other than waiting written after the wait began ends it, `busy` to working (approved, answered), anything else to idle (refused, the turn over). A record from before the wait answers nothing.
+**Answered in the terminal** (2026-11-20, T-691): no hook says a question, a plan or a permission was answered, and an approved command runs with no tool event until it ends. While a session waits, HQ reads its Claude's record (`~/.claude/sessions/<pid>.json`, every 2 s, off the main thread, best effort): Claude writes `"status": "waiting"` while a dialog waits on the user; a known status other than waiting written after the wait began ends it: `busy` or `shell` (a command runs) to working (approved, answered), `idle` to idle (refused, the turn over); a status HQ doesn't know changes nothing. A record from before the wait answers nothing.
 
 Known gap: Esc or an interrupt with no record to read sends nothing, so the state holds until the next event. Cards show how long a state has lasted, so a stale one is visible.
 
