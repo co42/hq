@@ -328,9 +328,9 @@ struct SectionTile: View {
 struct CardShape: Equatable {
     /// `newTask`: the card a new task is typed in, its edge dashed until it is one (2026-11-10).
     enum Kind: Equatable { case card, flat, tray, newTask }
-    /// A Blocked card's red edge; a selected card's accent ring, as a session card's; the card a dragged task would drop
-    /// onto (2026-11-10).
-    enum Ring: Equatable { case blocked, selected, drop }
+    /// A Blocked card's red edge; a selected card's accent ring, as a session card's, thinner and lighter among several
+    /// when the focus is elsewhere (`kept`, 2026-11-20, T-708); the card a dragged task would drop onto (2026-11-10).
+    enum Ring: Equatable { case blocked, selected, kept, drop }
 
     var rect: CGRect
     var radius: CGFloat
@@ -403,7 +403,7 @@ final class CardsView: NSView {
             card.far.shadowOffset = CGSize(width: 0, height: Metric.shadowFarY)
             card.body.shadowRadius = Metric.shadowNearRadius
             card.body.shadowOffset = CGSize(width: 0, height: Metric.shadowNearY)
-            card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .blocked ? 1.5 : shape.kind == .newTask ? 0 : 1
+            card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .kept ? Metric.keptRing : shape.ring == .blocked ? 1.5 : shape.kind == .newTask ? 0 : 1
             dash(card.body, shape, key)
             CATransaction.commit()
             let opacity: Float = shape.dimmed ? Float(Motion.dimmedOpacity) : 1
@@ -483,7 +483,7 @@ final class CardsView: NSView {
                 card.far.shadowOpacity = raised ? 1 : 0
                 card.body.backgroundColor = (shape.ring == .drop ? Ink.dropCardNS : shape.kind == .tray ? Ink.trayNS : shape.kind == .flat ? Ink.doneCardNS : shape.kind == .newTask && shape.ring == nil ? .clear : Ink.surfaceNS).cgColor
                 dashes[shape.key.isEmpty ? "#\(index)" : shape.key]?.strokeColor = Ink.newCardLineNS.cgColor
-                card.body.borderColor = (shape.ring == .selected || shape.ring == .drop ? Ink.accentNS : shape.ring == .blocked ? Ink.blockedRingNS : Ink.cardHairlineNS).cgColor
+                card.body.borderColor = (shape.ring == .selected || shape.ring == .drop ? Ink.accentNS : shape.ring == .kept ? Ink.keptRingNS : shape.ring == .blocked ? Ink.blockedRingNS : Ink.cardHairlineNS).cgColor
                 card.body.shadowColor = Ink.shadowNearNS.cgColor
                 card.body.shadowOpacity = raised ? 1 : 0
             }

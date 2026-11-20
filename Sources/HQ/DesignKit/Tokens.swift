@@ -161,6 +161,8 @@ enum Ink {
     static let rowSelectionInactiveNS = NSColor.unemphasizedSelectedContentBackgroundColor
     /// A selected task card's tint, under its accent ring.
     static let cardSelectionNS = NSColor.controlAccentColor.withAlphaComponent(0.06)
+    /// A selected card the focus isn't on, among several: its ring, lighter (2026-11-20, T-708).
+    static let keptRingNS = NSColor.controlAccentColor.withAlphaComponent(0.6)
     /// The card a dragged task would drop onto: its surface with a touch of the accent, opaque over the tray.
     static let dropCardNS = NSColor(name: "dropCard") { appearance in
         var color = surfaceNS
@@ -272,6 +274,8 @@ nonisolated enum Metric {
     static var faceRow: CGFloat { 22 * Zoom.factor }
     /// A selected card's ring, as a session card's.
     static var selectionRing: CGFloat { 2 * Zoom.factor }
+    /// A selected card the focus isn't on, among several: half the selection ring (2026-11-20, T-708).
+    static var keptRing: CGFloat { 1 * Zoom.factor }
     static var faceChip: CGFloat { 16 * Zoom.factor }
     /// A face in a menu: the menu bar icon's Focus items. Menus don't zoom.
     static let faceMenu: CGFloat = 16

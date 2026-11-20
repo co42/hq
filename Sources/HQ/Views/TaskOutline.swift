@@ -628,8 +628,9 @@ final class TaskOutlineView: NSOutlineView {
                 continue
             }
             guard let id = (item(atRow: row) as? OutlineNode)?.task, let card = cardFrame(ofRow: row) else { continue }
-            // A Blocked card's red edge, a selected one's accent ring; no yellow edge for doing (2026-11-10).
-            let ring: CardShape.Ring? = dropOnto == id ? .drop : selected.contains(row) && keyboard ? .selected : flow.state(id) == .blocked ? .blocked : nil
+            // A Blocked card's red edge, a selected one's accent ring, thinner on the ones the focus isn't on among several
+            // (T-708); no yellow edge for doing (2026-11-10).
+            let ring: CardShape.Ring? = dropOnto == id ? .drop : selected.contains(row) && keyboard ? (selected.count > 1 && coordinator.focus != id ? .kept : .selected) : flow.state(id) == .blocked ? .blocked : nil
             let top = coordinator.plan.depth[id] == 0
             // Raised means now: a backlog or done card is flat (2026-11-16, T-471).
             let status = coordinator.model.task(id)?.status
@@ -649,7 +650,7 @@ final class TaskOutlineView: NSOutlineView {
                 let tray = NSRect(x: edges.left, y: card.minY - above, width: max(cardsRight - edges.left - edges.right, 0), height: bottom - card.minY + above)
                 trays.append(CardShape(rect: tray, radius: top ? Radius.card : Radius.row + 2, kind: .tray, key: "tray:\(id)"))
                 // A block's header sits on its tray, but a story's big card; selected, its header gets the ring too.
-                guard top || ring == .selected || ring == .drop || ring == .blocked else { continue }
+                guard top || ring == .selected || ring == .kept || ring == .drop || ring == .blocked else { continue }
                 cards.append(CardShape(rect: coordinator.plan.flush.contains(id) ? card.insetBy(dx: 2, dy: 2) : card, radius: top ? Radius.row + 4 : Radius.row, kind: top && !flat ? .card : .flat, ring: ring, key: "card:\(id)"))
             } else {
                 cards.append(CardShape(rect: card, radius: top ? Radius.row + 4 : Radius.row, kind: flat ? .flat : .card, ring: ring,

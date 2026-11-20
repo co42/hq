@@ -15,7 +15,8 @@ extension UITest {
         let state = {
             "selected \(model.selectedTasks) focus \(String(describing: coordinator.focus)) menu \(MenuState.shared.tasks) on \(String(describing: MenuState.shared.task)) responder \(ui.responder)"
         }
-        /// Every selected card has its ring and nothing more; the focus, unselected, has the hover fill alone (T-708).
+        /// Every selected card has its ring and nothing more: the full one on the focus or a lone task, the thin one on the
+        /// others among several; the focus, unselected, has the hover fill alone (T-708).
         func rings(selected: [Int]) -> Bool {
             var filled: Set<Int> = []
             outline.enumerateAvailableRowViews { view, row in
@@ -23,9 +24,12 @@ extension UITest {
             }
             // Rings and the fill show only while the rows have the keyboard in the key window: never in a background run.
             guard outline.hasKeyboard else { return filled.isEmpty }
-            let ringed = Set(outline.cardShapes.filter { $0.ring == .selected }.map(\.key))
+            let full = Set(outline.cardShapes.filter { $0.ring == .selected }.map(\.key))
+            let thin = Set(outline.cardShapes.filter { $0.ring == .kept }.map(\.key))
+            let wantFull = selected.filter { selected.count == 1 || $0 == coordinator.focus }
             let focus = coordinator.focus.flatMap { selected.contains($0) ? nil : $0 }
-            return ringed == Set(selected.map { "card:\($0)" }) && filled == Set(focus.map { [$0] } ?? [])
+            return full == Set(wantFull.map { "card:\($0)" }) && thin == Set(selected.filter { !wantFull.contains($0) }.map { "card:\($0)" })
+                && filled == Set(focus.map { [$0] } ?? [])
         }
 
         // X on a lone task starts keeping it; ↓ moves the focus, the selection stays; X adds, X again removes.
