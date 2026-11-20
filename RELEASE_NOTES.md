@@ -1,5 +1,16 @@
 # Release notes
 
+## v17.1 · 2026-11-20 · HQ stays up and quick
+
+- A task's right-click menu and its window's ⋯ have Open in Obsidian again, right after Open, as a file's.
+- Copy in a pull request's or an artifact's window header copies its link, as Copy Link does; a task, a session and a file still copy their line.
+- HQ no longer quits on its own: when it was busy for over a second, a session's hook gave up waiting, and HQ died writing its late answer (a session's next `hq` then reopened it).
+- HQ reads sessions' transcripts and saves its sessions off the main thread: with many sessions working, clicks no longer stall, and a banner click opens the notification center at once.
+- When HQ does stall over 2 s, it writes what its main thread was doing to `~/Library/Logs/HQ/hangs.log`, and a banner click logs its timing in `window.log`.
+- Two quick clicks on a checkbox in a description tick it twice and no longer open the editor; the same for a code block's Copy, a callout's title, an embedded note, Expand and Widen.
+- A notification's actions, under the pointer, sit at the same place on every card.
+- For HQ's own checks: the gate is back under two minutes (snapshots capture their own window).
+
 ## v17 · 2026-11-18 · Menus and headers that match
 
 - Every right-click menu is redone, the same for each kind of item: at most four groups (open or start · set · view, remind, copy · remove), submenus named by what they set (Status ▸, Project ▸, Links ▸, Show ▸, Team ▸), one word per action. A window's ⋯ is exactly its item's right-click menu.
