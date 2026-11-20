@@ -19,7 +19,7 @@ nonisolated enum AgentSocket {
         return dir.appending(path: "agent.sock").path
     }
 
-    private static func address(_ path: String) throws -> sockaddr_un {
+    static func address(_ path: String) throws -> sockaddr_un {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8)

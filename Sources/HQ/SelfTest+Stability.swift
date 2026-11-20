@@ -12,6 +12,23 @@ extension SelfTest {
         await flowChecks()
         windowFrameChecks(model)
         bringForwardChecks(model)
+        await lostClientChecks()
+    }
+
+    /// T-686: a hook gives up after 1 s while the main thread is busy; HQ writing its reply to the closed socket lives on.
+    private static func lostClientChecks() async {
+        let client = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard client >= 0, var address = try? AgentSocket.address(AgentSocket.path) else { return check("the self-test reaches HQ's socket", false) }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(client, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        let request = Data("{\"command\":\"status\"}\n".utf8)
+        let sent = request.withUnsafeBytes { Darwin.write(client, $0.baseAddress!, $0.count) }
+        // Gone before the reply: the main thread, this one, answers only once it yields.
+        close(client)
+        try? await Task.sleep(for: .milliseconds(500))
+        check("HQ lives on after replying to an hq command that left before its answer (T-686)", connected == 0 && sent == request.count,
+              "connect \(connected), sent \(sent)")
     }
 
     /// T-380: Open HQ and every menu bar item that shows the window bring it from another Space. Spaces can't be driven

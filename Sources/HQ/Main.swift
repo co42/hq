@@ -4,6 +4,8 @@ import Foundation
 @main
 enum Main {
     static func main() {
+        // A write to a socket or pipe whose reader left fails with EPIPE, never stops the app or the CLI (T-686).
+        signal(SIGPIPE, SIG_IGN)
         if let code = AgentCLI.runIfRequested() { exit(code) }
         // Tooltips come almost at once, everywhere (2026-11-10): set before AppKit reads it.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": Motion.tooltipMilliseconds])
