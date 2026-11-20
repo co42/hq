@@ -53,7 +53,7 @@ enum SlackClipboard {
 
     /// The pasteboard is read once per copy, and only when it holds a link, so macOS asks about pasting only then.
     static func link() async -> String? {
-        let change = Store.isOverridden ? testChange : NSPasteboard.general.changeCount
+        let change = Store.isOverridden ? testChange : Pasteboard.board.changeCount
         guard change != dropped else { return nil }
         if let read, read.change == change { return read.url }
         let url = await Self.url(change)
@@ -68,7 +68,7 @@ enum SlackClipboard {
 
     private static func url(_ change: Int) async -> String? {
         if Store.isOverridden { return testText.flatMap { SlackLink.find(in: $0)?.url } }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard.general // lint: ok a test run returns above
         guard let patterns = try? await pasteboard.detectedPatterns(for: [\.probableWebURL, \.links]), !patterns.isEmpty,
               pasteboard.changeCount == change, let text = pasteboard.string(forType: .string) else { return nil }
         return SlackLink.find(in: text)?.url

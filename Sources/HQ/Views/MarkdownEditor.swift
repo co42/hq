@@ -480,7 +480,17 @@ struct MarkdownEditor: NSViewRepresentable {
                 insertText("[\(words)](\(url))", replacementRange: range)
                 return
             }
-            super.paste(sender)
+            if Pasteboard.board == .general { super.paste(sender) } else { readSelection(from: Pasteboard.board) }
+        }
+
+        // A test run copies to its own pasteboard.
+        override func copy(_ sender: Any?) {
+            if Pasteboard.board == .general { super.copy(sender) } else { writeSelection(to: Pasteboard.board, types: writablePasteboardTypes) }
+        }
+
+        override func cut(_ sender: Any?) {
+            guard Pasteboard.board != .general else { return super.cut(sender) }
+            if writeSelection(to: Pasteboard.board, types: writablePasteboardTypes) { insertText("", replacementRange: selectedRange()) }
         }
 
         /// The pasteboard's text when it's one web address.

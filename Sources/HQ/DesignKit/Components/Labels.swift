@@ -416,16 +416,17 @@ struct CopyableValue: View {
 }
 
 enum Pasteboard {
-    /// The last text copied; test runs keep it here and leave the user's pasteboard alone.
+    /// The last text copied.
     static var copied: String?
+    /// The user's clipboard; a test run's own, so it never reads or overwrites theirs.
+    static var board: NSPasteboard { Store.isOverridden ? NSPasteboard(name: testBoard) : .general }
+    private static let testBoard = NSPasteboard.Name("io.github.co42.hq.test.\(getpid())")
 
     static func copy(_ text: String) {
         copied = text
-        guard !Store.isOverridden else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        board.clearContents()
+        board.setString(text, forType: .string)
     }
 
-    /// The text on the pasteboard; a test run reads what it copied.
-    static var text: String? { Store.isOverridden ? copied : NSPasteboard.general.string(forType: .string) }
+    static var text: String? { board.string(forType: .string) }
 }

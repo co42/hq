@@ -16,6 +16,22 @@ extension SelfTest {
         await lostClientChecks()
         await hangChecks(model)
         outlineDefectChecks()
+        clipboardChecks()
+    }
+
+    /// A test run copies and pastes on its own pasteboard: the user's clipboard is never read or overwritten (T-535).
+    private static func clipboardChecks() {
+        let user = NSPasteboard.general.changeCount // lint: ok the check watches it
+        Pasteboard.copy("copied in a test")
+        let editor = MarkdownEditor.EditorTextView()
+        editor.string = "one two"
+        editor.setSelectedRange(NSRange(location: 0, length: 3))
+        editor.cut(nil)
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        editor.paste(nil)
+        check("a test run's copy, cut and paste use its own pasteboard, never the user's clipboard",
+              NSPasteboard.general.changeCount == user && Pasteboard.text == "one" && editor.string == " twoone", // lint: ok the check watches it
+              "user's changed \(NSPasteboard.general.changeCount != user), board \(Pasteboard.text ?? "-"), editor \(editor.string)") // lint: ok
     }
 
     /// T-689: the outline's container rounded to the screen's pixels is no defect; rows cut off or an outline short of it is.

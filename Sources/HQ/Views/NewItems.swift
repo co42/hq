@@ -414,7 +414,7 @@ struct ImportArtifactForm: View {
     /// The clipboard's text, read only when it holds a link, so macOS asks about pasting only then; a test run's own.
     private static func copiedLink() async -> String? {
         if Store.isOverridden { return SlackClipboard.testText }
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard.general // lint: ok a test run returns above
         guard let patterns = try? await pasteboard.detectedPatterns(for: [\.probableWebURL]), !patterns.isEmpty else { return nil }
         return pasteboard.string(forType: .string)
     }
