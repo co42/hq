@@ -297,12 +297,13 @@ final class SkyLayerView: NSView {
 struct KindTile: View {
     let icon: KitIcon
     let tint: Color
+    var size = Metric.kindTile
 
     var body: some View {
         icon.image
-            .font(.system(size: Metric.kindTile * 0.5, weight: .bold))
+            .font(.system(size: size * 0.5, weight: .bold))
             .foregroundStyle(Ink.onTile)
-            .frame(width: Metric.kindTile, height: Metric.kindTile)
+            .frame(width: size, height: size)
             .background(tint.gradient, in: RoundedRectangle(cornerRadius: Radius.kindTile, style: .continuous))
     }
 }

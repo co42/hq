@@ -9,6 +9,8 @@ import SwiftUI
 /// A session's state as a glyph.
 enum SessionGlyphKind: String, CaseIterable, Identifiable {
     case permission, question, plan, failed, unread, working, compacting, idle, ended
+    /// A ping, on a face in the toolbar's who waits (T-655).
+    case ping
 
     var id: String { rawValue }
 
@@ -31,6 +33,7 @@ enum SessionGlyphKind: String, CaseIterable, Identifiable {
         case .permission: "Needs you: permission"
         case .question: "Needs you: question"
         case .plan: "Needs you: plan"
+        case .ping: "Needs you: ping"
         case .failed: "Failed"
         case .unread: "Done, unread"
         case .working: "Working"
@@ -55,6 +58,7 @@ struct SessionGlyph: View {
             case .question: Disc(fill: fill(Ink.needsYou), mark: .question)
             case .plan: Disc(fill: fill(Ink.needsYou), mark: .lines)
             case .failed: Disc(fill: fill(Ink.failed), mark: .cross)
+            case .ping: Disc(fill: fill(Ink.needsYou), mark: .bell)
             case .unread:
                 Circle().fill(fill(Ink.accent)).frame(width: Metric.unreadDot, height: Metric.unreadDot)
             case .working:
@@ -143,9 +147,13 @@ private struct Disc<S: ShapeStyle>: View {
     var body: some View {
         ZStack {
             Circle().fill(fill)
-            GlyphMark(kind: mark)
-                .stroke(.black, style: StrokeStyle(lineWidth: Metric.glyphStroke, lineCap: .round, lineJoin: .round))
-                .blendMode(.destinationOut)
+            if mark == .bell {
+                GlyphMark(kind: mark).fill(.black).blendMode(.destinationOut)
+            } else {
+                GlyphMark(kind: mark)
+                    .stroke(.black, style: StrokeStyle(lineWidth: Metric.glyphStroke, lineCap: .round, lineJoin: .round))
+                    .blendMode(.destinationOut)
+            }
             if let dot = mark.dot {
                 Circle()
                     .fill(.black)
@@ -165,11 +173,12 @@ nonisolated private struct GlyphMark: Shape {
     static var scale: CGFloat { Metric.glyph / box }
 
     enum Kind {
-        case exclamation, question, lines, cross, check
+        case exclamation, question, lines, cross, check, bell
 
         var dot: CGPoint? {
             switch self {
             case .exclamation, .question: CGPoint(x: 7, y: 10.4)
+            case .bell: CGPoint(x: 7, y: 10.7)
             default: nil
             }
         }
@@ -202,6 +211,14 @@ nonisolated private struct GlyphMark: Shape {
             p.move(to: CGPoint(x: 4.3, y: 7.3))
             p.addLine(to: CGPoint(x: 6.2, y: 9.1))
             p.addLine(to: CGPoint(x: 9.8, y: 5.0))
+        case .bell:
+            p.move(to: CGPoint(x: 7, y: 3.4))
+            p.addCurve(to: CGPoint(x: 4.7, y: 8.2), control1: CGPoint(x: 5.2, y: 3.4), control2: CGPoint(x: 4.7, y: 5.2))
+            p.addLine(to: CGPoint(x: 4, y: 9.2))
+            p.addLine(to: CGPoint(x: 10, y: 9.2))
+            p.addLine(to: CGPoint(x: 9.3, y: 8.2))
+            p.addCurve(to: CGPoint(x: 7, y: 3.4), control1: CGPoint(x: 9.3, y: 5.2), control2: CGPoint(x: 8.8, y: 3.4))
+            p.closeSubpath()
         }
         let scale = rect.width / Self.box
         return p.applying(CGAffineTransform(translationX: rect.minX, y: rect.minY).scaledBy(x: scale, y: scale))

@@ -47,6 +47,14 @@ struct SessionFace: View {
         inTray = true
     }
 
+    /// A face in the toolbar's who waits (DESIGN.md §3): what it waits for as a glyph badge; its button takes the click
+    /// and says it.
+    init(waiting session: SessionItem, glyph: SessionGlyphKind?, size: CGFloat = Metric.faceWaiting) {
+        self.init(session, size: size, badged: false)
+        state = glyph
+        inTray = true
+    }
+
     init(spec: FaceSpec, size: CGFloat, badge: FaceArt.Badge? = nil, ended: Bool = false, label: String? = nil) {
         self.spec = spec
         self.size = size

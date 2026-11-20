@@ -33,6 +33,35 @@ nonisolated struct Notice: Codable, Hashable, Identifiable, Sendable {
     enum Action: String, Codable, Sendable { case restartIdle }
 }
 
+/// One face in the toolbar's who waits (DESIGN.md §3): a session that waits or pinged, or a due important reminder.
+struct WaitingItem: Identifiable, Equatable {
+    var session: SessionItem?
+    /// Its badge: the session's wait, a ping; nil for a reminder, which shows its tile.
+    var glyph: SessionGlyphKind?
+    var at: Date
+    var pings: [Notice] = []
+
+    var id: String { session.map { "session:\($0.id)" } ?? pings.first.map { "notice:\($0.id.uuidString)" } ?? "" }
+
+    /// Its name, as the center's card says it.
+    var name: String {
+        if let session { return session.name }
+        return glyph == nil ? "Reminder" : "Claude"
+    }
+
+    /// What it asks: the session's reason while it waits, else the latest ping's text.
+    var what: String {
+        if let session, session.isRunning, session.status.needsYou { return session.reason ?? session.status.title }
+        return pings.first.map { MarkdownLine.plain($0.text) } ?? ""
+    }
+
+    /// Its tooltip: who, what, and what a click does.
+    var help: String {
+        let click = session?.isRunning == true ? "Click to focus its terminal" : "Click to see it in the notifications"
+        return "\(name): \(what)\n\(click)"
+    }
+}
+
 /// Where a row shows in the center.
 enum NoticeSection: CaseIterable {
     case needsYou, updates, later, earlier
@@ -183,6 +212,33 @@ extension AppModel {
         let latest = (blockedSessions.map(\.status.since) + waitingReviews.map(\.reviewAskedAt)
             + notices.filter { $0.level == .important && unread($0) }.map(\.at)).max()
         return latest.map { $0 > noticeStore.bellSeenAt } ?? false
+    }
+
+    /// Who waits on the user, for the toolbar (DESIGN.md §3, T-655): the sessions that wait, the unread pings and the due
+    /// important reminders, newest first; one item per session, its wait over its pings. Reviews stay out.
+    var waitingItems: [WaitingItem] {
+        var items = blockedSessions.map { WaitingItem(session: $0, glyph: SessionGlyphKind($0.status), at: $0.status.since) }
+        for notice in notices.filter({ $0.level == .important && unread($0) }).sorted(by: { $0.at > $1.at }) {
+            let session = notice.kind == .session ? self.session(notice.source) : nil
+            if let session, let index = items.firstIndex(where: { $0.session?.id == session.id }) {
+                items[index].pings.append(notice)
+                items[index].at = max(items[index].at, notice.at)
+            } else {
+                items.append(WaitingItem(session: session, glyph: notice.kind == .reminder ? nil : .ping, at: notice.at, pings: [notice]))
+            }
+        }
+        return items.sorted { $0.at > $1.at }
+    }
+
+    /// A face in who waits clicked: a running session's terminal, its pings read; else the center on its row.
+    func focusWaiting(_ item: WaitingItem) {
+        if let session = item.session, session.isRunning {
+            for ping in item.pings { markRead(ping.id) }
+            open(session.id)
+        } else {
+            openCenter()
+            noticeSelection = item.pings.first.map(\.id.uuidString) ?? item.session.map { "session:\($0.id)" }
+        }
     }
 
     /// "2 need you, 3 updates": the bell's tooltip.

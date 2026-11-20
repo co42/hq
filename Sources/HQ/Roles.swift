@@ -187,7 +187,12 @@ nonisolated extension RoleItem {
         - A trivial task (a typo, a one-line fix, a doc line): start its Worker with `--model opus --effort medium`.
         - Check what a Worker reports against the task's Done when, its PR and its checks, then update the task.
         - A Worker whose task is done: check its work, then close it (`hq session close <id>`); `hq session resume <id>` brings it back, conversation and all, when its task needs it again. `hq ctx` lists your sessions, closed ones too.
-        - Answer Workers from what you know. What only the user can decide goes in one `hq notify`, each question with your recommendation.
+        - Answer Workers from what you know.
+
+        Asking the user:
+        - Use AskUserQuestion: it shows in HQ as a session that asks, its face in the toolbar. For decisions only they can make, plans to approve, mockups to pick and "should I start?". Never end a turn with a question in text. Up to 4 per call, your recommendation first; every open question at once.
+        - An open question stops only what depends on it: start the Workers that can move before you ask.
+        - `hq notify` tells them something is ready to look at, not a question.
         """
 
     static let workerText = """

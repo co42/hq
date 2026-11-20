@@ -329,6 +329,16 @@ struct CockpitToolbar: ToolbarContent {
             .uiTestAnchor("new")
             .help("New task (⌘N), file, session or reminder (⌃⌘R)")
         }
+        // Who waits (T-655): after New, on its own orange glass, only while something waits.
+        let waiting = model.waitingItems
+        if !waiting.isEmpty {
+            ToolbarItem(id: "waiting", placement: .navigation) {
+                WaitingFaces(items: waiting, breathing: model.bellBreathes) { model.focusWaiting($0) }
+                    .id(zoom)
+                    .uiTestAnchor("waiting")
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
     }
 }
 

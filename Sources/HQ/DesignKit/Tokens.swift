@@ -26,6 +26,8 @@ enum Ink {
     static let needsYouText = Color(nsColor: needsYouTextNS)
     /// A tinted box or tag that needs the user.
     static let needsYouFill = Color(nsColor: .systemOrange).opacity(0.13)
+    /// The tint of the toolbar's who waits (T-655).
+    static let needsYouGlass = Color(nsColor: .systemOrange).opacity(0.3)
     /// Stopped on an error.
     static let failed = Color(nsColor: .systemRed)
     static let failedNS = NSColor.systemRed
@@ -261,6 +263,10 @@ nonisolated enum Metric {
     /// A face in a menu: the menu bar icon's Focus items. Menus don't zoom.
     static let faceMenu: CGFloat = 16
     static var faceModal: CGFloat { 72 * Zoom.factor }
+    /// The toolbar's who waits (T-655): a face, the button around it, and how many show before "+2".
+    static var faceWaiting: CGFloat { 24 * Zoom.factor }
+    static var waitingButton: CGFloat { 32 * Zoom.factor }
+    static let waitingShown = 3
     static var badgeRing: CGFloat { 2 * Zoom.factor }
     /// Pull requests: two cards side by side from this content width; fixed columns in each row.
     static var prSideBySide: CGFloat { 1100 * Zoom.factor }
