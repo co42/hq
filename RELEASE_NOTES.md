@@ -1,5 +1,10 @@
 # Release notes
 
+## v18.4 · 2026-11-20 · Every wait reaches you (plugin 0.13.3)
+
+- Sessions that wait on you end their turn with a question or a ping, never with text alone: work to check, a PR to review or merge, an app to restart, something to try, a screen to unlock. A plain update only for news that needs nothing from you (plugin 0.13.3: new sessions get it).
+- HQ logs each banner it shows or skips, and why, and what read each ping, in notices.log.
+
 ## v18.3 · 2026-11-20 · ⌘K types at once
 
 - The first ⌘K after launch puts the cursor in Quick Open's search field, as later ones do; the Archive's search field the same.
