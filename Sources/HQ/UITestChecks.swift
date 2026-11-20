@@ -3273,8 +3273,10 @@ extension UITest {
         outline.deselectAll(nil)
         await ui.settle(0.2)
         // What fades is a card's content, its row; the cards' surfaces never fade (2026-11-11).
+        // Read on the page: a row out of view has no row view.
         func dimmed(_ id: Int) -> Bool? {
             let row = outline.row(forItem: coordinator.node(.task(id)))
+            ui.show(row: row, in: outline)
             guard row >= 0, let view = outline.rowView(atRow: row, makeIfNecessary: false) else { return nil }
             return view.alphaValue < 1
         }
