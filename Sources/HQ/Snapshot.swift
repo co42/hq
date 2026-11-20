@@ -75,6 +75,7 @@ enum Snapshot {
             model.archiveSelection = nil
             model.folded = []
             model.pinnedOnly = false
+            model.expandedCards = []
             model.editingDescription = nil
             model.shownDescriptions = [44]
             (mainWindow?.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
@@ -96,6 +97,20 @@ enum Snapshot {
             Page(name: "cockpit-dismissed") { model in
                 reset(model)
                 if let review = model.reviewRequests.first(where: model.waitsForReview) { model.dismissReview(review.url) }
+            },
+            // Files open past twenty rows: they scroll inside the card, scrolled a little so both edges fade (T-527).
+            Page(name: "cockpit-files-open") { model in
+                reset(model)
+                for n in 1...26 { _ = model.addFile(title: "Notes on part \(n) of the long list", date: seeded.addingTimeInterval(-Double(n) * 3600)) }
+                model.expandedCards = [.files]
+                await ready()
+                guard let root = mainWindow?.contentView,
+                      let list = views(NSScrollView.self, in: root).first(where: { abs($0.frame.height - CGFloat(PRCards.scrollsPast) * Metric.itemRow) < 1 })
+                else { return fail("no list scrolls inside the Files card") }
+                scroll(toTopOf: list, below: Metric.boxRow * 3)
+                list.contentView.scroll(to: NSPoint(x: 0, y: Metric.itemRow * 2.5))
+                list.reflectScrolledClipView(list.contentView)
+                await ready()
             },
             Page(name: "cockpit-zoom") { model in
                 reset(model)

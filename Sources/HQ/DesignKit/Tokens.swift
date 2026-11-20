@@ -277,6 +277,8 @@ nonisolated enum Metric {
     static var itemRow: CGFloat { 32 * Zoom.factor }
     static var rowStatus: CGFloat { 176 * Zoom.factor }
     static var rowKey: CGFloat { 44 * Zoom.factor }
+    /// A card's rows that scroll inside it fade over this much at an edge where rows go on.
+    static var listFade: CGFloat { 16 * Zoom.factor }
     /// Buttons, toggles, pop-ups and searches on the right of a section's title.
     static var headerControl: CGFloat { 28 * Zoom.factor }
     /// The outline: a card's first line with its padding above and below.

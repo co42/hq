@@ -83,21 +83,26 @@ private struct ItemGroup: View {
                     .padding(.horizontal, Space.md)
                     .frame(height: Metric.boxRow, alignment: .top)
             } else {
+                let rows = model.shown(routes, in: card)
                 VStack(spacing: 0) {
-                    let rows = model.shown(routes, in: card)
-                    ForEach(rows, id: \.self) { route in
-                        ItemRow(route: route)
-                            .id(route.selectionKey)
-                            .overlay(alignment: .bottom) { if route != rows.last { RowRule() } }
+                    CardRows(count: rows.count, limit: PRCards.scrollsPast, rowHeight: Metric.itemRow, inset: PRCards.inset, name: card.rawValue) {
+                        VStack(spacing: 0) {
+                            ForEach(rows, id: \.self) { route in
+                                ItemRow(route: route)
+                                    .id(route.selectionKey)
+                                    .overlay(alignment: .bottom) { if route != rows.last { RowRule() } }
+                            }
+                        }
                     }
                     ShowMoreButton(card: card, count: routes.count)
+                        .padding(.horizontal, PRCards.inset)
                 }
-                .padding(.horizontal, Space.xs + 2)
                 .padding(.bottom, Space.sm)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .surface()
+        .uiTestAnchor("card:\(card.rawValue)")
     }
 }
 

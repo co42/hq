@@ -142,19 +142,24 @@ struct PRGroup<Accessory: View>: View {
             } else {
                 let rows = model.shown(items, in: card)
                 VStack(spacing: 0) {
-                    ForEach(rows) { item in
-                        PRRow(item: item)
-                            .id(ModalRoute.github(item.url).selectionKey)
-                            .overlay(alignment: .bottom) { if item.id != rows.last?.id { RowRule() } }
+                    CardRows(count: rows.count, limit: PRCards.scrollsPast, rowHeight: Metric.prRow, inset: PRCards.inset, name: card.rawValue) {
+                        VStack(spacing: 0) {
+                            ForEach(rows) { item in
+                                PRRow(item: item)
+                                    .id(ModalRoute.github(item.url).selectionKey)
+                                    .overlay(alignment: .bottom) { if item.id != rows.last?.id { RowRule() } }
+                            }
+                        }
                     }
                     ShowMoreButton(card: card, count: items.count)
+                        .padding(.horizontal, PRCards.inset)
                 }
-                .padding(.horizontal, Space.xs + 2)
                 .padding(.bottom, Space.sm)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .surface()
+        .uiTestAnchor("card:\(card.rawValue)")
     }
 }
 
@@ -168,6 +173,10 @@ extension PRGroup where Accessory == EmptyView {
 enum PRCards {
     /// Rows shown before "Show N More": the page stays short with many open PRs.
     static let shown = 5
+    /// Rows an open card shows before it scrolls inside (T-527).
+    static let scrollsPast = 20
+    /// The rows' inset from the card's sides.
+    static var inset: CGFloat { Space.xs + 2 }
 }
 
 /// The page's cards of rows, each opened past its first five on its own.

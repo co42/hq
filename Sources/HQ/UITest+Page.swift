@@ -9,6 +9,8 @@ extension UITest {
     static func pageFixes(_ model: AppModel, _ ui: Driver) async {
         await keysPastFive(model, ui)
         await scenario(model, ui)
+        await capsAtTwenty(model, ui)
+        await scenario(model, ui)
         await modalSelection(model, ui)
         await scenario(model, ui)
         await fileSheets(model, ui)
@@ -186,7 +188,7 @@ extension UITest {
         await ui.settle(0.4)
 
         // Show Fewer, then Pinned Only: a filter shows every pinned row, and the arrows walk only those.
-        await ui.click(ui.anchor("show-more:files"))
+        await ui.click(await ui.steadyAnchor("show-more:files"))
         await check("Show Fewer folds the card back to five", !model.expandedCards.contains(.files))
         for file in made { model.setPinned(.file(file.id), true) }
         model.pinnedOnly = true
@@ -215,6 +217,52 @@ extension UITest {
         await check("with Pinned Only, the card shows every pinned file and ↓ selects only rows it shows",
               unshown.isEmpty && model.selectedItem == pinned.last,
               "not shown: \(unshown), at \(model.selectedItem ?? "none"), \(model.listedFiles.count) listed of \(pinned.count) pinned, \(model.files.filter(\.pinned).count) pinned now, walk \(walk), pinned \(pinned.map { String($0.suffix(10)) }), listed now \(listed().map { String($0.suffix(10)) })")
+    }
+
+    /// Show N More past twenty rows (T-527): the card stops at twenty and scrolls inside, the card beside it as tall;
+    /// ↓ brings a row past the twentieth into view; a search with more matches scrolls too; Show Fewer folds it where it was.
+    private static func capsAtTwenty(_ model: AppModel, _ ui: Driver) async {
+        let made = (1...24).compactMap { model.addFile(title: "Long list \($0)") }
+        // Tasks under the cards: the page is long enough below them that folding never meets its end.
+        for n in 1...20 { _ = model.addTask(status: .todo, title: "Below the cards \(n)") }
+        await ui.settle(0.5)
+        let rows = model.listedFiles.map { ModalRoute.file($0.id).selectionKey }
+        guard made.count == 24, rows.count > PRCards.scrollsPast else { return await check("more than twenty files", false, "\(rows.count)") }
+        let tall = CGFloat(PRCards.scrollsPast) * Metric.itemRow
+        // The card's title line, twenty rows, Show Fewer and the foot's inset.
+        let most = Metric.boxRow + Space.xs + tall + Metric.boxRow + Space.sm
+        await ui.click(await ui.steadyAnchor("show-more:files"))
+        await check("Show More past twenty rows scrolls them inside the card, twenty rows tall",
+                    model.expandedCards.contains(.files) && abs((ui.anchorFrame("card-scroll:files")?.height ?? 0) - tall) < 1
+                    && (ui.anchorFrame("card:files")?.height ?? .infinity) <= most + 1,
+                    "scroll \(String(describing: ui.anchorFrame("card-scroll:files"))), card \(String(describing: ui.anchorFrame("card:files")))")
+        await check("the card beside it grows to the same height, no more", {
+            guard let files = ui.anchorFrame("card:files"), let artifacts = ui.anchorFrame("card:artifacts") else { return false }
+            return abs(files.maxY - artifacts.maxY) >= 1 || abs(files.height - artifacts.height) < 1
+        }(), "files \(String(describing: ui.anchorFrame("card:files"))), artifacts \(String(describing: ui.anchorFrame("card:artifacts")))")
+
+        await ui.click(await ui.steadyAnchor("item:\(rows[0])"))
+        for _ in 1..<rows.count { await ui.key(.down) }
+        func shown(_ key: String) -> CGFloat { UITest.anchors["item:\(key)", default: []].compactMap(\.view).last { $0.window != nil }?.visibleRect.height ?? 0 }
+        await check("↓ past the twentieth row scrolls the card to it", model.selectedItem == rows.last && shown(rows.last!) >= Metric.itemRow - 1,
+                    "at \(model.selectedItem ?? "none"), \(shown(rows.last!)) pt of it shown")
+
+        guard let fewer = await ui.steadyAnchor("show-more:files") else { return await check("Show Fewer under the rows", false) }
+        let top = ui.anchorFrame("card:files")?.maxY ?? 0
+        let page = UITest.anchors["card:files", default: []].compactMap(\.view).last { $0.window != nil }?.enclosingScrollView
+        func scrolled() -> String { page.map { "offset \($0.contentView.bounds.minY) of \(($0.documentView?.frame.height ?? 0) - $0.contentView.bounds.height)" } ?? "no page" }
+        let before = scrolled()
+        await ui.click(fewer)
+        await check("Show Fewer folds the long card back to five, its top where it was",
+                    !model.expandedCards.contains(.files) && ui.anchorFrame("card-scroll:files") == nil
+                    && abs((ui.anchorFrame("card:files")?.maxY ?? 0) - top) < 1,
+                    "top \(top), now \(String(describing: ui.anchorFrame("card:files"))); page before \(before), after \(scrolled())")
+
+        model.search = "Long list"
+        await ui.settle(0.4)
+        await check("a search with more than twenty matches scrolls them inside the card",
+                    abs((ui.anchorFrame("card-scroll:files")?.height ?? 0) - tall) < 1)
+        model.search = ""
     }
 
     /// A row clicked in the modal selects there: the page's selection is still the one thing selected once it closes.
