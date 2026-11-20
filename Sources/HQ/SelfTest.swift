@@ -155,7 +155,7 @@ enum SelfTest {
         let reminder = model.remind("Call noor", at: .now.addingTimeInterval(-1), level: .important, links: ["task:13"])
         model.fireDue()
         check("a due important reminder needs the user, with a banner", model.notices(in: .needsYou).contains { $0.id == reminder.id }
-              && model.ghosttyLog.contains("banner Reminder: Call noor"))
+              && model.ghosttyLog.contains { $0.hasPrefix("banner Reminder: Call noor") })
         model.openCenter()
         model.openNotice(reminder)
         check("opening what a reminder links leaves it to be done", model.modal == .task(13) && model.notices.first { $0.id == reminder.id }?.readAt == nil)

@@ -43,7 +43,7 @@ extension AppModel {
             let key = "\(item.url)|review|\(Int(item.reviewAskedAt.timeIntervalSince1970))"
             guard known[key] == nil else { continue }
             known[key] = now
-            if !first { postBanner(id: "review|\(item.url)", title: "\(item.reference) waits for your review", body: item.title) }
+            if !first { postBanner(id: "review|\(item.url)", title: "\(item.reference) waits for your review", body: item.title, opens: "review:\(item.url)") }
         }
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
     }

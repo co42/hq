@@ -7,6 +7,7 @@ extension SelfTest {
     static func sessionFixChecks(_ model: AppModel) async {
         await watchedStopChecks(model)
         await bannerChecks(model)
+        await bannerClickChecks(model)
         await ghosttyQueueChecks()
         subagentChecks(model)
         await closeKeysChecks(model)
@@ -92,7 +93,7 @@ extension SelfTest {
         model.notices.removeAll { $0.id == ping.id }
         Ghostty.fake.withLock { $0.front = false }
         let other = model.notify("Merge it now?", level: .important, source: id)
-        await expect("the same ping, Ghostty in the back: a banner", model.ghosttyLog.contains("banner \(name) needs you: Merge it now?"))
+        await expect("the same ping, Ghostty in the back: a banner", model.ghosttyLog.contains { $0.hasPrefix("banner \(name) needs you: Merge it now?") })
         model.notices.removeAll { $0.id == other.id }
         // A review asked of the user: a banner, once; the ones waiting the first time are known, not new.
         guard let review = model.waitingReviews.first else { return check("a review that waits", false) }
@@ -107,6 +108,57 @@ extension SelfTest {
         model.bannerNewReviews()
         check("a review newly asked: one banner", model.ghosttyLog.dropFirst(logged).filter { $0.hasPrefix("banner \(review.reference) waits for your review") }.count == 1,
               model.ghosttyLog.dropFirst(logged).joined(separator: "; "))
+    }
+
+    /// T-690: a banner click opens its item: a waiting session's or a ping's terminal, a review's PR, the rest the center
+    /// on its row. Each banner is clicked by what it carries.
+    private static func bannerClickChecks(_ model: AppModel) async {
+        let id = "5e550000-0000-4000-8000-0000000000b5", tty = "/dev/ttys0b5"
+        let delay = AppModel.bannerDelay
+        AppModel.bannerDelay = 0.1
+        Ghostty.fake.withLock { $0 = Ghostty.Fake() }
+        defer {
+            AppModel.bannerDelay = delay
+            model.sessions.removeAll { $0.id == id }
+            model.closeModal()
+        }
+        /// The last banner whose line has `text`, clicked.
+        func click(_ text: String) async -> String? {
+            await expect("a banner with “\(text)”", model.ghosttyLog.contains { $0.hasPrefix("banner") && $0.contains(text) }, within: 2)
+            guard let line = model.ghosttyLog.last(where: { $0.hasPrefix("banner") && $0.contains(text) }),
+                  let opens = line.components(separatedBy: " → ").last else { return nil }
+            model.closeModal()
+            let logged = model.ghosttyLog.count
+            model.openFromBanner(clicked: CACurrentMediaTime(), opens: opens)
+            await expect("the click on “\(text)” lands", AppModel.bannerOpened.last != nil, within: 1)
+            return model.ghosttyLog.dropFirst(logged).first { $0.hasPrefix("focus") } ?? AppModel.bannerOpened.last
+        }
+        event("SessionStart", id, #","source":"startup""#, tty: tty)
+        model.renameSession(id, to: "Banner clicks")
+        event("UserPromptSubmit", id, #","prompt":"go""#)
+        event("PermissionRequest", id, #","tool_name":"Bash","tool_input":{"command":"make deploy"}"#)
+        let waiting = await click("Banner clicks needs you: ")
+        check("a waiting session's banner focuses its terminal, the center stays shut", waiting == "focus \(tty)" && model.modal == nil, waiting ?? "none")
+        let ping = model.notify("Canary green: merge?", level: .important, source: id)
+        let pinged = await click("Canary green: merge?")
+        check("a ping's banner focuses its session's terminal and reads it", pinged == "focus \(tty)" && model.notices.first { $0.id == ping.id }?.readAt != nil,
+              pinged ?? "none")
+        let reminder = model.remind("Call the bank", at: .now.addingTimeInterval(-1), level: .important)
+        model.fireDue()
+        _ = await click("Call the bank")
+        check("a reminder's banner opens the center on its row", model.modal == .notifications && model.noticeSelection == reminder.id.uuidString,
+              "\(String(describing: model.modal)), \(model.noticeSelection ?? "-")")
+        model.notices.removeAll { $0.id == reminder.id }
+        if let review = model.waitingReviews.first {
+            let events = model.noticeStore.githubEvents
+            model.noticeStore.githubEvents = events.filter { !$0.key.hasPrefix("\(review.url)|review|") }.merging(["|review|seeded": .now]) { a, _ in a }
+            model.bannerNewReviews()
+            _ = await click("\(review.reference) waits for your review")
+            check("a review's banner opens its PR's window", model.modal == .github(review.url), String(describing: model.modal))
+            model.noticeStore.githubEvents = events
+        } else {
+            check("a review that waits", false)
+        }
     }
 
     private static func ghosttyQueueChecks() async {

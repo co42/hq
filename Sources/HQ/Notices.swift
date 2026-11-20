@@ -280,16 +280,40 @@ extension AppModel {
     }
 
     /// A banner clicked: HQ in front on the center; window.log says how long each step took (T-683).
-    func openFromBanner(clicked: Double) {
+    /// Where each banner click went, for the self-test.
+    static var bannerOpened: [String] = []
+
+    /// T-690: its item. A session's terminal for a session that waits or pinged (HQ stays behind, its pings read); a
+    /// review's PR window; anything else the center, on its row.
+    func openFromBanner(clicked: Double, opens: String? = nil) {
         let reached = CACurrentMediaTime()
+        let ms = { (seconds: Double) in Int(seconds * 1000) }
+        let notice = opens.flatMap { $0.hasPrefix("notice:") ? UUID(uuidString: String($0.dropFirst(7))) : nil }.flatMap { id in notices.first { $0.id == id } }
+        let sessionID = opens.flatMap { $0.hasPrefix("session:") ? String($0.dropFirst(8)) : nil } ?? (notice?.kind == .session ? notice?.source : nil)
+        if let sessionID, let item = session(sessionID), item.isRunning {
+            if let notice { markRead(notice.id) }
+            open(sessionID)
+            Self.bannerOpened.append("terminal \(sessionID)")
+            return AppLog.write("banner click: on the main thread after \(ms(reached - clicked)) ms, focusing \(item.name)'s terminal", to: "window.log")
+        }
         if !Store.background { NSApp.activate() }
         let activated = CACurrentMediaTime()
-        openCenter()
+        let what: String
+        if let opens, opens.hasPrefix("review:") {
+            let url = String(opens.dropFirst(7))
+            open(.github(url))
+            what = "its PR"
+            Self.bannerOpened.append("review \(url)")
+        } else {
+            openCenter()
+            noticeSelection = notice.map(\.id.uuidString) ?? opens.flatMap { $0.hasPrefix("session:") ? $0 : nil }
+            what = "the center"
+            Self.bannerOpened.append("center \(noticeSelection ?? "-")")
+        }
         Task {
             for _ in 0..<500 where window?.attachedSheet == nil { try? await Task.sleep(for: .milliseconds(20)) }
-            let ms = { (seconds: Double) in Int(seconds * 1000) }
             AppLog.write("banner click: on the main thread after \(ms(reached - clicked)) ms, activated in \(ms(activated - reached)) ms, "
-                         + "the center \(window?.attachedSheet == nil ? "not shown" : "shown") after \(ms(CACurrentMediaTime() - clicked)) ms", to: "window.log")
+                         + "\(what) \(window?.attachedSheet == nil ? "not shown" : "shown") after \(ms(CACurrentMediaTime() - clicked)) ms", to: "window.log")
         }
     }
 
@@ -555,11 +579,11 @@ extension AppModel {
         case .reminder: "Reminder"
         }
         let body = MarkdownLine.plain(row.text)
-        guard row.kind == .session, let tty = session(row.source)?.tty else { return postBanner(id: row.id.uuidString, title: title, body: body) }
+        guard row.kind == .session, let tty = session(row.source)?.tty else { return postBanner(id: row.id.uuidString, title: title, body: body, opens: "notice:\(row.id.uuidString)") }
         Task { [weak self] in
             guard let self else { return }
             if await self.looksAtTerminal(tty) { return self.noBanner(title) }
-            self.postBanner(id: row.id.uuidString, title: title, body: body)
+            self.postBanner(id: row.id.uuidString, title: title, body: body, opens: "notice:\(row.id.uuidString)")
         }
     }
 
@@ -571,7 +595,7 @@ extension AppModel {
             try? await Task.sleep(for: .seconds(Self.bannerDelay))
             guard let self, let item = self.session(id), item.status.needsYou, item.status.since == since else { return }
             if await self.looksAtTerminal(item.tty) { return self.noBanner("\(item.name) needs you") }
-            self.postBanner(id: "\(id)-\(since.timeIntervalSince1970)", title: "\(item.name) needs you", body: item.reason ?? item.status.title)
+            self.postBanner(id: "\(id)-\(since.timeIntervalSince1970)", title: "\(item.name) needs you", body: item.reason ?? item.status.title, opens: "session:\(id)")
         }
     }
 
@@ -590,8 +614,9 @@ extension AppModel {
         return await Task.detached { try? Ghostty.focusedTTY() }.value == tty
     }
 
-    func postBanner(id: String, title: String, body: String) {
-        if Store.isOverridden { return ghosttyLog.append("banner \(title): \(body)") }
+    /// `opens`: what a click on it opens, "session:<id>", "review:<url>" or "notice:<id>" (T-690).
+    func postBanner(id: String, title: String, body: String, opens: String) {
+        if Store.isOverridden { return ghosttyLog.append("banner \(title): \(body) → \(opens)") }
         let center = UNUserNotificationCenter.current()
         Task {
             guard (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) == true else { return }
@@ -599,12 +624,13 @@ extension AppModel {
             content.title = title
             content.body = body
             content.sound = .default
+            content.userInfo = ["opens": opens]
             try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         }
     }
 }
 
-/// A click on a banner opens the center. HQ in front shows it too, with its sound (T-657).
+/// A click on a banner opens its item (T-690). HQ in front shows it too, with its sound (T-657).
 final class BannerDelegate: NSObject, UNUserNotificationCenterDelegate {
     weak var model: AppModel?
 
@@ -617,6 +643,7 @@ final class BannerDelegate: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let clicked = CACurrentMediaTime()
-        await MainActor.run { model?.openFromBanner(clicked: clicked) }
+        let opens = response.notification.request.content.userInfo["opens"] as? String
+        await MainActor.run { model?.openFromBanner(clicked: clicked, opens: opens) }
     }
 }
