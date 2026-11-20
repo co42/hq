@@ -230,6 +230,11 @@ extension AppModel {
         return items.sorted { $0.at > $1.at }
     }
 
+    /// A session's pings the user hasn't read: its important notifications.
+    func unreadPings(of id: SessionItem.ID) -> [Notice] {
+        notices.filter { $0.kind == .session && $0.source == id && $0.level == .important && unread($0) }
+    }
+
     /// A face in who waits clicked: a running session's terminal, its pings read; else the center on its row.
     func focusWaiting(_ item: WaitingItem) {
         if let session = item.session, session.isRunning {

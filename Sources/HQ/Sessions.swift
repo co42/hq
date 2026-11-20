@@ -1002,7 +1002,7 @@ extension AppModel {
     }
 
     private func checkFocusedTerminal() {
-        guard !focusChecking, sessions.contains(where: { $0.tty != nil && (blinks($0) || $0.status.isNew) }) else { return }
+        guard !focusChecking, terminalLookMatters else { return }
         focusChecking = true
         Task { [weak self] in
             let tty = await Task.detached { try? Ghostty.focusedTTY() }.value
@@ -1011,11 +1011,18 @@ extension AppModel {
         }
     }
 
-    /// The user looks at the terminal on `tty`: its card stops blinking, and a done session there is read. One waiting for an answer stays orange.
+    /// A look at a terminal would change something: a card blinks, a done session waits unread, or a session has unread pings.
+    var terminalLookMatters: Bool {
+        sessions.contains { $0.tty != nil && (blinks($0) || $0.status.isNew || !unreadPings(of: $0.id).isEmpty) }
+    }
+
+    /// The user looks at the terminal on `tty`: its card stops blinking, a done session there is read and so are its pings (T-697).
+    /// One waiting for an answer stays orange.
     func lookedAt(tty: String) {
         for session in sessions where session.tty == tty {
             acknowledge(session.id)
             if session.status.isNew { markSessionSeen(session.id) }
+            for ping in unreadPings(of: session.id) { markRead(ping.id) }
         }
     }
 

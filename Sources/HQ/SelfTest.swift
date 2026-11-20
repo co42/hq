@@ -1157,6 +1157,26 @@ enum SelfTest {
         check("looking at a done session's terminal reads it; a question waits", model.session("look-done")?.status.unread == false
               && model.session("look-asks")?.status.needsYou == true)
         check("and neither blinks", model.session("look-asks").map(model.blinks) == false && model.session("look-done").map(model.blinks) == false)
+        // A ping is read once its session's terminal is focused, its face gone from who waits; another's stays (T-697).
+        var pinging = SessionItem(id: "look-ping", status: SessionStatus(state: .idle, since: .now), cwd: "/tmp", repo: "", branch: "",
+                                  origin: nil, started: .now, order: 902)
+        pinging.tty = "/dev/ttys903"
+        var neighbor = pinging
+        neighbor.id = "look-other"
+        neighbor.tty = "/dev/ttys904"
+        model.put(pinging)
+        model.put(neighbor)
+        let ping = model.notify("Canary green, merge?", level: .important, source: pinging.id)
+        let otherPing = model.notify("Need a look", level: .important, source: neighbor.id)
+        model.lookedAt(tty: "/dev/ttys901")
+        check("a session's unread ping makes its terminal worth watching", model.terminalLookMatters
+              && model.waitingItems.contains { $0.session?.id == pinging.id })
+        model.lookedAt(tty: "/dev/ttys903")
+        check("focusing a session's terminal reads its pings, and its face leaves who waits",
+              model.notices.first { $0.id == ping.id }?.readAt != nil && !model.waitingItems.contains { $0.session?.id == pinging.id })
+        check("another session's ping stays", model.notices.first { $0.id == otherPing.id }?.readAt == nil
+              && model.waitingItems.contains { $0.session?.id == neighbor.id })
+        model.notices.removeAll { $0.id == ping.id || $0.id == otherPing.id }
         model.sessions.removeAll { $0.id.hasPrefix("look-") }
         // A task added below one with a project takes it; a first child has it from its parent.
         if let above = model.addTask(status: .todo, title: "Above") {
