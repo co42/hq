@@ -1,5 +1,15 @@
 # Release notes
 
+## v18 · 2026-11-20 · What needs you reaches you (plugin 0.13.2)
+
+- The toolbar shows who waits on you, after the bell and New: the faces of sessions that ask, want a permission or have a plan ready, your pings and due important reminders, newest first, three then "+2". A badge says what each waits for; a click focuses its terminal in Ghostty (a reminder opens the notification center on it).
+- Banners, with their sound, for everything that needs you, also while HQ is in front, and for each new review asked of you; none while you're looking at that session's terminal in Ghostty.
+- A banner opens what it's about: a session's terminal, a review's pull request, else the notification center on its row.
+- "Wants permission", "Asks a question" and "Plan ready" end within seconds of your answer in the terminal, also while an approved command runs for minutes.
+- Dismiss on a review takes it out of Reviews' Waiting for You and its orange too ("Dismissed"); a new review request or a new commit brings it back.
+- Role ▸ in a session's menu (and its window's ⋯), beside Model ▸ and Effort ▸, at its prompt: changes its role and tells the session in its terminal; its model and effort stay.
+- Sessions that need you now ask with a question (AskUserQuestion), so they show in the toolbar (plugin 0.13.2: new sessions get it).
+
 ## v17.1 · 2026-11-20 · HQ stays up and quick
 
 - A task's right-click menu and its window's ⋯ have Open in Obsidian again, right after Open, as a file's.
