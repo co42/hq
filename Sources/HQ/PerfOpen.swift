@@ -7,6 +7,7 @@ import HQKit
 enum PerfOpen {
     static func start(_ model: AppModel) {
         guard Store.isOverridden, let title = ProcessInfo.processInfo.environment["HQ_PERF_OPEN"], !title.isEmpty else { return }
+        if title == "@center" { return center(model) }
         Task { @MainActor in
             var file: FileItem?
             for _ in 0..<300 where file == nil {
@@ -55,6 +56,24 @@ enum PerfOpen {
         let close = await Stall.measure([{ model.closeModal() }], gap: 0.3)
         report("round \(round): \(Int(end)) pt; a screen a step: \(paged); 40 pt a step: \(glided); close \(close.worst) ms")
         try? await Task.sleep(for: .seconds(0.5))
+    }
+
+    /// PERF_OPEN=@center: the notification center, as a banner click opens it (T-683), round after round.
+    private static func center(_ model: AppModel) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            report("center: \(model.notices.count) notifications")
+            for round in 1... {
+                let started = CACurrentMediaTime()
+                let open = await Stall.measure([{ model.openCenter() }], gap: 0.05)
+                for _ in 0..<400 where model.window?.attachedSheet == nil { try? await Task.sleep(for: .milliseconds(5)) }
+                let shown = Int((CACurrentMediaTime() - started) * 1000)
+                let settle = await Stall.measure([{}], gap: 0.5)
+                let close = await Stall.measure([{ model.closeModal() }], gap: 0.3)
+                report("center round \(round): shown after \(shown) ms (open stall \(open.worst) ms, then \(settle.worst) ms), close \(close.worst) ms")
+                try? await Task.sleep(for: .seconds(0.5))
+            }
+        }
     }
 
     /// The open sheet's tallest scroll view: a note's page.

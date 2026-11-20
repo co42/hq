@@ -8,7 +8,7 @@
 #          PERF_STATES=1        each tool call a question: the session goes from working to waiting and back
 #          PERF_SAMPLE=<file>   a call tree of the measured seconds, from sample(1)
 #          PERF_OPEN=<title>    opens that note, scrolls it to its end and back, closes it, round after round; prints
-#                               each round's times (perf open lines)
+#                               each round's times (perf open lines); PERF_OPEN=@center opens the notification center
 #        tools/perf.sh --check  the budgets below, on the seed: at rest, then with tool calls coming in. Exit code 1
 #                               over any. Each run adds a line to ~/Library/Developer/HQ/perf-history.tsv.
 set -u

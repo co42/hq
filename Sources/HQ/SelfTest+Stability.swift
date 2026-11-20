@@ -13,6 +13,28 @@ extension SelfTest {
         windowFrameChecks(model)
         bringForwardChecks(model)
         await lostClientChecks()
+        await hangChecks(model)
+    }
+
+    /// T-683: a main thread held over 2 s leaves a line in hangs.log and a sample of its stack; a banner click logs its steps.
+    private static func hangChecks(_ model: AppModel) async {
+        let before = HangWatch.stalls.count
+        AppLog.expected.append("main thread stalled")
+        usleep(4_000_000)
+        for _ in 0..<50 where HangWatch.stalls.count == before { try? await Task.sleep(for: .milliseconds(100)) }
+        let stall = HangWatch.stalls.count > before ? HangWatch.stalls.last : nil
+        // sample(1) takes its second, then writes.
+        func stack() -> String { stall?.sample.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "" } // io: ok the self-test
+        for _ in 0..<50 where !stack().contains("usleep") { try? await Task.sleep(for: .milliseconds(100)) }
+        check("a main thread held 4 s leaves a line in hangs.log and a sample of its stack (T-683)",
+              (stall?.seconds ?? 0) >= 2 && stack().contains("usleep"), "\(String(describing: stall?.seconds)) s, \(stall?.sample?.path ?? "no sample")")
+        model.closeModal()
+        AppLog.expected.append("banner click:")
+        model.openFromBanner(clicked: CACurrentMediaTime())
+        for _ in 0..<50 where AppLog.expected.contains("banner click:") { try? await Task.sleep(for: .milliseconds(100)) }
+        check("a banner click opens the center and logs how long it took (T-683)", model.modal == .notifications && !AppLog.expected.contains("banner click:"),
+              String(describing: model.modal))
+        model.closeModal()
     }
 
     /// T-686: a hook gives up after 1 s while the main thread is busy; HQ writing its reply to the closed socket lives on.

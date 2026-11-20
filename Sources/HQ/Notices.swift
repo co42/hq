@@ -223,6 +223,20 @@ extension AppModel {
         noticeSelection = notice.id.uuidString
     }
 
+    /// A banner clicked: HQ in front on the center; window.log says how long each step took (T-683).
+    func openFromBanner(clicked: Double) {
+        let reached = CACurrentMediaTime()
+        if !Store.background { NSApp.activate() }
+        let activated = CACurrentMediaTime()
+        openCenter()
+        Task {
+            for _ in 0..<500 where window?.attachedSheet == nil { try? await Task.sleep(for: .milliseconds(20)) }
+            let ms = { (seconds: Double) in Int(seconds * 1000) }
+            AppLog.write("banner click: on the main thread after \(ms(reached - clicked)) ms, activated in \(ms(activated - reached)) ms, "
+                         + "the center \(window?.attachedSheet == nil ? "not shown" : "shown") after \(ms(CACurrentMediaTime() - clicked)) ms", to: "window.log")
+        }
+    }
+
     func openCenter() {
         if modal == .notifications { return }
         if modalStack.contains(.notifications) {
@@ -525,9 +539,7 @@ final class BannerDelegate: NSObject, UNUserNotificationCenterDelegate {
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        await MainActor.run {
-            NSApp.activate()
-            model?.openCenter()
-        }
+        let clicked = CACurrentMediaTime()
+        await MainActor.run { model?.openFromBanner(clicked: clicked) }
     }
 }

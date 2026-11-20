@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The socket lives with the app, not the window: hooks reach HQ even while its window is closed.
         AgentRouter.model = model
         AgentSocket.listen(prepare: AgentArchive.prepare) { AgentRouter.handle($0) }
+        HangWatch.shared.start()
         // What sessions did while HQ was off; again a moment later for a hook that just missed the socket.
         model.replayPendingHooks()
         Task { [weak model] in
