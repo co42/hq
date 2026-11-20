@@ -117,6 +117,7 @@ struct TaskMenu: View {
         let top = tree.parent(of: id) == nil
         let hasSubtasks = !tree.children(of: id).isEmpty
         if !own { Button("Open") { model.open(.task(id)) } }
+        if let outside = model.outsideTitle(.task(id)) { Button(outside) { model.openOutside(.task(id)) } }
         Button("Start Session…") { model.beginStart(task: id, push: own) }
         Button("Add Subtask") { if let added = model.addSubtask(to: id) { model.outlineFocus = .title(added.id, by: 0) } }
         Divider()

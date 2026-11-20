@@ -8,7 +8,7 @@ extension SelfTest {
         let tree = model.taskTree
         let open = model.tasks.filter { $0.status != .done && !$0.blocked }
         if let story = open.first(where: { tree.parent(of: $0.id) == nil && !tree.children(of: $0.id).isEmpty }) {
-            menu("a task's menu", TaskMenu(ids: [story.id]), model, ["Open", "Start Session…", "Add Subtask", "—", "Status ▸", "Project ▸",
+            menu("a task's menu", TaskMenu(ids: [story.id]), model, ["Open", "Open in Obsidian", "Start Session…", "Add Subtask", "—", "Status ▸", "Project ▸",
                  "Links ▸", "—", "Show ▸", "Remind Me…", "Copy", "—", "Archive", "Delete"])
             menu("its Show menu", TaskMenu(ids: [story.id]), model, ["Description", "Subtasks", "Only Blocked and Doing"], in: "Show")
             menu("its Links menu", TaskMenu(ids: [story.id]), model, ["Link…", "—", "Blocked By ▸", "After ▸", "—", "Block…"], in: "Links")
@@ -16,7 +16,7 @@ extension SelfTest {
             check("the seed has an open story with subtasks", false)
         }
         if let subtask = open.first(where: { tree.parent(of: $0.id) != nil }) {
-            menu("a subtask's menu: no Archive", TaskMenu(ids: [subtask.id]), model, ["Open", "Start Session…", "Add Subtask", "—", "Status ▸",
+            menu("a subtask's menu: no Archive", TaskMenu(ids: [subtask.id]), model, ["Open", "Open in Obsidian", "Start Session…", "Add Subtask", "—", "Status ▸",
                  "Project ▸", "Links ▸", "—", "Show ▸", "Remind Me…", "Copy", "—", "Delete"])
         }
         let tops = open.filter { tree.parent(of: $0.id) == nil }.prefix(2).map(\.id)
