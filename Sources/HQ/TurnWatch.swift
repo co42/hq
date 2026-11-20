@@ -1,13 +1,15 @@
 import Foundation
 import HQKit
 
-/// A turn that ends without a Stop (PLAN.md §6): while a session works, Claude Code's own record of it is read every
-/// few seconds, and a session its Claude says is idle leaves Working.
+/// What no hook reports (PLAN.md §6): while a session works or waits on the user, Claude Code's own record of it is read
+/// every few seconds. A session its Claude says is idle leaves Working; one its Claude says no longer waits was answered
+/// in the terminal (T-691).
 @MainActor
 enum TurnWatch {
     private static var timer: Timer?
-    /// How many sessions it ended, for the self-test.
+    /// How many sessions it ended, and how many waits it ended, for the self-test.
     static var ended = 0
+    static var answered = 0
 
     /// Claude Code's records: `~/.claude/sessions`, or a folder beside a test store.
     static var directory: URL {
@@ -17,17 +19,23 @@ enum TurnWatch {
 
     static var running: Bool { timer != nil }
 
-    /// Runs while a running session works, stops when none does.
+    private static func watched(_ item: SessionItem) -> Bool {
+        guard item.isRunning, item.pid != nil else { return false }
+        if case .waiting = item.status.state { return true }
+        return item.status.state == .working
+    }
+
+    /// Runs while a running session works or waits, stops when none does.
     static func update(_ model: AppModel) {
-        let working = model.sessions.contains { $0.isRunning && $0.pid != nil && $0.status.state == .working }
-        if working, timer == nil {
+        let watching = model.sessions.contains(where: watched)
+        if watching, timer == nil {
             let next = Timer(timeInterval: 2, repeats: true) { [weak model] _ in
                 MainActor.assumeIsolated { if let model { Task { await check(model) } } }
             }
             next.tolerance = 0.5
             RunLoop.main.add(next, forMode: .common)
             timer = next
-        } else if !working {
+        } else if !watching {
             timer?.invalidate()
             timer = nil
         }
@@ -36,19 +44,26 @@ enum TurnWatch {
     /// Claude's records are read off the main thread (T-683).
     static func check(_ model: AppModel, now: Date = .now) async {
         let directory = directory
-        let records = model.sessions.filter { $0.isRunning && $0.status.state == .working }
+        let records = model.sessions.filter(watched)
             .compactMap { item in item.pid.map { (item.id, directory.appending(path: "\($0).json").path) } }
-        let idles = await Task.detached(priority: .utility) {
-            records.compactMap { id, path in ClaudeSessionFile.idleSince(path, sessionID: id).map { (id, $0) } }
+        let said = await Task.detached(priority: .utility) {
+            records.compactMap { id, path in ClaudeSessionFile.status(path, sessionID: id).map { (id, $0) } }
         }.value
-        for (id, idle) in idles {
-            guard var item = model.session(id), item.isRunning, item.status.state == .working else { continue }
+        for (id, claude) in said {
+            guard var item = model.session(id), watched(item) else { continue }
             var live = item.live
-            guard live.claudeIdle(since: idle, now: now) else { continue }
-            AppLog.write("\(item.id.prefix(8)) \(item.name): Claude idle since \(idle.formatted(.iso8601)) with no Stop, Working ends", to: "sessions.log")
+            let before = item.status.title
+            if item.status.state == .working {
+                guard claude.status == "idle", live.claudeIdle(since: claude.since, now: now) else { continue }
+                AppLog.write("\(item.id.prefix(8)) \(item.name): Claude idle since \(claude.since.formatted(.iso8601)) with no Stop, Working ends", to: "sessions.log")
+                ended += 1
+            } else {
+                guard live.claudeAnswered(claude.status, since: claude.since) else { continue }
+                AppLog.write("\(item.id.prefix(8)) \(item.name): Claude \(claude.status) since \(claude.since.formatted(.iso8601)), \(before) answered in the terminal", to: "sessions.log")
+                answered += 1
+            }
             item.live = live
             model.put(item)
-            ended += 1
         }
         update(model)
     }

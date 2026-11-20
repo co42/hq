@@ -169,14 +169,16 @@ A user token pasted in Settings › Slack, kept in the Keychain (`io.github.co42
 |---|---|
 | SessionStart | idle |
 | UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure | working; a subagent's tool event ends no wait it didn't raise, no failure, no compaction |
-| PreToolUse AskUserQuestion / ExitPlanMode | needs you: question / plan, until a tool event from the same thread |
-| PermissionRequest, Notification `permission_prompt`, Elicitation | needs you: permission, unless already question or plan, until a tool event from the thread that asked |
+| PreToolUse AskUserQuestion / ExitPlanMode | needs you: question / plan, until a tool event from the same thread, or Claude's record says it no longer waits (below) |
+| PermissionRequest, Notification `permission_prompt`, Elicitation | needs you: permission, unless already question or plan, until a tool event from the thread that asked, or Claude's record says it no longer waits (below) |
 | Stop | done, unread until the user opens it, looks at its terminal or sends the next prompt; it notifies nothing |
 | StopFailure | failed |
 | PreCompact → PostCompact | compacting → the previous state |
 | SessionEnd (`clear` too: see /clear), pid exit | ended |
 
-Known gap: Esc, a rejection or an interrupt sends nothing, so the state holds until the next event. Cards show how long a state has lasted, so a stale one is visible.
+**Answered in the terminal** (2026-11-20, T-691): no hook says a question, a plan or a permission was answered, and an approved command runs with no tool event until it ends. While a session waits, HQ reads its Claude's record (`~/.claude/sessions/<pid>.json`, every 2 s, off the main thread, best effort): Claude writes `"status": "waiting"` while a dialog waits on the user; a status other than waiting written after the wait began ends it, `busy` to working (approved, answered), anything else to idle (refused, the turn over). A record from before the wait answers nothing.
+
+Known gap: Esc or an interrupt with no record to read sends nothing, so the state holds until the next event. Cards show how long a state has lasted, so a stale one is visible.
 
 ## 7. Claude integration
 

@@ -323,6 +323,18 @@ public struct SessionLive: Sendable, Hashable {
         return true
     }
 
+    /// Claude Code says it no longer waits (`status` other than "waiting", written at `since`, after the wait began): the
+    /// user answered in the terminal, where no hook reports it. Busy: an approved command or an answer runs, Working; else
+    /// the turn ended (a refusal), idle.
+    @discardableResult
+    public mutating func claudeAnswered(_ claude: String, since: Date) -> Bool {
+        guard case .waiting = status.state, claude != "waiting", since > status.since else { return false }
+        question = nil
+        options = []
+        set(claude == "busy" ? .working : .idle, since)
+        return true
+    }
+
     private mutating func set(_ state: SessionState, _ now: Date) {
         guard status.state != state else { return }
         status.state = state
@@ -396,6 +408,16 @@ public enum TranscriptInterrupt {
 
 /// Claude Code's own record of a running Claude, `~/.claude/sessions/<pid>.json`, read best effort: the format is internal.
 public enum ClaudeSessionFile {
+    /// What the Claude of `sessionID` says it does ("busy", "idle", "waiting", "shell"…) and since when, or nil when its record
+    /// says nothing.
+    public static func status(_ path: String, sessionID: String) -> (status: String, since: Date)? {
+        guard let data = FileManager.default.contents(atPath: path),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = object["status"] as? String, let millis = (object["statusUpdatedAt"] as? NSNumber)?.doubleValue else { return nil }
+        if let id = object["sessionId"] as? String, id != sessionID { return nil }
+        return (status, Date(timeIntervalSince1970: millis / 1000))
+    }
+
     /// When the Claude of `sessionID` went idle ("status": "idle"), or nil while it works, waits or says nothing.
     public static func idleSince(_ path: String, sessionID: String) -> Date? {
         guard let data = FileManager.default.contents(atPath: path),

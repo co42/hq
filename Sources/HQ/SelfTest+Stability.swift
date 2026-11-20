@@ -6,6 +6,7 @@ import SwiftUI
 extension SelfTest {
     static func stabilityChecks(_ model: AppModel) async {
         await cancelledTurnChecks(model)
+        await answeredWaitChecks(model)
         remindedReviewChecks(model)
         nextReviewChecks(model)
         draftReviewChecks(model)
@@ -233,6 +234,46 @@ extension SelfTest {
         try? FileManager.default.createDirectory(at: TurnWatch.directory, withIntermediateDirectories: true)
         try? #"{"pid":\#(pid),"sessionId":"\#(session)","status":"\#(status)","statusUpdatedAt":\#(millis),"updatedAt":\#(millis)}"#
             .write(to: TurnWatch.directory.appending(path: "\(pid).json"), atomically: true, encoding: .utf8)
+    }
+
+    /// T-691: an answer in the terminal sends no hook; Claude's own record stops saying "waiting". Approved, a long command
+    /// runs with no tool event until it ends: Working at once. Refused, the turn ends: idle.
+    private static func answeredWaitChecks(_ model: AppModel) async {
+        let id = "57ab0000-0000-4000-8000-0000000000c2", pid: Int32 = 999_972
+        let source = DispatchSource.makeProcessSource(identifier: getpid(), eventMask: .exit, queue: .main)
+        source.resume()
+        model.exitWatchers[pid] = source
+        defer {
+            model.sessions.removeAll { $0.id == id }
+            model.exitWatchers[pid] = nil
+            try? FileManager.default.removeItem(at: TurnWatch.directory.appending(path: "\(pid).json"))
+        }
+        func state() -> SessionState? { model.session(id)?.status.state }
+        turnEvent("SessionStart", id, pid: pid, #","source":"startup""#)
+        turnEvent("UserPromptSubmit", id, pid: pid, #","prompt":"deploy""#)
+        let cases: [(name: String, event: String, extra: String, wait: WaitReason, claude: String, after: SessionState)] = [
+            ("an approved permission", "PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"cargo run"}"#, .permission, "busy", .working),
+            ("a refused permission", "PermissionRequest", #","tool_name":"Bash","tool_input":{"command":"rm -rf target"}"#, .permission, "idle", .idle),
+            ("a question answered", "PreToolUse", #","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Ship?","options":[{"label":"Yes"}]}]}"#, .question, "busy", .working),
+            ("a plan approved", "PreToolUse", #","tool_name":"ExitPlanMode","tool_input":{"plan":"Do it"}"#, .plan, "busy", .working),
+        ]
+        for test in cases {
+            if state() != .working { turnEvent("UserPromptSubmit", id, pid: pid, #","prompt":"go on""#) }
+            turnEvent(test.event, id, pid: pid, test.extra)
+            let asked = model.session(id)?.status.since ?? .now
+            check("\(test.name): waits on the user first, and the watch runs", state() == .waiting(test.wait) && TurnWatch.running, String(describing: state()))
+            claudeRecord(pid, session: id, status: "busy", at: asked.addingTimeInterval(-1))
+            await TurnWatch.check(model)
+            check("\(test.name): Claude's busy from before the wait answers nothing", state() == .waiting(test.wait), String(describing: state()))
+            claudeRecord(pid, session: id, status: "waiting", at: asked.addingTimeInterval(0.1))
+            await TurnWatch.check(model)
+            check("\(test.name): Claude waiting holds the wait", state() == .waiting(test.wait), String(describing: state()))
+            let answered = TurnWatch.answered
+            claudeRecord(pid, session: id, status: test.claude, at: asked.addingTimeInterval(1))
+            await TurnWatch.check(model)
+            check("\(test.name): Claude \(test.claude) after the wait ends it, no hook needed", state() == test.after && TurnWatch.answered == answered + 1,
+                  String(describing: state()))
+        }
     }
 
     /// T-371: a prompt cancelled before any answer leaves no Stop and nothing in the transcript; Claude's own record says idle.

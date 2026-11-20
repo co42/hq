@@ -87,3 +87,30 @@ func turnEndingWithoutStopGoesIdle(_ index: Int) throws {
     let undone = done.claudeIdle(since: base, now: base.addingTimeInterval(60))
     #expect(!undone)
 }
+
+/// T-691: an answer in the terminal sends no hook; Claude's record stops saying "waiting" once it is answered.
+@Test func claudeRecordEndsAnAnsweredWait() throws {
+    let base = Date(timeIntervalSince1970: 1_800_000_000)
+    let busy = try TurnEndFixture.record("busy", at: base.addingTimeInterval(5))
+    let other = try TurnEndFixture.record("busy", at: base.addingTimeInterval(5), session: "another-session")
+    defer { for path in [busy, other] { try? FileManager.default.removeItem(atPath: path) } }
+    let said = try #require(ClaudeSessionFile.status(busy, sessionID: TurnEndFixture.session))
+    #expect(said.status == "busy" && abs(said.since.timeIntervalSince(base.addingTimeInterval(5))) < 0.01)
+    #expect(ClaudeSessionFile.status(other, sessionID: TurnEndFixture.session) == nil, "a pid reused by another session")
+    for (wait, claude, after) in [(WaitReason.permission, "busy", SessionState.working), (.permission, "idle", .idle), (.question, "busy", .working), (.plan, "idle", .idle)] {
+        var live = SessionLive(status: SessionStatus(state: .waiting(wait), since: base))
+        let stale = live.claudeAnswered(claude, since: base.addingTimeInterval(-1))
+        #expect(!stale, "a record from before the wait")
+        let still = live.claudeAnswered("waiting", since: base.addingTimeInterval(1))
+        #expect(!still, "Claude still waits")
+        let ended = live.claudeAnswered(claude, since: base.addingTimeInterval(2))
+        #expect(ended)
+        #expect(live.status.state == after)
+    }
+    var working = SessionLive(status: SessionStatus(state: .working, since: base))
+    let notWaiting = working.claudeAnswered("idle", since: base.addingTimeInterval(2))
+    #expect(!notWaiting, "only a wait is answered")
+    var failed = SessionLive(status: SessionStatus(state: .failed, since: base))
+    let notFailed = failed.claudeAnswered("busy", since: base.addingTimeInterval(2))
+    #expect(!notFailed, "a failure is no wait")
+}
