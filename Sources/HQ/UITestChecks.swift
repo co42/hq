@@ -1616,6 +1616,15 @@ extension UITest {
             } else {
                 await check("the outline's description shows its checkbox", false)
             }
+            if ui.canClickTables {
+                await ui.click(ui.anchor("checkbox:0"), count: 2)
+                await ui.settle(0.3)
+                await check("a real double-click on a checkbox in the outline ticks and unticks it, and edits nothing (T-573)",
+                            model.task(task.id)?.body.hasPrefix("- [ ] one") == true && model.editingDescription == nil,
+                            "\(model.task(task.id)?.body.prefix(12) ?? ""), editing \(String(describing: model.editingDescription))")
+            } else {
+                skip("a real double-click on a checkbox in the outline ticks and unticks it, and edits nothing (T-573)")
+            }
             model.setDescription(task.id, lines)
             await ui.settle(0.4)
         } else {
