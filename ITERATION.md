@@ -33,7 +33,7 @@ How a version of HQ goes from the user's list to their `/Applications`. Read it 
 6. `RELEASE_NOTES.md`: a new entry on top (`## v17 · <date> · <title>`: it is HQ's version; `./build.sh` installs it as `17` only from a dated entry and a committed tree, else as `17-unreleased`), by area, what changed for the user, fixes last, the plugin's version when it changed. A release with no features is a point release (v9.1).
 7. Ask, then commit (conventional, no Claude attribution), merge into `main`, `./build.sh`. Push only when the user says so.
 8. The user's real logs since the last release: `~/Library/Logs/HQ/outline.log` and `vault.log`, and the crash reports (`tools/crash.sh`; all of them: `command ls -t ~/Library/Logs/DiagnosticReports/HQ-*.ips`). A repair in real use is a bug the tests missed: a task for it. A crash is read from its stack before any workaround. And what sessions tried with `hq` and didn't get: `tools/hq-usage.sh --since <the last release's date>`.
-9. `hq notify`: what changed, what to try first, "restart HQ", and "new sessions get plugin 0.x" when it changed. Never quit or restart their HQ yourself.
+9. `hq notify --important` (the user has to restart HQ): what changed, what to try first, "restart HQ", and "new sessions get plugin 0.x" when it changed. Never quit or restart their HQ yourself.
 10. A message to share, when the user asks for one: short, easy to scan, the most important change first, the release notes linked. The user sends it.
 
 ## Close

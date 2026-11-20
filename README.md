@@ -94,7 +94,7 @@ hq task show T-12 --deep                  # with each open subtask's description
 hq task tick T-12 "At most 3 attempts"    # one checklist item
 hq task edit T-12 --section Status --body -   # one section of the description
 hq task link T-12 <PR URL | T-34 | note name | artifact URL | session id>
-hq notify "PR #418 is ready to merge: the canary is green" --task T-12
+hq notify --important "PR #418 is ready to merge: the canary is green" --task T-12
 hq remind "Look at the canary again" --at "tomorrow 9:00"
 hq file new "Retry budget plan" --task T-12 --body -
 hq session new "T-12 Retry budget" --task T-12 --role Worker   # from a session: under it, in its Ghostty window

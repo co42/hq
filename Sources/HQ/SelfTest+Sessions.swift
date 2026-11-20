@@ -88,12 +88,17 @@ extension SelfTest {
             check("\(test.name): \(test.banner ? "a banner" : "no banner")", said.hasPrefix(test.banner ? "banner" : "no banner"), said)
         }
         Ghostty.fake.withLock { $0 = Ghostty.Fake(); $0.front = true; $0.focused = tty }
+        let skipped = "banner skipped: \(name) needs you → notice:", shown = "banner shown: \(name) needs you → notice:"
+        AppLog.expected.append(skipped)
         let ping = model.notify("Merge it?", level: .important, source: id)
         await expect("a ping from a session whose terminal has the focus: no banner", model.ghosttyLog.contains("no banner \(name) needs you: its terminal has the focus"))
+        await expect("notices.log says the banner was skipped and why (T-705)", !AppLog.expected.contains(skipped), within: 1)
         model.notices.removeAll { $0.id == ping.id }
         Ghostty.fake.withLock { $0.front = false }
+        AppLog.expected.append(shown)
         let other = model.notify("Merge it now?", level: .important, source: id)
         await expect("the same ping, Ghostty in the back: a banner", model.ghosttyLog.contains { $0.hasPrefix("banner \(name) needs you: Merge it now?") })
+        await expect("notices.log says the banner was shown (T-705)", !AppLog.expected.contains(shown), within: 1)
         model.notices.removeAll { $0.id == other.id }
         // A review asked of the user: a banner, once; the ones waiting the first time are known, not new.
         guard let review = model.waitingReviews.first else { return check("a review that waits", false) }
@@ -140,9 +145,11 @@ extension SelfTest {
         let waiting = await click("Banner clicks needs you: ")
         check("a waiting session's banner focuses its terminal, the center stays shut", waiting == "focus \(tty)" && model.modal == nil, waiting ?? "none")
         let ping = model.notify("Canary green: merge?", level: .important, source: id)
+        AppLog.expected.append("ping read by a click on its banner: session Banner clicks")
         let pinged = await click("Canary green: merge?")
         check("a ping's banner focuses its session's terminal and reads it", pinged == "focus \(tty)" && model.notices.first { $0.id == ping.id }?.readAt != nil,
               pinged ?? "none")
+        check("notices.log says what read the ping (T-705)", !AppLog.expected.contains("ping read by a click on its banner: session Banner clicks"))
         let reminder = model.remind("Call the bank", at: .now.addingTimeInterval(-1), level: .important)
         model.fireDue()
         _ = await click("Call the bank")

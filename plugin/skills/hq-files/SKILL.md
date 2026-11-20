@@ -29,7 +29,7 @@ Pipe the markdown in: `printf '%s\n' '# Push path plan' '' 'The registry retries
 - **Before creating** a note, check `hq ctx` and `hq ls files`. If one covers the subject, update it with `hq file write`.
 - **A plan, design, investigation or report** you write for the user: always an HQ file linked to its task, not in the chat alone and not loose in the repo (unless the user asks for a repo file).
 - **When the work moves on**: update the note so it stays true.
-- **Ready for the user to read**: `hq notify "Push path plan ready to read"`. It links the notes this session wrote since its last notification (the `hq` skill, Telling the user).
+- **Ready for the user to read**: `hq notify --important "Push path plan ready to read"` when the work waits on their read, AskUserQuestion when it waits on their approval, a plain `hq notify` for a report that needs nothing from them. It links the notes this session wrote since its last notification (the `hq` skill, Telling the user).
 - **The user asks to note something** that isn't a thing to do (a fact, a decision, an idea to keep): an HQ file.
 
 ## Content

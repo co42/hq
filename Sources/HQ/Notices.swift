@@ -238,7 +238,7 @@ extension AppModel {
     /// A face in who waits clicked: a running session's terminal, its pings read; else the center on its row.
     func focusWaiting(_ item: WaitingItem) {
         if let session = item.session, session.isRunning {
-            for ping in item.pings { markRead(ping.id) }
+            for ping in item.pings { markRead(ping.id, by: "a click on its face") }
             open(session.id)
         } else {
             openCenter()
@@ -296,7 +296,7 @@ extension AppModel {
         let notice = opens.flatMap { $0.hasPrefix("notice:") ? UUID(uuidString: String($0.dropFirst(7))) : nil }.flatMap { id in notices.first { $0.id == id } }
         let sessionID = opens.flatMap { $0.hasPrefix("session:") ? String($0.dropFirst(8)) : nil } ?? (notice?.kind == .session ? notice?.source : nil)
         if let sessionID, let item = session(sessionID), item.isRunning {
-            if let notice { markRead(notice.id) }
+            if let notice { markRead(notice.id, by: "a click on its banner") }
             open(sessionID)
             Self.bannerOpened.append("terminal \(sessionID)")
             return AppLog.write("banner click: on the main thread after \(ms(reached - clicked)) ms, focusing \(item.name)'s terminal", to: "window.log")
@@ -406,12 +406,16 @@ extension AppModel {
 
     // MARK: Acting on rows
 
-    func markRead(_ id: Notice.ID) { setDone(id, true) }
+    /// `by`: what read it, in notices.log for a ping.
+    func markRead(_ id: Notice.ID, by: String = "the center") { setDone(id, true, by: by) }
 
     /// Read or unread, completed or not (E). The row moves to its section at once; the selection goes on to the next.
-    func setDone(_ id: Notice.ID, _ done: Bool) {
+    func setDone(_ id: Notice.ID, _ done: Bool, by: String = "the center") {
         guard let index = notices.firstIndex(where: { $0.id == id }), isDone(notices[index]) != done else { return }
         let before = notices[index]
+        if done, before.level == .important, before.kind == .session {
+            AppLog.write("ping read by \(by): \(noticeLogName(before))", to: "notices.log")
+        }
         handOnSelection(from: id)
         notices[index].readAt = done ? .now : nil
         // Dealt with before its time: it doesn't come back.
@@ -584,12 +588,21 @@ extension AppModel {
         case .reminder: "Reminder"
         }
         let body = MarkdownLine.plain(row.text)
-        guard row.kind == .session, let tty = session(row.source)?.tty else { return postBanner(id: row.id.uuidString, title: title, body: body, opens: "notice:\(row.id.uuidString)") }
+        let opens = "notice:\(row.id.uuidString)"
+        guard row.kind == .session, let tty = session(row.source)?.tty else {
+            return postBanner(id: row.id.uuidString, title: title, body: body, opens: opens, why: row.kind == .session ? "no terminal known" : nil)
+        }
         Task { [weak self] in
             guard let self else { return }
-            if await self.looksAtTerminal(tty) { return self.noBanner(title) }
-            self.postBanner(id: row.id.uuidString, title: title, body: body, opens: "notice:\(row.id.uuidString)")
+            if await self.looksAtTerminal(tty) { return self.noBanner(title, opens: opens) }
+            self.postBanner(id: row.id.uuidString, title: title, body: body, opens: opens, why: self.notLooking(tty))
         }
+    }
+
+    /// A notification as notices.log names it: its kind, source and first words.
+    func noticeLogName(_ row: Notice) -> String {
+        let from = row.kind == .session ? session(row.source)?.name ?? row.source ?? "?" : row.source ?? "-"
+        return "\(row.kind) \(from) \(row.id.uuidString.prefix(8)): \(LineCut.line(MarkdownLine.plain(row.text), width: 80))"
     }
 
     /// A session started to wait on the user: a banner, unless its terminal has the focus.
@@ -599,14 +612,23 @@ extension AppModel {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.bannerDelay))
             guard let self, let item = self.session(id), item.status.needsYou, item.status.since == since else { return }
-            if await self.looksAtTerminal(item.tty) { return self.noBanner("\(item.name) needs you") }
-            self.postBanner(id: "\(id)-\(since.timeIntervalSince1970)", title: "\(item.name) needs you", body: item.reason ?? item.status.title, opens: "session:\(id)")
+            if await self.looksAtTerminal(item.tty) { return self.noBanner("\(item.name) needs you", opens: "session:\(id)") }
+            self.postBanner(id: "\(id)-\(since.timeIntervalSince1970)", title: "\(item.name) needs you", body: item.reason ?? item.status.title,
+                            opens: "session:\(id)", why: self.notLooking(item.tty))
         }
     }
 
     /// A banner left out: its terminal has the focus. A test run keeps it in `ghosttyLog`.
-    private func noBanner(_ title: String) {
+    private func noBanner(_ title: String, opens: String) {
+        AppLog.write("banner skipped: \(title) → \(opens): its terminal has the focus", to: "notices.log")
         if Store.isOverridden { ghosttyLog.append("no banner \(title): its terminal has the focus") }
+    }
+
+    /// Why the user doesn't look at the terminal on `tty`, for notices.log.
+    func notLooking(_ tty: String?) -> String {
+        if tty == nil { return "no terminal known" }
+        if !(setup.ghosttyAllowed || Ghostty.faked) { return "no access to Ghostty" }
+        return Ghostty.inFront ? "another terminal has the focus" : "Ghostty isn't in front"
     }
 
     /// How long a session waits before its banner: an answer within it needs none.
@@ -619,18 +641,29 @@ extension AppModel {
         return await Task.detached { try? Ghostty.focusedTTY() }.value == tty
     }
 
-    /// `opens`: what a click on it opens, "session:<id>", "review:<url>" or "notice:<id>" (T-690).
-    func postBanner(id: String, title: String, body: String, opens: String) {
-        if Store.isOverridden { return ghosttyLog.append("banner \(title): \(body) → \(opens)") }
+    /// `opens`: what a click on it opens, "session:<id>", "review:<url>" or "notice:<id>" (T-690). `why`: why it shows, in notices.log.
+    func postBanner(id: String, title: String, body: String, opens: String, why: String? = nil) {
+        let line = "\(title) → \(opens)\(why.map { ": \($0)" } ?? "")"
+        if Store.isOverridden {
+            AppLog.write("banner shown: \(line)", to: "notices.log")
+            return ghosttyLog.append("banner \(title): \(body) → \(opens)")
+        }
         let center = UNUserNotificationCenter.current()
         Task {
-            guard (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) == true else { return }
+            guard (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) == true else {
+                return AppLog.write("banner skipped: \(line); HQ may not post notifications", to: "notices.log")
+            }
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
             content.userInfo = ["opens": opens]
-            try? await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            do {
+                try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+                AppLog.write("banner shown: \(line)", to: "notices.log")
+            } catch {
+                AppLog.write("banner skipped: \(line); macOS refused it: \(error.localizedDescription)", to: "notices.log")
+            }
         }
     }
 }

@@ -192,7 +192,7 @@ nonisolated extension RoleItem {
         Asking the user:
         - Use AskUserQuestion: it shows in HQ as a session that asks, its face in the toolbar. For decisions only they can make, plans to approve, mockups to pick and "should I start?". Never end a turn with a question in text. Up to 4 per call, your recommendation first; every open question at once.
         - An open question stops only what depends on it: start the Workers that can move before you ask.
-        - `hq notify` tells them something is ready to look at, not a question.
+        - Every wait on the user reaches them: a turn that leaves you waiting on them ends with AskUserQuestion when they decide, or `hq notify --important` when they have to do something (try, restart, review, merge, step away, unlock). A plain `hq notify` only for news that needs nothing from them. Never text alone.
         """
 
     static let workerText = """

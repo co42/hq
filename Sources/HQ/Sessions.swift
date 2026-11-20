@@ -1022,7 +1022,7 @@ extension AppModel {
         for session in sessions where session.tty == tty {
             acknowledge(session.id)
             if session.status.isNew { markSessionSeen(session.id) }
-            for ping in unreadPings(of: session.id) { markRead(ping.id) }
+            for ping in unreadPings(of: session.id) { markRead(ping.id, by: "a look at its terminal") }
         }
     }
 

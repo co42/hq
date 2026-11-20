@@ -267,12 +267,12 @@ enum AgentCommands {
             }
             return model.importArtifact(url, title: title, published: date, task: task).agentJSON
         },
-        AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center: work ready to check, a write-up done. --important for a ping they asked for, or when you can't go on without them. While this session's last one at that level is unread, a new one replaces it and says so: say in each everything that still holds.",
+        AgentCommand(name: "notify", summary: "Tell the user something in HQ's notification center. --important (a ping) whenever this session waits on them to act: work ready to check, a PR to review or merge, an app to restart, something to try, a screen to unlock; plain for news that needs nothing from them. A decision is a question (AskUserQuestion), not a notification. While this session's last one at that level is unread, a new one replaces it and says so: say in each everything that still holds.",
                      params: [.init(name: "text", required: true, positional: true, help: "what they should know, in a sentence or two: what is ready and what to check"),
-                              .init(name: "important", kind: .boolean, help: "Needs You, with a banner: they asked to be pinged, or you are blocked on them"),
+                              .init(name: "important", kind: .boolean, help: "Needs You, with a banner: the session waits on them to act, or they asked to be pinged"),
                               .init(name: "link", list: true, help: "what to open, comma-separated: T-12, a URL, a file, an artifact (default: this session's open tasks and what it made since its last notification)"),
                               .init(name: "task", list: true, help: "T-12: the task it is about, the same as --link T-12")],
-                     example: "hq notify \"Retry budget ready to check: the canary is green\" --task T-12", output: noticeOutput) { args, model in
+                     example: "hq notify --important \"Retry budget ready to check: the canary is green\" --task T-12", output: noticeOutput) { args, model in
             let text = try args.required("text").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { throw AgentError.usage("say what the user should know") }
             let session = model.session(args.string(sessionArg))?.id
@@ -306,7 +306,7 @@ enum AgentCommands {
                               .init(name: "not-mine", kind: .boolean, help: "one this session didn't send, that the user named")],
                      example: "hq notification done 3F2A9C1B", output: noticeOutput) { args, model in
             let row = try ownNotice(args, model)
-            model.setDone(row.id, true)
+            model.setDone(row.id, true, by: "hq notification done")
             let done = model.notices.first { $0.id == row.id } ?? row
             return model.noticeJSON(done, section: model.section(of: done))
         },

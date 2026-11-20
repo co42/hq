@@ -12,7 +12,8 @@ Everything goes through `hq`. `hq help <command>` gives its options, an example 
 ## The rule
 
 - **`doing` the moment work starts**, before the first edit or investigation; each subtask too, as you start it: the parent's doing never covers them. A task left todo while you work on it looks untouched.
-- **Finished, for the user to check** (most work: a PR to review or merge, a page, a choice, an app to restart): its Status says what changed, its checklist is ticked, it stays `doing`, and `hq notify` says what to check. The user moves it to `done`.
+- **Finished, for the user to check** (most work: a PR to review or merge, a page, a choice, an app to restart): its Status says what changed, its checklist is ticked, it stays `doing`, and `hq notify --important` says what to check: the work waits on them. The user moves it to `done`.
+- **Every wait on the user reaches them.** A turn that leaves this session waiting on the user ends with AskUserQuestion when they decide, or `hq notify --important` when they have to do something (try, restart, review, merge, step away, unlock). A plain `hq notify` only for news that needs nothing from them. Never text alone. A Worker tells its leader instead.
 - **Finished, nothing to check** (a chore, a subtask whose parent they'll review): `hq task move T-n done`.
 - **New tasks are todo.** `--status backlog` only when the user says Backlog, or later.
 
@@ -66,7 +67,7 @@ The tree is the user's map of the work: few tasks, each one the user would want 
 - **Project**: the product or area (HQ, Registry, Billing). A task you create always gets one: `--project` on a top-level task; a subtask takes its parent's. Reuse a project in use (`hq ls projects`); naming a new one creates it.
 - **Tags**: optional, for what cuts across projects (`perf`, `security`).
 - **Subtasks** (`--parent T-12`): by the same rule; steps stay in the checklist.
-- **Blocked**, unasked, the moment a task can't move without someone: a PR to merge, a decision from the user or another person, an answer, a freeze. The reason says who and what, so the user knows what to do: `hq task block T-n "Merge #418"` ("Decide: keep the old scope?", "Storage team reviews #92"), then `hq notify`; `hq task unblock T-n` once it moves.
+- **Blocked**, unasked, the moment a task can't move without someone: a PR to merge, a decision from the user or another person, an answer, a freeze. The reason says who and what, so the user knows what to do: `hq task block T-n "Merge #418"` ("Decide: keep the old scope?", "Storage team reviews #92"), then `hq notify --important` when it waits on the user (a plain `hq notify` when on someone else); `hq task unblock T-n` once it moves.
 - **Blocked by**, unasked, the moment it can't go on until another task is done (a stacked PR, an API that must ship first): `hq task link T-n --blocked-by T-m`. **After**, an order without a hard wait: `--after T-m`. Neither moves a task. Before picking the next one, `hq task show` the story's top task: its Ready line says what can start.
 
 ## Links
@@ -80,8 +81,9 @@ A task you create, or move to doing, shows this session's face on its card. Note
 Nothing notifies when a turn ends. Tell them when they should look:
 
 - **A question that needs them now** (a decision, a plan to approve, a choice between mockups, "should I start?"): ask it with AskUserQuestion, never as text at the end of a turn. HQ shows the session as one that asks: its face in the toolbar, a banner, Needs You. Up to 4 questions per call, every open one at once, your recommendation first. A Worker asks its leader instead.
-- **`hq notify "…" --task T-12`** (Updates): work they asked for is ready, a write-up or page is done, a PR waits for them. What's ready, then what to check: `hq notify "Retry budget ready to check: the canary is green. Merge #418 if eu-west looks fine."` Without `--task` or `--link` it links this session's open tasks and what it made since its last notification. While your last one is unread, a new one replaces it (the user can still open the old text): say in each everything that still holds. Not at every turn end, nor while a build runs: when the result is there.
-- **`--important`** (Needs You, with a banner): a ping. "Ping me" always means `hq notify --important`, sent when what they wait for happens. Also when you can't go on without them and a question doesn't fit ("unlock the screen"). A ping covers the thing it was asked for; the next notification is an update again.
+- **`hq notify "…" --important --task T-12`** (Needs You, with a banner): a ping, for every wait on them that isn't a decision: work they asked for is ready to check, a PR to review or merge, an app to restart, something to try, a front run that needs them away, a screen to unlock. What's ready, then what to do: `hq notify --important "Retry budget ready to check: the canary is green. Merge #418 if eu-west looks fine."` "Ping me" always means this, sent when what they wait for happens. A ping covers the thing it waits on; news after it is an update again.
+- **`hq notify "…"`** (Updates): news that needs nothing from them: a report written, a step done while you go on, a fix they didn't wait for.
+- Either one: without `--task` or `--link` it links this session's open tasks and what it made since its last notification. While your last one is unread, a new one replaces it (the user can still open the old text): say in each everything that still holds. Not at every turn end, nor while a build runs: when the result is there.
 - **`hq remind "…" --at "tomorrow 9:00"`**: the user asks to be reminded (`--important`), or a follow-up needs them later. `--at` takes `16:00`, `in 2h`, `tomorrow at 15:00`, `friday 3pm`, `next week`. A task's reminders show in `hq task show`.
 - One that no longer holds: `hq notification done <id>` or `hq notification delete <id>`; the id starts the line `notify` printed.
 
