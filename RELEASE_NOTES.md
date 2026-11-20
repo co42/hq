@@ -1,5 +1,13 @@
 # Release notes
 
+## v18.1 · 2026-11-20 · Several tasks, stacks and lists that scroll
+
+- Select several tasks: ⌘-click adds or removes one, ⇧-click selects a range, X adds or removes the focused task while the arrows move the focus (a second ring shows it). Status, project, Archive, Delete, ⌘C and dragging act on all of them, with one Undo; Return, Space and Start Session act on the focused one; a click or Escape goes back to one task.
+- Stacked pull requests sit together in Reviews and Yours: the base on top, a line joining them, "on #80" on each PR built on another.
+- Show N More opens a card to 20 rows at most; past that, the card scrolls inside with a thin scroll bar, the card beside it as tall.
+- A section header pinned under the toolbar slims down and joins the toolbar as one band, with one line under it.
+- The menu bar's Session menu has Model ▸, Effort ▸ and Role ▸, as a session's right-click menu does.
+
 ## v18 · 2026-11-20 · What needs you reaches you (plugin 0.13.2)
 
 - The toolbar shows who waits on you, after the bell and New: the faces of sessions that ask, want a permission or have a plan ready, your pings and due important reminders, newest first, three then "+2". A badge says what each waits for; a click focuses its terminal in Ghostty (a reminder opens the notification center on it).
