@@ -150,7 +150,7 @@ extension UITest {
             model.shownDescriptions.insert(task.id)
             await ui.settle(0.6)
             if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator {
-                outline.scrollRowToVisible(outline.row(forItem: coordinator.node(.task(task.id))))
+                ui.show(row: outline.row(forItem: coordinator.node(.task(task.id))), in: outline)
             }
             await ui.until(5) { ui.find(LinkHandView.self)?.handParts.isEmpty == false }
             if let hands = ui.find(LinkHandView.self), let part = hands.handParts.first {
@@ -171,7 +171,7 @@ extension UITest {
             model.shownDescriptions.insert(task.id)
             await ui.settle(0.6)
             if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator {
-                outline.scrollRowToVisible(outline.row(forItem: coordinator.node(.task(task.id))))
+                ui.show(row: outline.row(forItem: coordinator.node(.task(task.id))), in: outline)
             }
             await ui.until(5) { ui.find(DiagramImageView.self) != nil }
             if let shown = ui.find(DiagramImageView.self) {

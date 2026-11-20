@@ -156,7 +156,7 @@ extension UITest {
         await endUndoGroup(model)
         await ui.settle(0.5)
         let index = outline.row(forItem: coordinator.node(.task(story.id)))
-        outline.scrollRowToVisible(index)
+        ui.show(row: index, in: outline)
         await ui.settle(0.3)
         guard index >= 0, let row = outline.rowView(atRow: index, makeIfNecessary: false) as? OutlineRowView,
               let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: false) as? TaskCell,

@@ -237,7 +237,7 @@ extension UITest {
             return cell.links.windowPoint(of: .file(file.id))
         }
         if let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator {
-            outline.scrollRowToVisible(outline.row(forItem: coordinator.node(.task(target.id))))
+            ui.show(row: outline.row(forItem: coordinator.node(.task(target.id))), in: outline)
             await ui.settle(0.3)
         }
         if let outline = ui.find(TaskOutlineView.self), let point = linkPoint(),
@@ -391,7 +391,7 @@ extension UITest {
         /// The task's fold chevron shows, on its first line, at its card's top right (2026-11-10).
         func caret(_ id: Int) async -> (ok: Bool, detail: String) {
             let row = outline.row(forItem: coordinator.node(.task(id)))
-            if row >= 0 { outline.scrollRowToVisible(row) }
+            if row >= 0 { ui.show(row: row, in: outline) }
             await ui.settle(0.2)
             guard row >= 0, let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell else { return (false, "no row") }
             let button = cell.fold
@@ -760,7 +760,7 @@ extension UITest {
         func row(_ id: Int) async -> (row: OutlineRowView, cell: TaskCell, faces: FacesCell)? {
             let index = outline.row(forItem: coordinator.node(.task(id)))
             guard index >= 0 else { return nil }
-            outline.scrollRowToVisible(index)
+            ui.show(row: index, in: outline)
             await ui.settle(0.2)
             guard let row = outline.rowView(atRow: index, makeIfNecessary: false) as? OutlineRowView,
                   let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: false) as? TaskCell,
@@ -949,12 +949,12 @@ extension UITest {
         func disclose(_ id: Int) async {
             let row = outline.row(forItem: coordinator.node(.task(id)))
             guard row >= 0 else { return problems.append("T-\(id) has no row") }
-            outline.scrollRowToVisible(row)
+            ui.show(row: row, in: outline)
             await ui.settle(0.2)
-            if ui.canClickTables, let fold = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.fold {
-                await ui.click(fold.convert(NSPoint(x: fold.bounds.midX, y: fold.bounds.midY), to: nil))
+            if let fold = (outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? TaskCell)?.fold {
+                await ui.click(on: fold)
             } else {
-                coordinator.fold([id], model.fold[id] == .hidden ? .all : .hidden)
+                problems.append("T-\(id) has no chevron")
             }
             await ui.settle(0.8)
         }
@@ -988,11 +988,10 @@ extension UITest {
             func shown() -> Set<Int> { Set((subtasks + [deep, inner.id]).filter { outline.row(forItem: coordinator.node(.task($0))) >= 0 }) }
             // Looked up again after the scroll, which can give its cell to another row (T-436).
             func press(_ find: @autoclosure () -> NSButton?) async {
-                guard let first = find() else { return problems.append("no button") }
-                outline.scrollRowToVisible(outline.row(for: first))
+                ui.show(row: outline.row(forItem: coordinator.node(.task(parent.id))), in: outline)
                 await ui.settle(0.2)
                 guard let button = find() else { return problems.append("no button after the scroll") }
-                if ui.canClickTables { await ui.click(button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)) } else { button.performClick(nil) }
+                await ui.click(on: button)
                 await ui.settle(0.6)
             }
             // A click on the chevron hides them all, the next shows them all: no third state.
@@ -1348,7 +1347,7 @@ extension UITest {
                     guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return false }
                     let row = outline.row(forItem: coordinator.node(.task(id)))
                     guard row >= 0 else { return false }
-                    outline.scrollRowToVisible(row)
+                    ui.show(row: row, in: outline)
                     guard let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell else { return false }
                     return cell.links.tokens.contains { $0.routes.contains(route) }
                 }
@@ -1470,7 +1469,7 @@ extension UITest {
         model.shownDescriptions.insert(task.id)
         await ui.settle(0.6)
         func row() -> Int { outline.row(forItem: coordinator.node(.task(task.id))) }
-        outline.scrollRowToVisible(row())
+        ui.show(row: row(), in: outline)
         let rowAtRest = outline.rect(ofRow: row()).height
         coordinator.editDescription(task.id)
         await ui.inEditor()
@@ -1620,7 +1619,7 @@ extension UITest {
         }
         model.setDescription(task.id, lines)
         await ui.settle(0.6)
-        outline.scrollRowToVisible(row())
+        ui.show(row: row(), in: outline)
         if let host = (outline.view(atColumn: 1, row: row(), makeIfNecessary: true) as? TaskCell)?.descriptionHost {
             host.scrollToVisible(host.bounds)
             let height = host.bounds.height - Space.xs - Space.md
@@ -1784,7 +1783,7 @@ extension UITest {
         await endUndoGroup(model)
         await ui.settle(0.5)
         let index = outline.row(forItem: coordinator.node(.task(carried.id)))
-        outline.scrollRowToVisible(index)
+        ui.show(row: index, in: outline)
         await ui.settle(0.2)
         guard let faces = outline.view(atColumn: 0, row: index, makeIfNecessary: true) as? FacesCell,
               let cell = outline.view(atColumn: 1, row: index, makeIfNecessary: true) as? TaskCell else { return await check("the row's cells", false) }
@@ -2680,7 +2679,7 @@ extension UITest {
         // A click on a row's key copies its key and title, through the outline as AppKit delivers it.
         // The edits above reload rows: the row's cell now may be another view.
         let keyRow = outline.row(forItem: coordinator.node(.task(child)))
-        if keyRow >= 0 { outline.scrollRowToVisible(keyRow) }
+        if keyRow >= 0 { ui.show(row: keyRow, in: outline) }
         if let task = model.task(child), let cell = outline.view(atColumn: 1, row: keyRow, makeIfNecessary: true) as? TaskCell {
             cell.scrollToVisible(cell.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
             cell.setHovered(true)

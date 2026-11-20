@@ -492,6 +492,28 @@ struct Driver {
         return nil
     }
 
+    /// A table's row in view, clear of the toolbar and the section bar that float over the page.
+    func show(row: Int, in table: NSTableView) {
+        guard row >= 0, row < table.numberOfRows else { return }
+        table.scrollToVisible(table.rect(ofRow: row).insetBy(dx: 0, dy: -Driver.overlayClearance))
+        window.layoutIfNeeded()
+    }
+
+    /// A click in the middle of a view, which must be what the window hits there: not a bar floating over it.
+    /// In the background, where a table takes no synthetic click, a button is pressed in code once the hit is checked.
+    func click(on view: NSView, line: Int = #line, file: String = #fileID) async {
+        view.scrollToVisible(view.bounds.insetBy(dx: 0, dy: -Driver.overlayClearance))
+        window.layoutIfNeeded()
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        let hit = view.window === window ? hitView(point) : nil
+        guard let hit, hit === view || hit.isDescendant(of: view) else {
+            return UITest.record("a click at \(file):\(line) lands on what it aims at", false,
+                                 "\(Swift.type(of: view)) under \(hit.map { String(describing: Swift.type(of: $0)) } ?? "nothing")")
+        }
+        if !canClickTables, let button = view as? NSButton { button.performClick(nil); return await settle(0.3) }
+        await click(point, line: line, file: file)
+    }
+
     /// The mouse-up waits in the queue while the window handles the mouse-down, as AppKit's
     /// tracking loops (tables, outlines) expect.
     func click(_ point: @autoclosure () async -> NSPoint?, count: Int = 1, flags: NSEvent.ModifierFlags = [], inSheet: Bool = false, line: Int = #line, file: String = #fileID) async {

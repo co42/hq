@@ -15,7 +15,7 @@ extension UITest {
         guard let outline = ui.find(TaskOutlineView.self), let coordinator = outline.coordinator else { return nil }
         let row = outline.row(forItem: coordinator.node(.task(id)))
         guard row >= 0 else { return nil }
-        outline.scrollRowToVisible(row)
+        ui.show(row: row, in: outline)
         return outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? TaskCell
     }
 
