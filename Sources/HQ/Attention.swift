@@ -3,16 +3,17 @@ import HQKit
 
 /// What the page shows under items, and the PRs' review state.
 extension AppModel {
-    /// Dismiss on a review request: out of Needs You until the user's review is asked again; it still waits in Reviews.
+    /// Dismiss on a review request: out of Needs You and Waiting for You, no longer orange, "Dismissed", until the user's
+    /// review is asked again or a commit lands (T-693).
     func dismissReview(_ url: String) {
         let old = seen["dismiss:\(url)"]
         seen["dismiss:\(url)"] = .now
         registerUndo("Dismiss") { $0.seen["dismiss:\(url)"] = old }
     }
 
-    /// Dismissed since its review was last asked.
+    /// Dismissed since its review was last asked and its last commit.
     func dismissed(_ item: GitHubItem) -> Bool {
-        seen["dismiss:\(item.url)"].map { $0 >= item.reviewAskedAt } ?? false
+        seen["dismiss:\(item.url)"].map { $0 >= max(item.reviewAskedAt, item.lastCommitAt ?? .distantPast) } ?? false
     }
 
     /// After a PR in Reviews, the next one the list shows, with its filter and search, and around; nil when it shows no
@@ -29,8 +30,14 @@ extension AppModel {
         open(.github(next.url), replacing: true)
     }
 
+    /// Waits for the user's review and wasn't dismissed: orange, in Waiting for You and Needs You.
     func waitsForReview(_ item: GitHubItem) -> Bool {
-        item.waitsForReview
+        item.waitsForReview && !dismissed(item)
+    }
+
+    /// A PR row's review status, "Dismissed" for one that waits but was dismissed.
+    func reviewText(_ item: GitHubItem) -> String {
+        item.waitsForReview && dismissed(item) ? "Dismissed" : PRRow.reviewText(item, waits: waitsForReview(item))
     }
 
     func githubItem(_ url: String?) -> GitHubItem? {

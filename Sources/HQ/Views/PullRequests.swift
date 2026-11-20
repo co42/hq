@@ -411,7 +411,7 @@ struct PRRow: View {
             case .required, .none: AnyShapeStyle(.secondary)
             }
         }
-        return Text(Self.reviewText(item, waits: waits))
+        return Text(model.reviewText(item))
             .foregroundStyle(color)
             .fontWeight(waits ? .semibold : .regular)
             .kitType(.secondary)

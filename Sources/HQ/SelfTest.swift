@@ -97,15 +97,25 @@ enum SelfTest {
         check("Needs You counts sessions that wait, review requests that wait and unread important rows",
               model.waitingReviews.count == 2 && model.importantCount == 4 + 2 + 2, "\(model.waitingReviews.count) reviews, \(model.importantCount)")
         // T-319: a review request stands until reviewed; Later puts it away, Bring Back Now returns it, Mark Reviewed ends it.
-        if let review = model.waitingReviews.first {
+        if let review = model.waitingReviews.first(where: { !model.inLater.contains($0.url) }) ?? model.waitingReviews.first {
             model.putReviewLater(review.url, until: .now.addingTimeInterval(3600))
             check("Later puts a review request away: out of Needs You, in Later with its time",
                   !model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.first?.item.url == review.url && model.importantCount == 7)
             model.putReviewLater(review.url, until: nil)
             check("Bring Back Now returns it to Needs You", model.waitingReviews.contains { $0.url == review.url } && model.laterReviews.isEmpty)
             model.dismissReview(review.url)
-            check("Dismiss takes it out of Needs You; it still waits in Reviews",
-                  !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7 && model.waitsForReview(review))
+            let filter = model.reviewFilter
+            model.reviewFilter = .waiting
+            let inWaiting = model.reviewRequests.contains { $0.url == review.url }
+            model.reviewFilter = .notApproved
+            let inNotApproved = model.reviewRequests.contains { $0.url == review.url }
+            model.reviewFilter = .all
+            let inAll = model.reviewRequests.contains { $0.url == review.url }
+            model.reviewFilter = filter
+            check("Dismiss takes it out of Needs You and Waiting for You, no longer orange, \"Dismissed\" (T-693)",
+                  !model.waitingReviews.contains { $0.url == review.url } && model.importantCount == 7 && !model.waitsForReview(review) && !inWaiting
+                    && model.reviewText(review) == "Dismissed", model.reviewText(review))
+            check("a dismissed review still shows under Not Approved and All", inNotApproved && inAll, "not approved \(inNotApproved), all \(inAll), approved \(review.approved), later \(model.inLater.contains(review.url))")
             model.undoManager?.undo()
             check("and Undo brings it back", model.waitingReviews.contains { $0.url == review.url })
             model.dismissReview(review.url)
@@ -114,6 +124,12 @@ enum SelfTest {
                 asked.items[index].reviewRequestedAt = .now.addingTimeInterval(60)
                 model.github = asked
                 check("a new review request brings a dismissed one back", model.waitingReviews.contains { $0.url == review.url })
+            }
+            if var pushed = saved, let index = pushed.items.firstIndex(where: { $0.url == review.url }) {
+                pushed.items[index].lastCommitAt = .now.addingTimeInterval(60)
+                model.github = pushed
+                check("a new commit brings a dismissed one back, orange", model.waitingReviews.contains { $0.url == review.url } && model.waitsForReview(pushed.items[index])
+                      && model.reviewText(pushed.items[index]) == "Waiting for you")
             }
             model.github = saved
             model.undoManager?.undo()
@@ -1077,7 +1093,7 @@ enum SelfTest {
         let cards = listed.compactMap { $0["card"] as? String }
         check("hq ls prs lists Reviews then Yours, as on the page", cards == Array(repeating: "reviews", count: all.count) + Array(repeating: "yours", count: mine.count)
               && listed.prefix(all.count).compactMap { $0["number"] as? Int } == all.map(\.number)
-              && listed.first?["status"] as? String == all.first.map { PRRow.reviewText($0, waits: model.waitsForReview($0)) }, cards.joined(separator: " "))
+              && listed.first?["status"] as? String == all.first.map { model.reviewText($0) }, cards.joined(separator: " "))
         model.reviewFilter = filter
         model.github = github
         check("the PR section says when GitHub last answered", PullRequestsSection.updated(.now, now: .now) == "Updated just now"

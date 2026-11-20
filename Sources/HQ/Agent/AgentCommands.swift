@@ -983,7 +983,7 @@ extension AgentCommands {
             @MainActor func json(_ item: GitHubItem, card: String?) -> JSONObject {
                 var json = item.agentJSON
                 json["card"] = card
-                if card != nil { json["status"] = PRRow.reviewText(item, waits: model.waitsForReview(item)) }
+                if card != nil { json["status"] = model.reviewText(item) }
                 return json
             }
             items = reviews.map { json($0, card: "reviews") } + yours.map { json($0, card: "yours") } + others.map { json($0, card: nil) }
