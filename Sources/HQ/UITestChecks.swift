@@ -575,6 +575,20 @@ extension UITest {
         await check("two quick clicks on its toggle show all of it and fold it again, and open nothing (T-572)",
                     abs(height() - rest) < 1 && !model.expandedNotices.contains(long.id.uuidString) && model.modal == .notifications,
                     "\(rest) → \(height()), modal \(String(describing: model.modal))")
+        // Its actions sit where every card's do, toggle or not (T-665).
+        if let short = model.notices(in: .updates).filter({ $0.id != long.id && $0.replaced == nil }).min(by: { $0.text.count < $1.text.count }) {
+            func bar(_ notice: Notice) async -> NSRect? {
+                model.noticeSelection = notice.id.uuidString
+                _ = await ui.steadyAnchor("actions:\(notice.id.uuidString)")
+                return ui.anchorFrame("actions:\(notice.id.uuidString)")
+            }
+            let withToggle = await bar(long), without = await bar(short)
+            await check("a card's actions end at the same place on every card, with a toggle or not (T-665)",
+                        withToggle != nil && without != nil && abs((withToggle?.maxX ?? 0) - (without?.maxX ?? 1)) < 0.5,
+                        "\(String(describing: withToggle)) vs \(String(describing: without))")
+        } else {
+            await check("the center has a short update beside the long one", false)
+        }
         await ui.click(await ui.steadyAnchor("notice-avatar:\(long.id.uuidString)"), count: 2, inSheet: true)
         await check("a double-click on the row beside its controls opens what it links", model.modal == .task(40), "\(String(describing: model.modal))")
         model.back()

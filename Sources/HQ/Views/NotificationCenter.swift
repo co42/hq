@@ -294,10 +294,10 @@ private struct NoticeRow: View {
             }
         }
         .listCard(selected: selected, active: active)
-        // Over the time, beside the toggle, which stays where it is.
+        // Over the time, at the same place on every card: left of the toggle's place, which stays where it is (T-665).
         .overlay(alignment: .topTrailing) {
             if hovering || selected || showLater || changingTime {
-                actions.padding(.top, Space.xs).padding(.trailing, toggle ? Metric.cardPadding + Metric.rowAction + Space.sm : Space.xs)
+                actions.padding(.top, Space.xs).padding(.trailing, Metric.cardPadding + Metric.rowAction + Space.sm)
             }
         }
         .onHover { hovering = $0 }
@@ -416,6 +416,7 @@ private struct NoticeRow: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, Space.xs)
         .surface(radius: Radius.control, lifted: true)
+        .uiTestAnchor("actions:\(notice.id.uuidString)")
     }
 
     private var doneTitle: String {
