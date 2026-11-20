@@ -492,6 +492,25 @@ struct Driver {
         return nil
     }
 
+    /// The window at least `width` wide while `body` runs, whatever screen it opened on, then as it was. False, with
+    /// nothing run, when its screen is narrower.
+    func atLeast(width: CGFloat, _ body: () async -> Void) async -> Bool {
+        let original = window.frame
+        guard let screen = window.screen?.visibleFrame, screen.width >= width else { return false }
+        if original.width < width {
+            let x = max(screen.minX, min(original.minX, screen.maxX - width))
+            window.setFrame(NSRect(x: x, y: original.minY, width: width, height: original.height), display: true)
+            await until(2) { model.windowSize.width >= width }
+            await settle(0.3)
+        }
+        await body()
+        if window.frame != original {
+            window.setFrame(original, display: true)
+            await settle(0.3)
+        }
+        return true
+    }
+
     /// A table's row in view, clear of the toolbar and the section bar that float over the page.
     func show(row: Int, in table: NSTableView) {
         guard row >= 0, row < table.numberOfRows else { return }

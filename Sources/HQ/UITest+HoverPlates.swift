@@ -25,6 +25,12 @@ extension UITest {
     /// DESIGN.md §7, §12 Hover). The pointer reaches each plate through its own tracker: posted events don't move the
     /// window server's pointer; `pointerPlates` moves the real one.
     static func hoverPlates(_ model: AppModel, _ ui: Driver) async {
+        // The section bar shows only in a window that has room for it.
+        let ran = await ui.atLeast(width: Metric.sectionBarWindow) { await hoverPlatesShown(model, ui) }
+        if !ran { await check("a screen with room for the section bar", false, "\(Int(ui.window.screen?.visibleFrame.width ?? 0)) pt") }
+    }
+
+    private static func hoverPlatesShown(_ model: AppModel, _ ui: Driver) async {
         guard let page = await platePage(model, ui) else { return }
         var missing: [String] = []
         var wrong: [String] = []
@@ -106,6 +112,11 @@ extension UITest {
     /// (HQ_FOREGROUND=1), with the user away or saying yes.
     static func pointerPlates(_ model: AppModel, _ ui: Driver) async {
         guard !Store.background, NSApp.isActive else { return skip("the real pointer over each control") }
+        let ran = await ui.atLeast(width: Metric.sectionBarWindow) { await pointerPlatesShown(model, ui) }
+        if !ran { await check("a screen with room for the section bar", false, "\(Int(ui.window.screen?.visibleFrame.width ?? 0)) pt") }
+    }
+
+    private static func pointerPlatesShown(_ model: AppModel, _ ui: Driver) async {
         guard let page = await platePage(model, ui) else { return }
         let home = NSEvent.mouseLocation
         defer { movePointer(toScreen: home) }
