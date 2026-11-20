@@ -885,7 +885,7 @@ final class MenuState: ObservableObject {
         set(\.canEditRole, model.modal == .roles && model.roleEdit == nil && model.role(named: model.selectedRole) != nil)
         set(\.taskDescriptionShown, task.map { model.descriptionShownInOutline($0.id) } ?? false)
         set(\.taskBlocked, task?.blocked ?? false)
-        let targets = model.modal == nil && model.selectedTasks.count > 1 ? model.selectedTasks : task.map { [$0.id] } ?? []
+        let targets = model.modal == nil && !model.selectedTasks.isEmpty ? model.selectedTasks : task.map { [$0.id] } ?? []
         set(\.taskIsTop, targets.contains { model.taskTree.parent(of: $0) == nil && model.task($0) != nil })
         let archived: Int? = switch model.modal {
         case .archive: model.archiveSelection
@@ -896,7 +896,7 @@ final class MenuState: ObservableObject {
         set(\.tasks, targets)
         set(\.tasksToBacklog, targets.contains { model.task($0)?.status != .backlog })
         set(\.allDone, !targets.isEmpty && targets.allSatisfy { model.task($0)?.status == .done })
-        set(\.taskStatus, targets.count == 1 ? task?.status : nil)
+        set(\.taskStatus, targets.count == 1 ? model.task(targets[0])?.status : nil)
         set(\.editorFind, model.findEditor() != nil)
         let editor = model.keyboardEditor() != nil, diagram = model.diagramShown
         if editor != editorFormat || diagram != self.diagram {

@@ -54,7 +54,7 @@ shards=(
   outlineKeys,grid,modal,menuBar,singleSessionFace,prFaces
   storyFlow,typingKeepsRows,pageSelection,lateChecks
   slackLinks,rowControls,foldedParentOpens,outlineDrops,sessionDrags
-  pageFixes,taskLinks,copyAndRemind
+  pageFixes,taskLinks,copyAndRemind,severalTasks
 )
 # UITEST_RUN=name: the copies' stores, vaults and logs are /tmp/HQ-<name>-<n>.*, to run beside another run.
 prefix=${UITEST_RUN:-ui}

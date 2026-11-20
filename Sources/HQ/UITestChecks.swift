@@ -2465,11 +2465,7 @@ extension UITest {
             return await check("the outline for drops", false)
         }
         let tree = { model.taskTree }
-        // One row at a time (2026-11-10): the Task menu acts on it; a task goes to the backlog in its place, its subtasks still nested.
-        outline.selectRowIndexes(IndexSet([outline.row(forItem: coordinator.node(.task(b))), outline.row(forItem: coordinator.node(.task(c)))]),
-                                 byExtendingSelection: false)
-        await ui.settle(0.3)
-        await check("only one row can be selected", outline.selectedRowIndexes.count <= 1 && !outline.allowsMultipleSelection, "\(outline.selectedRowIndexes.count)")
+        // The Task menu acts on the selected row; a task goes to the backlog in its place, its subtasks still nested.
         coordinator.select(a)
         await ui.settle(0.3)
         await check("the Task menu targets the selected row", MenuState.shared.tasks == [a], "\(MenuState.shared.tasks)")

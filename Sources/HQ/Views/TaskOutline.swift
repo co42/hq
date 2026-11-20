@@ -78,6 +78,8 @@ enum OutlineKeyboard {
 enum OutlineFocus: Equatable {
     /// The task's row, selected.
     case row(Int)
+    /// Several tasks' rows, selected: Undo brings back the selection it changed.
+    case rows([Int])
     /// The title of the task, or of the task `by` rows away.
     case title(Int, by: Int)
     /// The keyboard left the task's description for elsewhere.
@@ -86,6 +88,7 @@ enum OutlineFocus: Equatable {
     var task: Int {
         switch self {
         case .row(let id), .title(let id, _), .left(let id): id
+        case .rows(let ids): ids.first ?? 0
         }
     }
 }
@@ -319,8 +322,8 @@ final class OutlineContainer: NSView {
         outline.indentationMarkerFollowsCell = true
         outline.autoresizesOutlineColumn = false
         outline.floatsGroupRows = false
-        // One task at a time for now (2026-11-10): moving several at once is for a later version.
-        outline.allowsMultipleSelection = false
+        // ⌘-click adds or removes a task, ⇧-click selects a range (2026-11-20, T-568).
+        outline.allowsMultipleSelection = true
         outline.allowsEmptySelection = true
         outline.selectionHighlightStyle = .regular
         outline.focusRingType = .none
@@ -451,6 +454,9 @@ final class TaskOutlineView: NSOutlineView {
         addSubview(view, positioned: .below, relativeTo: nil)
         return view
     }()
+    /// The cards as drawn, and the ones with a focus ring, for the UI test.
+    var cardShapes: [CardShape] { cards.shapes }
+    var focusRingKeys: Set<String> { Set(cards.focusRings.keys) }
 
     /// The selection's ring and the fade follow the window becoming key or not.
     private var keyObservers: [NSObjectProtocol] = []
@@ -613,6 +619,8 @@ final class TaskOutlineView: NSOutlineView {
             guard let id = (item(atRow: row) as? OutlineNode)?.task, let card = cardFrame(ofRow: row) else { continue }
             // A Blocked card's red edge, a selected one's accent ring; no yellow edge for doing (2026-11-10).
             let ring: CardShape.Ring? = dropOnto == id ? .drop : selected.contains(row) && keyboard ? .selected : flow.state(id) == .blocked ? .blocked : nil
+            // Among several selected, the task the keys act on (2026-11-20, T-568).
+            let focused = keyboard && coordinator.focus == id
             let top = coordinator.plan.depth[id] == 0
             // Raised means now: a backlog or done card is flat (2026-11-16, T-471).
             let status = coordinator.model.task(id)?.status
@@ -632,11 +640,11 @@ final class TaskOutlineView: NSOutlineView {
                 let tray = NSRect(x: edges.left, y: card.minY - above, width: max(cardsRight - edges.left - edges.right, 0), height: bottom - card.minY + above)
                 trays.append(CardShape(rect: tray, radius: top ? Radius.card : Radius.row + 2, kind: .tray, key: "tray:\(id)"))
                 // A block's header sits on its tray, but a story's big card; selected, its header gets the ring too.
-                guard top || ring == .selected || ring == .drop || ring == .blocked else { continue }
-                cards.append(CardShape(rect: coordinator.plan.flush.contains(id) ? card.insetBy(dx: 2, dy: 2) : card, radius: top ? Radius.row + 4 : Radius.row, kind: top && !flat ? .card : .flat, ring: ring, key: "card:\(id)"))
+                guard top || ring == .selected || ring == .drop || ring == .blocked || focused else { continue }
+                cards.append(CardShape(rect: coordinator.plan.flush.contains(id) ? card.insetBy(dx: 2, dy: 2) : card, radius: top ? Radius.row + 4 : Radius.row, kind: top && !flat ? .card : .flat, ring: ring, key: "card:\(id)", focused: focused))
             } else {
                 cards.append(CardShape(rect: card, radius: top ? Radius.row + 4 : Radius.row, kind: flat ? .flat : .card, ring: ring,
-                                       key: "card:\(id)"))
+                                       key: "card:\(id)", focused: focused))
             }
         }
         return trays + cards
@@ -644,14 +652,6 @@ final class TaskOutlineView: NSOutlineView {
 
     /// No AppKit disclosure: a task with subtasks stays open, its card's chevron folds it to the subtasks that matter.
     override func frameOfOutlineCell(atRow row: Int) -> NSRect { .zero }
-
-    /// One row at a time (2026-11-10): AppKit takes several from code even so, so a selection made anywhere keeps its first.
-    override func selectRowIndexes(_ indexes: IndexSet, byExtendingSelection extend: Bool) {
-        guard !allowsMultipleSelection, indexes.count > 1 || (extend && !indexes.isEmpty) else {
-            return super.selectRowIndexes(indexes, byExtendingSelection: extend)
-        }
-        super.selectRowIndexes(indexes.first.map { IndexSet(integer: $0) } ?? [], byExtendingSelection: false)
-    }
 
     /// A click on a title selects its row; a double-click edits it.
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
@@ -712,6 +712,8 @@ final class TaskOutlineView: NSOutlineView {
             return takeRelease()
         }
         super.mouseDown(with: event)
+        // After AppKit's own tracking: a ⌘- or ⇧-click focuses the task it hit, a plain one goes back to one task.
+        coordinator?.clicked(row, adding: !event.modifierFlags.intersection([.command, .shift]).isEmpty)
     }
 
     /// ⌘C, Edit › Copy: the selected tasks' lines (T-358).
@@ -1133,6 +1135,73 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     private var selectedIDs: [Int] { outline?.selectedRowIndexes.compactMap { task(atRow: $0) } ?? [] }
 
+    /// While several tasks are kept (⌘-click, ⇧-click, X): the one the arrows move and Return, Space and X act on, selected
+    /// or not (2026-11-20, T-568). Nil: one task, the selected row.
+    private(set) var focus: Int?
+    /// A selection X changes: the focus stays where it is.
+    private var holdingFocus = false
+
+    /// The task the one-task keys act on: the focus, else the selected row.
+    var focusedID: Int? { focus ?? selectedIDs.first }
+
+    /// The page's Task menu acts on the focused task.
+    private func noteFocus() {
+        guard root == nil, let outline else { return }
+        let id = focus ?? task(atRow: outline.selectedRow)
+        if model.focusedTask != id { model.focusedTask = id }
+    }
+
+    /// A click on a row, once AppKit is done with it: among several selected, the task it hit takes the focus; one
+    /// selected, there is none.
+    func clicked(_ row: Int, adding: Bool) {
+        guard let outline, row >= 0, let id = task(atRow: row) else { return }
+        let next = outline.selectedRowIndexes.count > 1 ? id : nil
+        guard next != focus else { return }
+        focus = next
+        noteFocus()
+        outline.placeCards()
+    }
+
+    /// X: the focused task joins the selection or leaves it. On a lone selected task it starts keeping it; the last one
+    /// kept leaving goes back to one task, never to none.
+    private func toggleKept() {
+        guard let outline, let id = focusedID, case let row = row(of: id), row >= 0 else { return }
+        let rows = outline.selectedRowIndexes
+        holdingFocus = true
+        defer { holdingFocus = false }
+        if focus == nil {
+            focus = id
+        } else if !rows.contains(row) {
+            outline.selectRowIndexes([row], byExtendingSelection: true)
+        } else if rows.count > 1 {
+            outline.deselectRow(row)
+        } else {
+            focus = nil
+        }
+        noteFocus()
+        outline.placeCards()
+    }
+
+    /// ↑ ↓ while several are kept: the focus moves to the task above or below; the selection stays.
+    private func moveFocus(by offset: Int) {
+        guard let outline, let id = focus, case var row = row(of: id), row >= 0 else { return }
+        repeat { row += offset } while row >= 0 && row < outline.numberOfRows && task(atRow: row) == nil
+        guard row >= 0, row < outline.numberOfRows, let next = task(atRow: row) else { return }
+        focus = next
+        outline.scrollRowToVisible(row)
+        noteFocus()
+        outline.placeCards()
+    }
+
+    /// Escape among several: the focused task alone, selected.
+    private func backToOne() {
+        guard let outline, let id = focus else { return }
+        focus = nil
+        select(id)
+        noteFocus()
+        outline.placeCards()
+    }
+
     private var outlineHasResponder: Bool {
         guard let outline, let responder = outline.window?.firstResponder as? NSView else { return false }
         return responder.isDescendant(of: outline)
@@ -1220,6 +1289,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case .row(let id):
             select(id)
             dropIfEmpty(id)
+        case .rows(let ids):
+            select(ids)
         case .title(let id, let offset):
             if let target = offset == 0 ? id : neighbor(of: id, by: offset) { beginEditing(target) } else { select(id) }
             if offset != 0 { dropIfEmpty(id) }
@@ -1581,16 +1652,19 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard let outline else { return }
+        // Back to one task, or a focus among several that still shows (2026-11-20, T-568).
+        if !holdingFocus {
+            if outline.selectedRowIndexes.count <= 1 { focus = nil }
+            else if focus.map({ row(of: $0) < 0 }) ?? true { focus = task(atRow: outline.selectedRow) }
+        }
         // A task's window: the selection is its own, the page's stays.
         if root != nil {
             outline.placeCards()
             return
         }
-        let row = outline.selectedRow
-        let id = row >= 0 ? (outline.item(atRow: row) as? OutlineNode)?.task : nil
-        if model.focusedTask != id { model.focusedTask = id }
         let selected = outline.selectedRowIndexes.compactMap { (outline.item(atRow: $0) as? OutlineNode)?.task }
         if model.selectedTasks != selected { model.selectedTasks = selected }
+        noteFocus()
         // A chip under a row unselects when the rows change; a click on a chip selects it again after.
         if model.modal == nil, model.selectedItem.flatMap(AppModel.section(ofItem:)) == .tasks { model.selectedItem = nil }
         if !selected.isEmpty { model.selectSection(.tasks) }
@@ -1687,16 +1761,18 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let letter = event.charactersIgnoringModifiers?.lowercased()
         let newTask = letter == "n" && flags.subtracting(.shift).isEmpty
-        guard let first = ids.first, let last = ids.last else {
+        guard let first = ids.first, let last = ids.last, let focused = focusedID else {
             guard root == nil else { return false }
             if newTask { model.focusQuickAdd() }
             return newTask
         }
+        // B, ⇧B and A on one task only; the one-task keys act on the focus (2026-11-20, T-568).
+        let one = ids.count == 1
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): beginEditing(first)
+        case (36, []), (76, []): beginEditing(focused)
         case (36, .shift), (76, .shift): model.toggleDescriptions(ids)
         case (36, .command), (76, .command): model.nextStatus(ids)
-        case (36, [.command, .option]), (76, [.command, .option]): model.beginStart(task: first)
+        case (36, [.command, .option]), (76, [.command, .option]): model.beginStart(task: focused)
         case (36, _), (76, _): break
         case (48, []) where root != nil, (48, .shift) where root != nil: return false
         case (48, []), (48, .shift): leaveSection(by: flags.contains(.shift) ? -1 : 1)
@@ -1706,27 +1782,32 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (123, .shift): if !event.isARepeat { model.outdentTasks(ids) }
         case (126, .shift): model.shiftTasks(ids, by: -1, leavingParent: !event.isARepeat)
         case (125, .shift): model.shiftTasks(ids, by: 1, leavingParent: !event.isARepeat)
+        // Among several kept, the arrows move the focus and the selection stays.
+        case (126, []) where focus != nil: moveFocus(by: -1)
+        case (125, []) where focus != nil: moveFocus(by: 1)
+        case (_, []) where letter == "x": toggleKept()
         // ↓ on a list's last task: its new task's card; on a task window's last subtask, its new subtask's.
         case (125, []) where newTaskBelow(last):
             outline?.deselectAll(nil)
             if let root { model.newSubtaskFocus = root } else if quickAddBelow(last) { focusQuickAdd() }
         case (123, []), (123, .option): foldLeft(ids, deep: flags == .option)
         case (124, []), (124, .option): foldRight(ids, deep: flags == .option)
-        case (49, []), (34, .command): model.open(.task(first), push: root != nil)
+        case (49, []), (34, .command): model.open(.task(focused), push: root != nil)
         // In a task's window too, the selected subtask moves, not the window's task.
         case (11, [.command, .shift]): model.toggleBacklog(ids)
         case (_, [.command, .control]) where letter == "a": model.archive(ids)
-        // Escape unselects: nothing stays dimmed.
-        case (53, []): outline?.deselectAll(nil)
+        // Escape goes back to one task, then unselects: nothing stays dimmed.
+        case (53, []): if focus != nil { backToOne() } else { outline?.deselectAll(nil) }
         case (51, []), (117, []), (51, .command): model.deleteTasks(ids)
         // B blocks or unblocks, ⇧B asks what blocks it, A what it comes after: by the letter, whatever the layout.
+        case (_, []) where !one && (letter == "b" || letter == "a"), (_, .shift) where !one && letter == "b": break
         case (_, []) where letter == "b":
             if model.task(first)?.blocked == true { model.unblock(first) } else if model.task(first)?.status != .done { showHoldPicker(first, .block) }
         case (_, .shift) where letter == "b": if model.task(first)?.status != .done { showHoldPicker(first, .blockedBy) }
         case (_, []) where letter == "a": if model.task(first)?.status != .done { showHoldPicker(first, .after) }
         default:
             guard newTask else { return false }
-            let added = flags.contains(.shift) ? model.addSubtask(to: first) : model.addTask(after: last)
+            let added = flags.contains(.shift) ? model.addSubtask(to: focused) : model.addTask(after: last)
             guard let added else { break }
             pendingEdit = (added.id, true)
             refresh()
@@ -1774,7 +1855,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         if deep { return fold(ids, .hidden, deep: true) }
         let open = ids.filter(snapshot.expandable.contains)
         if !open.isEmpty { return fold(open, .hidden) }
-        guard ids.count == 1, let parent = model.taskTree.parent(of: ids[0]), row(of: parent) >= 0 else { return }
+        guard ids.count == 1, focus == nil, let parent = model.taskTree.parent(of: ids[0]), row(of: parent) >= 0 else { return }
         select(parent)
     }
 
@@ -1783,7 +1864,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         if deep { return fold(ids, .all, deep: true) }
         let shut = ids.filter { snapshot.foldable.contains($0) && !snapshot.expandable.contains($0) }
         if !shut.isEmpty { return fold(shut, .all) }
-        guard ids.count == 1, case .task(let first)? = snapshot.children(of: .task(ids[0])).first else { return }
+        guard ids.count == 1, focus == nil, case .task(let first)? = snapshot.children(of: .task(ids[0])).first else { return }
         select(first)
     }
 
@@ -2152,9 +2233,12 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             }
         }
         dragBegan(draggedItems.compactMap { ($0 as? OutlineNode)?.task })
+        Self.dragStarted?(dragged)
     }
 
     func dragBegan(_ ids: [Int]) { dragged = ids }
+    /// The UI test hears AppKit start a drag, with its tasks.
+    static var dragStarted: (([Int]) -> Void)?
 
     private(set) var dragged: [Int] = []
     /// The card the last dragged task over the middle of was proposed onto, for the UI test.

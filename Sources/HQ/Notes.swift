@@ -392,8 +392,9 @@ extension AppModel {
     /// A selected task a change of status hides (the Backlog or Done toggle off) leaves at once; Undo brings it back
     /// selected (2026-11-16, T-471). Registered after the change, so it runs once the change is undone.
     private func reselectOnUndo(_ ids: [Int], _ action: String) {
-        guard let first = ids.first(where: selectedTasks.contains) else { return }
-        registerUndo(action) { model in model.outlineFocus = .row(first) }
+        guard ids.contains(where: selectedTasks.contains) else { return }
+        let selected = selectedTasks
+        registerUndo(action) { model in model.outlineFocus = selected.count > 1 ? .rows(selected) : .row(selected[0]) }
     }
 
     /// Tasks still in Review from before v9: doing now, and on the overview a row in the center with their reason.

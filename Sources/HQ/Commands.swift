@@ -193,19 +193,19 @@ struct HQCommands: Commands {
                 .keyboardShortcut(.return, modifiers: [.command, .option])
                 .disabled(task == nil)
             Button("Link…") { if let task { model.showLinkPicker(task) } }
-                .disabled(task == nil || menu.inModal)
+                .disabled(task == nil || menu.inModal || several)
             Button(menu.taskBlocked ? "Unblock" : "Block…") {
                 guard let task else { return }
                 if menu.taskBlocked { model.unblock(task) } else { model.showHoldPicker(task, .block) }
             }
                 .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: []) : nil)
-                .disabled(task == nil || menu.inModal)
+                .disabled(task == nil || menu.inModal || several)
             Button("Blocked By…") { if let task { model.showHoldPicker(task, .blockedBy) } }
                 .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: .shift) : nil)
-                .disabled(task == nil || menu.inModal)
+                .disabled(task == nil || menu.inModal || several)
             Button("After…") { if let task { model.showHoldPicker(task, .after) } }
                 .keyboardShortcut(rows ? KeyboardShortcut("a", modifiers: []) : nil)
-                .disabled(task == nil || menu.inModal)
+                .disabled(task == nil || menu.inModal || several)
             Divider()
             Button(menu.tasksToBacklog ? (several ? "Move \(menu.tasks.count) to Backlog" : "Move to Backlog")
                    : (several ? "Move \(menu.tasks.count) Out of the Backlog" : "Move Out of the Backlog")) {
