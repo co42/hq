@@ -160,6 +160,8 @@ struct MarkdownEditor: NSViewRepresentable {
                 // Its own find bar keeps the edit open.
                 if let scroll = editor?.enclosingScrollView, let responder = editor?.window?.firstResponder as? NSView,
                    responder.isDescendant(of: scroll) { return }
+                // The window clearing its first focus as it shows ends nothing: the editor takes the keyboard back.
+                if let editor = editor as? EditorTextView, editor.holdsFocus, editor.window?.firstResponder === editor.window { return }
                 self.ended = true
                 self.parent.onEnd()
             }
@@ -240,8 +242,7 @@ struct MarkdownEditor: NSViewRepresentable {
             return resigned
         }
 
-        /// Takes the keyboard once it's in a window, after the window cleared its first focus: the caret at the end, the
-        /// start, or under a point of the rendered text.
+        /// Takes the keyboard once it's in a window: the caret at the end, the start, or under a point of the rendered text.
         func focusWhenShown(caretAtEnd: Bool, at point: CGPoint? = nil) {
             wantsFocus = (caretAtEnd, point)
             if window != nil { focusSoon() }
@@ -249,24 +250,67 @@ struct MarkdownEditor: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window == nil { DispatchQueue.main.async { NotificationCenter.default.post(name: .editorKeyboard, object: nil) } }
+            if window == nil {
+                letFocusGo()
+                DispatchQueue.main.async { NotificationCenter.default.post(name: .editorKeyboard, object: nil) }
+            }
             if window != nil, wantsFocus != nil { focusSoon() }
         }
 
+        /// Watches the window's first responder until the user's first press or key: the window clearing its first focus
+        /// as it shows (`noInitialFocus`) gives the keyboard back.
+        private var responderWatch: NSKeyValueObservation?
+        private var inputWatch: Any?
+        private(set) var focusTakenBack = 0
+        private var takingBack = false
+        var holdsFocus: Bool { responderWatch != nil }
+
+        /// After the update that shows it.
         private func focusSoon() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                guard let self, let window = self.window, let wanted = self.wantsFocus else { return }
-                self.wantsFocus = nil
-                window.makeFirstResponder(self)
-                let length = (self.string as NSString).length
-                var caret = wanted.atEnd ? length : 0
-                if let point = wanted.point {
-                    let origin = self.textContainerOrigin
-                    caret = min(self.characterIndexForInsertion(at: NSPoint(x: point.x + origin.x, y: point.y + origin.y)), length)
-                }
-                self.setSelectedRange(NSRange(location: caret, length: 0))
-                self.scrollRangeToVisible(self.selectedRange())
+            DispatchQueue.main.async { [weak self] in self?.takeFocus() }
+        }
+
+        private func takeFocus() {
+            guard let window, let wanted = wantsFocus else { return }
+            wantsFocus = nil
+            window.makeFirstResponder(self)
+            let length = (string as NSString).length
+            var caret = wanted.atEnd ? length : 0
+            if let point = wanted.point {
+                let origin = textContainerOrigin
+                caret = min(characterIndexForInsertion(at: NSPoint(x: point.x + origin.x, y: point.y + origin.y)), length)
             }
+            setSelectedRange(NSRange(location: caret, length: 0))
+            scrollRangeToVisible(selectedRange())
+            holdFocus(in: window)
+        }
+
+        private func holdFocus(in window: NSWindow) {
+            letFocusGo()
+            responderWatch = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
+                MainActor.assumeIsolated {
+                    guard let self, !self.takingBack, window.firstResponder == nil || window.firstResponder === window else { return }
+                    self.focusTakenBack += 1
+                    self.takingBack = true
+                    // Once the change is done: AppKit is still inside makeFirstResponder.
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        self.takingBack = false
+                        guard self.responderWatch != nil, self.window === window else { return }
+                        window.makeFirstResponder(self)
+                    }
+                }
+            }
+            inputWatch = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                MainActor.assumeIsolated { if event.window === self?.window { self?.letFocusGo() } }
+                return event
+            }
+        }
+
+        private func letFocusGo() {
+            responderWatch = nil
+            if let inputWatch { NSEvent.removeMonitor(inputWatch) }
+            inputWatch = nil
         }
 
         /// Grown to its text in a page that scrolls, the page follows the caret: once the box has its new height, so the box

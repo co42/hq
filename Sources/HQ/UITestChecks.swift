@@ -1476,6 +1476,13 @@ extension UITest {
         guard let editor = ui.window.firstResponder as? MarkdownEditor.EditorTextView, let storage = editor.textStorage else {
             return await check("the description's editor takes the keyboard", false, ui.responder)
         }
+        // The window clearing its first focus as it shows, before any key or click, keeps the edit open (T-535).
+        let takenBack = editor.focusTakenBack
+        ui.window.makeFirstResponder(nil)
+        await ui.until { ui.window.firstResponder === editor }
+        await check("an editor whose window clears its first focus takes the keyboard back and stays open",
+                    ui.window.firstResponder === editor && model.editingDescription == task.id && editor.focusTakenBack == takenBack + 1,
+                    "\(ui.responder), editing \(String(describing: model.editingDescription)), taken back \(editor.focusTakenBack)")
         func at(_ needle: String) -> Int { (editor.string as NSString).range(of: needle).location }
         func font(_ needle: String) -> NSFont? { at(needle) == NSNotFound ? nil : storage.attribute(.font, at: at(needle), effectiveRange: nil) as? NSFont }
         let plain = font("First line")
@@ -1503,6 +1510,7 @@ extension UITest {
             await ui.type(line)
         }
         await ui.settle(0.6)
+        await check("once the user types, the editor no longer holds the keyboard", !editor.holdsFocus)
         await check("the box grows with its text, and its row with it", box() > boxBefore + Space.lg && outline.rect(ofRow: row()).height > rowBefore + Space.lg,
               "box \(boxBefore) → \(box()), row \(rowBefore) → \(outline.rect(ofRow: row()).height)")
         // Lists.
