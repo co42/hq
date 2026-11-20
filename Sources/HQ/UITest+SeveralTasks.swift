@@ -114,7 +114,48 @@ extension UITest {
         await ui.click(ui.titlePoint(a1))
         await tableCheck(ui, "a plain click goes back to one task", model.selectedTasks == [a1] && coordinator.focus == nil && rings(selected: [a1]), state())
 
+        await severalUpdates(model, ui, outline, coordinator, ids, state)
         await severalDrag(model, ui, outline, coordinator, b, c, a)
+    }
+
+    /// The tasks change under several kept (a session, the vault): the selection and the focus stay, and X still adds the
+    /// focused task (T-712).
+    private static func severalUpdates(_ model: AppModel, _ ui: Driver, _ outline: TaskOutlineView, _ coordinator: OutlineCoordinator, _ ids: [String: Int],
+                                       _ state: () -> String) async {
+        guard let a = ids["A"], let a2 = ids["A2"], let b = ids["B"], let c = ids["C"] else { return await check("the outline's tasks", false) }
+        if ui.window.firstResponder !== outline { ui.window.makeFirstResponder(outline) }
+        coordinator.select(a)
+        await ui.settle(0.2)
+        for key in ["x", "↓", "↓", "↓", "x", "↑"] {
+            if key == "x" { await ui.key("x", code: 7) } else { await ui.key(key == "↓" ? .down : .up) }
+        }
+        await check("A and B kept, the focus on A2", model.selectedTasks == [a, b] && coordinator.focus == a2, state())
+        await endUndoGroup(model)
+        let changes: [(String, () -> Void)] = [
+            ("a task added at the end", { _ = model.addTask(status: .todo, title: "F") }),
+            ("a task renamed", { model.setTitle(c, "C again") }),
+            ("a task added between kept ones", { _ = model.addTask(after: a, title: "A after") }),
+            ("the focus gets a subtask", { _ = model.addSubtask(to: a2, title: "A21") }),
+            ("a kept task moves on", { model.setStatus(b, .doing) }),
+            ("a kept task moves under another", { _ = model.drop([b], into: .task(c), at: 0) }),
+        ]
+        for (name, change) in changes {
+            change()
+            await endUndoGroup(model)
+            await ui.settle(0.4)
+            await check("\(name): the selection and the focus stay", model.selectedTasks == [a, b] && coordinator.focus == a2, state())
+        }
+        await ui.key(.tab)
+        await ui.settle(0.3)
+        await check("Tab leaves Tasks: its rows unselect", model.selectedTasks.isEmpty && model.selectedSection != .tasks, state())
+        await ui.key(.tab, .shift)
+        await ui.settle(0.3)
+        await check("Shift-Tab back: the kept tasks and the focus come back", model.selectedTasks == [a, b] && coordinator.focus == a2, state())
+        await ui.key("x", code: 7)
+        await check("X then adds the focused task", model.selectedTasks == [a, a2, b] && coordinator.focus == a2, state())
+        for _ in changes { model.undoManager?.undo() }
+        await ui.settle(0.4)
+        await check("the changes undone", tops(model) == [a, b, c] && model.task(b)?.status == .todo, "\(tops(model))")
     }
 
     /// Two selected cards dragged through AppKit's own mouse tracking: the drag starts with both (moving several crashed

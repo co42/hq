@@ -934,8 +934,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private var mermaidObserver: NSObjectProtocol?
     private var clickMonitor: Any?
     private let clicks = ClickTaker()
-    /// The rows selected when Tab left the tasks.
+    /// The rows selected when Tab left the tasks, and the focus among them.
     private var parked: [Int] = []
+    private var parkedFocus: Int?
     /// The completion list is opening, or the last key deleted: no new list.
     private var completing = false
     private var deleting = false
@@ -1034,10 +1035,14 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         // Made at another zoom, it's on its way out: its rows hold still in the frame SwiftUI gave them until it goes.
         guard zoom == Zoom.factor else { return }
         refreshing = true
-        defer { refreshing = false }
+        defer {
+            refreshing = false
+            settleFocus()
+        }
         // Another section took the page's selection: the rows unselect, kept aside for when Tab comes back.
         if root == nil, model.selectedSection != .tasks, !outline.selectedRowIndexes.isEmpty {
             parked = selectedIDs
+            parkedFocus = focus
             outline.deselectAll(nil)
         }
 
@@ -1075,9 +1080,11 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             model.sectionFocus = nil
             let first = snapshot.children(of: .header).lazy.compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } }.first
             let back = parked.filter { row(of: $0) >= 0 }
+            let kept = parkedFocus
             parked = []
+            parkedFocus = nil
             if !back.isEmpty {
-                DispatchQueue.main.async { [weak self] in self?.select(back) }
+                DispatchQueue.main.async { [weak self] in self?.select(back, focus: kept) }
             } else if let id = model.focusedTask.flatMap({ row(of: $0) >= 0 ? $0 : nil }) ?? first {
                 DispatchQueue.main.async { [weak self] in self?.select(id) }
             }
@@ -1203,6 +1210,19 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         outline.placeCards()
     }
 
+    /// After an update rebuilt the selection: the focus stays while it shows and something is selected.
+    private func settleFocus() {
+        guard let outline else { return }
+        let rows = outline.selectedRowIndexes
+        let next: Int? = if rows.isEmpty { nil }
+            else if let focus, row(of: focus) >= 0 { focus }
+            else { rows.count > 1 ? task(atRow: outline.selectedRow) : nil }
+        guard next != focus else { return }
+        focus = next
+        noteFocus()
+        outline.placeCards()
+    }
+
     /// Escape among several: the focused task alone, selected.
     private func backToOne() {
         guard let outline, let id = focus else { return }
@@ -1246,12 +1266,17 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         if kept.isEmpty || !outlineHasResponder { outline.window?.makeFirstResponder(outline) }
     }
 
-    /// Selects tasks' rows, with the keyboard.
-    func select(_ ids: [Int]) {
+    /// Selects tasks' rows, with the keyboard; `focus`, the one the keys act on, when it shows.
+    func select(_ ids: [Int], focus kept: Int? = nil) {
         guard let outline else { return }
         let rows = IndexSet(ids.map(row(of:)).filter { $0 >= 0 })
         guard let first = rows.first else { return }
         outline.selectRowIndexes(rows, byExtendingSelection: false)
+        if let kept, row(of: kept) >= 0, kept != focus {
+            focus = kept
+            noteFocus()
+            outline.placeCards()
+        }
         outline.scrollRowToVisible(first)
         if outline.window?.firstResponder !== outline { outline.window?.makeFirstResponder(outline) }
     }
@@ -1661,8 +1686,8 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard let outline else { return }
-        // Back to one task, or a focus among several that still shows (2026-11-20, T-568).
-        if !holdingFocus {
+        // Back to one task, or a focus among several that still shows (2026-11-20, T-568); an update settles it once done (T-712).
+        if !holdingFocus, !refreshing {
             if outline.selectedRowIndexes.count <= 1 { focus = nil }
             else if focus.map({ row(of: $0) < 0 }) ?? true { focus = task(atRow: outline.selectedRow) }
         }
@@ -1687,7 +1712,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         model.setFold(id, .all)
         // AppKit loads its subtasks folded: the ones the user left open open again.
         refreshing = true
-        defer { refreshing = false }
+        defer {
+            refreshing = false
+            settleFocus()
+        }
         expandOpen(snapshot.children(of: .task(id)))
         replanRows()
     }
@@ -1879,9 +1907,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     /// Tab and ⇧Tab on rows: the next section takes the keyboard; the rows unselect, kept aside for when Tab comes back.
     private func leaveSection(by offset: Int) {
-        let ids = selectedIDs
+        let ids = selectedIDs, kept = focus
         guard model.moveSection(from: .tasks, by: offset) != .tasks else { return }
         parked = ids
+        parkedFocus = kept
         outline?.deselectAll(nil)
     }
 
