@@ -14,12 +14,15 @@ struct RoleEdit: Hashable {
     var fresh = false
 }
 
+/// What has the keyboard in Roles: the page, whose keys pick a role, or the name or line being edited.
+enum RolesFocus: Hashable { case page, field }
+
 /// Roles (DESIGN.md §8, T-415): the list card beside the role picked, laid out like a File; stacked at 756 pt and narrower.
 /// ↑ ↓ pick a role, ⌘E edits its text.
 struct RolesModal: View {
     @Environment(AppModel.self) private var model
     @State private var width: CGFloat = 0
-    @FocusState private var focused: Bool
+    @FocusState private var focus: RolesFocus?
 
     var body: some View {
         let sideBySide = width >= Metric.rolesSideBySide
@@ -53,12 +56,15 @@ struct RolesModal: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .focusable(model.roleEdit == nil)
         .focusEffectDisabled()
-        .focused($focused)
+        .focused($focus, equals: .page)
         .onAppear {
-            focused = true
+            focus = .page
             model.readClaudeDefaults()
         }
-        .onChange(of: model.roleEdit) { _, edit in if edit == nil { focused = true } }
+        // One focus for the page and its field: an edit takes the keyboard from the page in the same step.
+        .onChange(of: model.roleEdit) { _, edit in
+            if edit == nil { focus = .page } else if edit?.field != .text { focus = .field }
+        }
         .onKeyPress(.downArrow) { pick(1) }
         .onKeyPress(.upArrow) { pick(-1) }
         .preference(key: OwnsEscape.self, value: model.roleEdit != nil)
@@ -76,7 +82,7 @@ struct RolesModal: View {
     private var list: some View {
         ModalBox(rows: true) {
             ForEach(model.roles) { role in
-                RoleRow(role: role, selected: role.name == model.pickedRole?.name, active: focused)
+                RoleRow(role: role, selected: role.name == model.pickedRole?.name, active: focus == .page)
             }
             Button { model.addRole() } label: {
                 Label("New Role", icon: .new)
@@ -99,7 +105,7 @@ struct RolesModal: View {
     @ViewBuilder
     private var detail: some View {
         if let role = model.pickedRole {
-            RoleDetail(role: role)
+            RoleDetail(role: role, focus: $focus)
         } else {
             ContentUnavailableView {
                 Label("No Role Selected", icon: .roles)
@@ -163,8 +169,8 @@ private struct RoleRow: View {
 /// The role picked, laid out like a File: path and byline, its chip and who has it, its name and line, then its text.
 private struct RoleDetail: View {
     let role: RoleItem
+    var focus: FocusState<RolesFocus?>.Binding
     @Environment(AppModel.self) private var model
-    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         let edit = model.roleEdit?.role == role.name ? model.roleEdit : nil
@@ -255,12 +261,12 @@ private struct RoleDetail: View {
         TextField(prompt, text: Binding(get: { model.roleEdit?.text ?? "" }, set: { model.roleEdit?.text = $0 }))
             .textFieldStyle(.plain)
             .kitType(type)
-            .focused($fieldFocused)
-            // After it shows: a New Role's page and its field appear in the same update.
-            .task { fieldFocused = true }
+            .focused(focus, equals: .field)
+            // Once it shows: a New Role's page and its field appear in the same update.
+            .onAppear { focus.wrappedValue = .field }
             .onSubmit { model.finishRoleEdit() }
             .onExitCommand { if edit?.fresh == true { model.finishRoleEdit() } else { model.cancelRoleEdit() } }
-            .onChange(of: fieldFocused) { if !fieldFocused, model.roleEdit == edit, edit != nil { model.finishRoleEdit() } }
+            .onChange(of: focus.wrappedValue == .field) { _, has in if !has, model.roleEdit == edit, edit != nil { model.finishRoleEdit() } }
             .uiTestAnchor("role-field")
     }
 
