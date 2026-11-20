@@ -4,11 +4,11 @@ import SwiftUI
 
 // MARK: Row
 
-/// A row that knows when the pointer is over it, and draws a quiet selection that keeps text colors.
+/// A row that knows when the pointer is over it, and draws a quiet selection that keeps text colors. A task's card stays
+/// the same under the pointer: only the control under it shows its plate (DESIGN.md §7, §12 Hover).
 final class OutlineRowView: NSTableRowView {
     static let id = NSUserInterfaceItemIdentifier("outline-row")
     var onHover: (Bool) -> Void = { _ in }
-    var isTask = false
     /// A selected task row shows its key, as under the pointer.
     override var isSelected: Bool {
         didSet { if isSelected != oldValue { for case let cell as TaskCell in subviews { cell.needsLayout = true } } }
@@ -21,7 +21,7 @@ final class OutlineRowView: NSTableRowView {
             needsLayout = true
         }
     }
-    /// The task's card, in this row's coordinates: hover and selection fill it.
+    /// The task's card, in this row's coordinates: its selection fills it.
     var card: NSRect? { didSet { if card != oldValue { needsDisplay = true } } }
     private(set) var hovered = false
 
@@ -40,12 +40,6 @@ final class OutlineRowView: NSTableRowView {
         guard hovered != value else { return }
         hovered = value
         onHover(value)
-        needsDisplay = true
-    }
-
-    override func drawBackground(in dirtyRect: NSRect) {
-        guard isTask, hovered, !isSelected else { return }
-        fill(Ink.hoverFillNS)
     }
 
     /// A selected card: a faint tint here, its accent ring on the card's own layer, whole (2026-11-10); gray while the rows

@@ -506,7 +506,7 @@ final class TaskOutlineView: NSOutlineView {
         let lit = coordinator?.lit()
         self.lit = lit
         cards.show(storyShapes(lit: lit), animated: animated)
-        // Each row's highlight fills its card; unrelated rows fade with their cards.
+        // Each row's selection fills its card; unrelated rows fade with their cards.
         // A row's cells come from its row view: asking the outline for a row mid-move throws (T-372, a task moved by keys).
         enumerateAvailableRowViews { rowView, row in
             guard let rowView = rowView as? OutlineRowView else { return }
@@ -1597,7 +1597,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
         let row = outlineView.makeView(withIdentifier: OutlineRowView.id, owner: nil) as? OutlineRowView ?? OutlineRowView()
         row.identifier = OutlineRowView.id
-        row.isTask = (item as? OutlineNode)?.task != nil
         row.gap = (item as? OutlineNode)?.task.map(gap(of:)) ?? 0
         let task = (item as? OutlineNode)?.task
         row.alphaValue = task.map { outline?.lit?.contains($0) == false } == true ? Motion.dimmedOpacity : 1
