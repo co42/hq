@@ -1207,6 +1207,23 @@ extension UITest {
             model.deleteTasks([a.id, b.id])
             await endUndoGroup(model)
         }
+        // A review dismissed from its menu comes back from the same menu, with one Undo (T-710).
+        if let review = model.waitingReviews.first {
+            let back = { model.waitingReviews.contains { $0.url == review.url } && model.waitsForReview(review) }
+            let dismissed = UITest.perform(UITest.menu(PullRequestMenu(item: review), model), "Dismiss")
+            await endUndoGroup(model)
+            await check("Dismiss from a review's menu takes it out of Needs You", dismissed && !back())
+            let brought = UITest.perform(UITest.menu(PullRequestMenu(item: review), model), "Bring Back")
+            await endUndoGroup(model)
+            await check("a dismissed review's menu has Bring Back where Dismiss was: orange, in Needs You again", brought && back()
+                        && UITest.menu(PullRequestMenu(item: review), model).items.contains { $0.title == "Dismiss" })
+            model.undoManager?.undo()
+            await check("one Undo dismisses it again", !back())
+            model.bringBackReview(review.url)
+            await endUndoGroup(model)
+        } else {
+            await check("the seed has a review that waits", false)
+        }
         // A PR selected on the page: the menu bar's Open on GitHub and Copy Link act on it.
         if let pr = model.reviewRequests.first ?? model.ownPullRequests.first {
             model.selectedItem = ModalRoute.github(pr.url).selectionKey

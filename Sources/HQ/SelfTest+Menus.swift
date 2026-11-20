@@ -44,6 +44,11 @@ extension SelfTest {
                  "Dismiss", "—", "Link to Task…", "—", "Later ▸", "Copy ▸"])
             menu("a review put away", ReviewMenu(item: review, later: .now) {}, model, ["Review", "Open on GitHub", "Start Review Session…",
                  "Dismiss", "—", "Link to Task…", "—", "Bring Back Now", "Copy ▸"])
+            model.dismissReview(review.url)
+            menu("a dismissed review's menu: Bring Back", PullRequestMenu(item: review), model, ["Open", "Open on GitHub", "Start Review Session…",
+                 "Bring Back", "—", "Link to Task…", "—", "Remind Me…", "Copy ▸"])
+            model.bringBackReview(review.url)
+            check("Bring Back puts a dismissed review back in Needs You, orange (T-710)", model.inNeedsYou(review) && model.waitsForReview(review))
         } else {
             check("the seed has a review that waits", false)
         }

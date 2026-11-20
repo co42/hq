@@ -11,6 +11,16 @@ extension AppModel {
         registerUndo("Dismiss") { $0.seen["dismiss:\(url)"] = old }
     }
 
+    /// Bring Back on a dismissed review: orange again, in Waiting for You and Needs You (T-710).
+    func bringBackReview(_ url: String) {
+        let old = seen["dismiss:\(url)"]
+        seen["dismiss:\(url)"] = nil
+        registerUndo("Bring Back") { $0.seen["dismiss:\(url)"] = old }
+    }
+
+    /// Waits for the user's review but was dismissed: its menus offer Bring Back.
+    func isDismissedReview(_ item: GitHubItem) -> Bool { item.waitsForReview && dismissed(item) }
+
     /// Dismissed since its review was last asked and its last commit.
     func dismissed(_ item: GitHubItem) -> Bool {
         seen["dismiss:\(item.url)"].map { $0 >= max(item.reviewAskedAt, item.lastCommitAt ?? .distantPast) } ?? false

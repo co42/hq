@@ -292,7 +292,11 @@ struct PullRequestMenu: View {
             if !context.inOwnWindow(route) { Button("Open") { model.open(route) } }
             Button("Open on GitHub") { model.openOutside(route) }
             Button("Start Review Session…") { model.beginStart(pullRequest: item, push: context.inOwnWindow(route)) }
-            if model.inNeedsYou(item) { Button("Dismiss") { model.dismissReview(item.url) } }
+            if model.inNeedsYou(item) {
+                Button("Dismiss") { model.dismissReview(item.url) }
+            } else if model.isDismissedReview(item) {
+                Button("Bring Back") { model.bringBackReview(item.url) }
+            }
             Divider()
             Button("Link to Task…") { context.pick(.linkToTask(route)) }
             Divider()
@@ -412,7 +416,11 @@ struct LinkMenu: View {
         }
         if let github {
             Button("Start Review Session…") { model.beginStart(pullRequest: github, push: model.modal != nil) }
-            if model.inNeedsYou(github) { Button("Dismiss") { model.dismissReview(github.url) } }
+            if model.inNeedsYou(github) {
+                Button("Dismiss") { model.dismissReview(github.url) }
+            } else if model.isDismissedReview(github) {
+                Button("Bring Back") { model.bringBackReview(github.url) }
+            }
         }
         Divider()
         if output { Button("Remind Me…") { model.beginReminder(about: route) } }
