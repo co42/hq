@@ -112,6 +112,10 @@ extension UITest {
     /// (HQ_FOREGROUND=1), with the user away or saying yes.
     static func pointerPlates(_ model: AppModel, _ ui: Driver) async {
         guard !Store.background, NSApp.isActive else { return skip("the real pointer over each control") }
+        // Checked silently: posting pointer events untrusted makes macOS ask the user for Accessibility.
+        guard CGPreflightPostEventAccess() else {
+            return skip("the real pointer over each control", because: "HQ isn't allowed to post pointer events (Accessibility); judge the plates by eye")
+        }
         let ran = await ui.atLeast(width: Metric.sectionBarWindow) { await pointerPlatesShown(model, ui) }
         if !ran { await check("a screen with room for the section bar", false, "\(Int(ui.window.screen?.visibleFrame.width ?? 0)) pt") }
     }
@@ -134,7 +138,7 @@ extension UITest {
             else if plate.shown != nil { faults.append("\(kind.name): the plate stays once the pointer leaves") }
         }
         await check("the real pointer lights each control's plate and leaves it (\(page.kinds.count) kinds)", faults.isEmpty,
-                    faults.joined(separator: "; ") + (AXIsProcessTrusted() ? "" : " (HQ may not post pointer events: not trusted for Accessibility)"))
+                    faults.joined(separator: "; "))
         if let bare = page.bare() {
             let before = image(of: page.row)
             movePointer(to: bare, in: ui.window)
@@ -233,9 +237,10 @@ extension UITest {
     }
 
     private static func movePointer(toScreen point: NSPoint) {
+        guard CGPreflightPostEventAccess() else { return }
         let flipped = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
         CGWarpMouseCursorPosition(flipped)
-        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: flipped, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: flipped, mouseButton: .left)?.post(tap: .cghidEventTap) // lint: ok trust checked above, silently
     }
 
     /// The plate whose spot holds `point` (window coordinates), the smallest when spots nest.
