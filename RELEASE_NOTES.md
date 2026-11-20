@@ -1,5 +1,14 @@
 # Release notes
 
+## v18.2 · 2026-11-20 · Clicks you can see
+
+- Every small control a click acts on lights up under the pointer: faces, status glyphs, keys, project and blocker chips, link icons, chevrons, header and notification buttons, Focus. It deepens while pressed. A task card itself no longer changes under the pointer: only the control does.
+- A session's ping is read once you focus its terminal in Ghostty, its window and tab, so its face leaves the toolbar.
+- A double-click on a role's name or line in Roles edits it with the keyboard in the field; the same fix for every field that takes the keyboard when it shows.
+- An edit in a description keeps the keyboard until you type or click, instead of for 0.15 s.
+- The outline no longer logs a defect for a fraction of a point of rounding.
+- For HQ's own checks: test clicks no longer get lost one time in three, tests never touch your clipboard and never ask macOS for a permission.
+
 ## v18.1 · 2026-11-20 · Several tasks, stacks and lists that scroll
 
 - Select several tasks: ⌘-click adds or removes one, ⇧-click selects a range, X adds or removes the focused task while the arrows move the focus (a second ring shows it). Status, project, Archive, Delete, ⌘C and dragging act on all of them, with one Undo; Return, Space and Start Session act on the focused one; a click or Escape goes back to one task.
