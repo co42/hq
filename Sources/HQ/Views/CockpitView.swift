@@ -16,7 +16,7 @@ struct CockpitView: View {
     @State private var end = PageEnd()
     /// The page's visible top under the toolbar, where a section's header pins.
     @State private var pinTop: CGFloat = 0
-    /// A section's header is pinned: its band joins the toolbar, whose own edge hides.
+    /// A section's header is pinned: its band joins the toolbar, whose own background hides.
     @State private var headerPinned = false
 
     /// The column's leading inset and width: centered on the 4 pt grid, at most `pageMax` wide.
@@ -74,8 +74,7 @@ struct CockpitView: View {
                 .id(zoom)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectHidden(headerPinned, for: .top)
-            .titlebarSeparatorHidden(headerPinned)
+            .toolbarBackgroundVisibility(headerPinned ? .hidden : .automatic, for: .windowToolbar)
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentInsets.top } action: { _, top in pinTop = top }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height > geometry.visibleRect.height + 1 && geometry.visibleRect.maxY >= geometry.contentSize.height - 2

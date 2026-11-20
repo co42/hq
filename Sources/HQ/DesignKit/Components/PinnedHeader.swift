@@ -20,7 +20,7 @@ extension EnvironmentValues {
     @Entry var headerPinned = false
 }
 
-/// Some section's header is pinned: the page hides the toolbar's own edge, the band's hairline is the one line (T-644).
+/// Some section's header is pinned: the page hides the toolbar's own background, the band's hairline is the one line (T-644).
 struct HeaderPinnedKey: PreferenceKey {
     static let defaultValue = false
     static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }

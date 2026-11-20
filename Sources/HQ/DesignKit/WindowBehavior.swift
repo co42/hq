@@ -16,11 +16,6 @@ extension View {
     func fitsContent(max: CGFloat = 640 * Zoom.factor) -> some View {
         modifier(FitsContent(max: max))
     }
-
-    /// Hides the line AppKit draws under the window's toolbar, for a band that joins it (T-644).
-    func titlebarSeparatorHidden(_ hidden: Bool) -> some View {
-        background(TitlebarSeparator(hidden: hidden))
-    }
 }
 
 private struct FitsContent: ViewModifier {
@@ -92,17 +87,5 @@ extension NSView {
             if window?.nextEvent(matching: .leftMouseUp, until: until, inMode: .eventTracking, dequeue: true) != nil { return }
             held = NSEvent.pressedMouseButtons & 1 != 0
         } while held
-    }
-}
-
-/// Sets the window's titlebar separator from inside its content.
-private struct TitlebarSeparator: NSViewRepresentable {
-    let hidden: Bool
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        let style: NSTitlebarSeparatorStyle = hidden ? .none : .automatic
-        if let window = view.window, window.titlebarSeparatorStyle != style { window.titlebarSeparatorStyle = style }
     }
 }
