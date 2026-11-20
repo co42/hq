@@ -1209,9 +1209,11 @@ extension UITest {
             await check("a PR's ⋯ copies its link (Copy ▸ Copy Link)", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
             func copySize() -> CGSize? { UITest.anchors["copy-item", default: []].compactMap(\.view).last?.frame.size }
             let before = copySize()
+            Pasteboard.copied = nil
             await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
             await check("Copy keeps its size while it says Copied", before != nil && copySize() == before,
                   "\(String(describing: before)) → \(String(describing: copySize()))")
+            await check("a PR's header Copy copies its link, as Copy Link does (T-619)", Pasteboard.copied == pr.url, Pasteboard.copied ?? "nothing copied")
             await headerHeights(ui, "a PR's", ["modal-close", "reload", "item-remind-me", "copy-item", "github-more"])
             model.closeModal()
             await ui.settle(0.5)
@@ -1219,6 +1221,7 @@ extension UITest {
             if let task = model.tasks.first {
                 model.open(.task(task.id))
                 await headerHeights(ui, "a task's", ["modal-close", "item-remind-me", "copy-item", "task-main-action", "task-more"])
+                await headerCopies(ui, "a task's", model.line(of: .task(task.id)))
             }
             if let session = model.gridRoots.first {
                 model.open(.session(session.id))
@@ -1227,14 +1230,23 @@ extension UITest {
             if let file = model.files.first {
                 model.open(.file(file.id))
                 await headerHeights(ui, "a file's", ["modal-close", "item-remind-me", "copy-item", "file-edit", "file-more"])
+                await headerCopies(ui, "a file's", model.line(of: .file(file.id)))
             }
             if let artifact = model.artifacts.first {
                 model.open(.artifact(artifact.id))
                 await headerHeights(ui, "an artifact's", ["modal-close", "reload", "item-remind-me", "copy-item", "artifact-main-action", "artifact-more"])
+                await headerCopies(ui, "an artifact's", artifact.id.absoluteString)
             }
             model.closeModal()
             await ui.settle(0.5)
         }
+    }
+
+    /// The open modal's header Copy: an item with a link copies it, the others their line (T-619).
+    static func headerCopies(_ ui: Driver, _ kind: String, _ expected: String) async {
+        Pasteboard.copied = nil
+        await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
+        await check("\(kind) header Copy copies \(expected.hasPrefix("http") ? "its link" : "its line")", Pasteboard.copied == expected, Pasteboard.copied ?? "nothing copied")
     }
 
     /// The open modal's header controls share one height, the ⋯ included (T-569).

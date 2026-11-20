@@ -390,14 +390,15 @@ private struct ReloadButton: View {
     }
 }
 
-/// Copy (T-358): the open item's line, its kind, key and title, for a session or a note; a checkmark says it's done.
+/// Copy (T-358): the open item's link when it has one, as Copy Link (a PR, an artifact; T-619), else its line, its kind,
+/// key and title, for a session or a note; a checkmark says it's done.
 private struct CopyItemButton: View {
     let route: ModalRoute
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        CopyButton(text: { model.line(of: route) }, title: "Copy", icon: .copy, done: "Copied",
-                   help: "Copy \u{201C}\(model.line(of: route))\u{201D}", anchor: "copy-item")
+        let text = { model.link(of: route) ?? route.address ?? model.line(of: route) }
+        CopyButton(text: text, title: "Copy", icon: .copy, done: "Copied", help: "Copy \u{201C}\(text())\u{201D}", anchor: "copy-item")
     }
 }
 
