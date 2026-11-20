@@ -92,6 +92,11 @@ enum Snapshot {
         let pr = "https://github.com/acme/registry/pull/418"
         return [
             Page(name: "cockpit") { reset($0) },
+            // A review dismissed: "Dismissed" in Reviews, no orange (T-693).
+            Page(name: "cockpit-dismissed") { model in
+                reset(model)
+                if let review = model.reviewRequests.first(where: model.waitsForReview) { model.dismissReview(review.url) }
+            },
             Page(name: "cockpit-zoom") { model in
                 reset(model)
                 model.zoom = 1.3
