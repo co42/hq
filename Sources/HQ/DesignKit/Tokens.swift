@@ -245,6 +245,9 @@ nonisolated enum Metric {
     static var skyHeight: CGFloat { 420 * Zoom.factor }
     /// A section's symbol tile beside its title.
     static var sectionTile: CGFloat { 24 * Zoom.factor }
+    /// A pinned header, slimmer under the toolbar (T-644): its tile and its controls.
+    static var pinnedTile: CGFloat { 18 * Zoom.factor }
+    static var pinnedControl: CGFloat { 26 * Zoom.factor }
     /// "All reviewed" alone in its card: on the grid, whatever its text measures.
     static var allReviewed: CGFloat { 96 * Zoom.factor }
     /// A PR's, a file's or an artifact's kind tile at the start of its row.

@@ -8,7 +8,7 @@ struct HeaderButtonStyle: ButtonStyle {
     var compact = false
 
     func makeBody(configuration: Configuration) -> some View {
-        HeaderControl(on: on, pressed: configuration.isPressed, height: compact ? Metric.statePill : Metric.headerControl) { configuration.label }
+        HeaderControl(on: on, pressed: configuration.isPressed, height: compact ? Metric.statePill : nil) { configuration.label }
     }
 }
 
@@ -24,12 +24,15 @@ struct HeaderToggleStyle: ToggleStyle {
 private struct HeaderControl<Label: View>: View {
     let on: Bool
     let pressed: Bool
-    let height: CGFloat
+    /// Nil: a section header's, slimmer while it's pinned.
+    let height: CGFloat?
     @ViewBuilder let label: Label
+    @Environment(\.headerPinned) private var pinned
     @Environment(\.isEnabled) private var enabled
     @State private var hovering = false
 
     var body: some View {
+        let height = height ?? (pinned ? Metric.pinnedControl : Metric.headerControl)
         label
             .labelStyle(.iconOnly)
             .imageScale(.medium)
@@ -88,6 +91,7 @@ private struct ModalControl<Label: View>: View {
 struct HeaderSearch: View {
     let prompt: String
     @Binding var text: String
+    @Environment(\.headerPinned) private var pinned
 
     var body: some View {
         HStack(spacing: Space.xs) {
@@ -109,7 +113,7 @@ struct HeaderSearch: View {
             }
         }
         .padding(.horizontal, Space.sm + 2)
-        .frame(height: Metric.headerControl)
+        .frame(height: pinned ? Metric.pinnedControl : Metric.headerControl)
         .frame(minWidth: Metric.listSearchMin, idealWidth: Metric.listSearch, maxWidth: Metric.listSearch)
         .glassEffect(.regular.interactive(), in: Capsule())
     }

@@ -16,6 +16,14 @@ extension EnvironmentValues {
     @Entry var pinLine: PinLine?
     /// The height of the section whose header reads it.
     @Entry var pinSpan: CGFloat = 0
+    /// Its header is pinned under the toolbar: it draws slimmer.
+    @Entry var headerPinned = false
+}
+
+/// Some section's header is pinned: the page hides the toolbar's own edge, the band's hairline is the one line (T-644).
+struct HeaderPinnedKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
 }
 
 extension View {
@@ -45,6 +53,8 @@ private struct PinnedHeader: ViewModifier {
     func body(content: Content) -> some View {
         if let line {
             content
+                .environment(\.headerPinned, pinned)
+                .preference(key: HeaderPinnedKey.self, value: pinned)
                 .background(alignment: .top) {
                     if pinned {
                         GeometryReader { header in PinBand(line: line, height: header.size.height) }
@@ -65,26 +75,20 @@ private struct PinnedHeader: ViewModifier {
     }
 }
 
-/// The window's background behind a pinned header, from the window's top to under the header, fading at its foot: what
-/// scrolls under it goes, the sky stays where it is.
+/// The window's background behind a pinned header, from the window's top to just under the header: the toolbar and the
+/// header read as one band, with one hairline at its foot (T-644). What scrolls under it goes, the sky stays where it is.
 private struct PinBand: View {
     let line: PinLine
     let height: CGFloat
 
     var body: some View {
-        let fade = Space.md
         ZStack(alignment: .top) {
             Ink.content
             SkyView(mood: line.mood)
         }
-        .frame(width: line.width, height: line.bar + height + fade, alignment: .top)
+        .frame(width: line.width, height: line.bar + height + Space.xs, alignment: .top)
         .clipped()
-        .mask {
-            VStack(spacing: 0) {
-                Rectangle()
-                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: fade)
-            }
-        }
+        .overlay(alignment: .bottom) { Ink.cardHairline.frame(height: Metric.tableRule) }
         .offset(x: -line.inset, y: -line.bar) // grid: ok back to the window's top left
         .allowsHitTesting(false)
         .accessibilityHidden(true)

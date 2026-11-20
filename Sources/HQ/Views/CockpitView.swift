@@ -16,6 +16,8 @@ struct CockpitView: View {
     @State private var end = PageEnd()
     /// The page's visible top under the toolbar, where a section's header pins.
     @State private var pinTop: CGFloat = 0
+    /// A section's header is pinned: its band joins the toolbar, whose own edge hides.
+    @State private var headerPinned = false
 
     /// The column's leading inset and width: centered on the 4 pt grid, at most `pageMax` wide.
     static func column(_ visible: CGFloat) -> (inset: CGFloat, width: CGFloat) {
@@ -58,6 +60,7 @@ struct CockpitView: View {
                 .coordinateSpace(.named(PageEnd.space))
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { end.content = $0 }
                 .onPreferenceChange(OpenTeamBottom.self) { end.openBottom = $0 }
+                .onPreferenceChange(HeaderPinnedKey.self) { headerPinned = $0 }
                 .padding(.leading, column.inset)
                 .padding(.top, Metric.pageTitleTop)
                 .padding(.bottom, Space.section + end.overflow)
@@ -71,6 +74,8 @@ struct CockpitView: View {
                 .id(zoom)
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(headerPinned, for: .top)
+            .titlebarSeparatorHidden(headerPinned)
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentInsets.top } action: { _, top in pinTop = top }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height > geometry.visibleRect.height + 1 && geometry.visibleRect.maxY >= geometry.contentSize.height - 2

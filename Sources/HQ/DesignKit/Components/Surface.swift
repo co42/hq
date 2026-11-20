@@ -312,13 +312,14 @@ struct KindTile: View {
 struct SectionTile: View {
     let icon: KitIcon
     let tint: Color
+    var size = Metric.sectionTile
 
     var body: some View {
         icon.image
-            .font(.system(size: Metric.sectionTile * 0.5, weight: .semibold))
+            .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(Ink.onTile)
-            .frame(width: Metric.sectionTile, height: Metric.sectionTile)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: Radius.tile, style: .continuous))
+            .frame(width: size, height: size)
+            .background(tint.gradient, in: RoundedRectangle(cornerRadius: Radius.tile * size / Metric.sectionTile, style: .continuous))
             .accessibilityHidden(true)
     }
 }

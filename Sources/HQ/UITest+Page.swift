@@ -451,6 +451,12 @@ extension UITest {
         await check("Sessions' header pins over its grid", pinned("roles-button").flatMap { ui.hitView(NSPoint(x: $0.midX, y: $0.midY)) }
             .map { view in !sequence(first: view, next: \.superview).contains { $0 is SessionGrid.GridView } } ?? false,
             "\(String(describing: ui.anchorFrame("roles-button"))) under \(under)")
+        // T-644: pinned, the header slims; on the page it's full size again.
+        await check("a pinned header's controls are slimmer", abs((ui.anchorFrame("roles-button")?.height ?? 0) - Metric.pinnedControl) < 0.5,
+                    "\(String(describing: ui.anchorFrame("roles-button")))")
+        await scrollPast(grid, by: -Metric.skyHeight)
+        await check("back on the page, its controls are full size", abs((ui.anchorFrame("roles-button")?.height ?? 0) - Metric.headerControl) < 0.5,
+                    "\(String(describing: ui.anchorFrame("roles-button")))")
         if let lead = model.gridRoots.first(where: { !model.team(of: $0.id).isEmpty })?.id {
             model.openTeam = lead
             await ui.settle(0.3)

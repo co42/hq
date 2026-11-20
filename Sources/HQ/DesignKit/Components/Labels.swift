@@ -15,6 +15,23 @@ struct SectionHeader<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
+        Row(title: title, count: count, open: open, key: key, tile: tile, trailing: trailing)
+            .frame(minHeight: Metric.sectionBar)
+            .pinsWhileScrolling()
+    }
+}
+
+/// The header's line: slimmer while it's pinned under the toolbar (DESIGN.md §4, T-644), in the same height on the page.
+private struct Row<Trailing: View>: View {
+    let title: String
+    let count: String?
+    let open: Binding<Bool>?
+    let key: String?
+    let tile: (icon: KitIcon, tint: Color)?
+    let trailing: Trailing
+    @Environment(\.headerPinned) private var pinned
+
+    var body: some View {
         HStack(alignment: .center, spacing: Space.sm) {
             if let open {
                 Button { withAnimation(Motion.lift) { open.wrappedValue.toggle() } } label: {
@@ -44,17 +61,17 @@ struct SectionHeader<Trailing: View>: View {
             }
         }
         .frame(minHeight: Metric.sectionBar)
-        .pinsWhileScrolling()
+        .animation(Motion.lift, value: pinned)
     }
 
     private func titleLine(open: Bool?) -> some View {
-        HStack(alignment: .center, spacing: Space.sm + 2) {
+        HStack(alignment: .center, spacing: pinned ? Space.sm : Space.sm + 2) {
             if let tile {
-                SectionTile(icon: tile.icon, tint: tile.tint)
+                SectionTile(icon: tile.icon, tint: tile.tint, size: pinned ? Metric.pinnedTile : Metric.sectionTile)
                     .saturation(open == false ? 0.2 : 1)
             }
             Text(title)
-                .kitType(.sectionTitle)
+                .kitType(pinned ? .section : .sectionTitle)
                 .foregroundStyle(open == false ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .accessibilityAddTraits(.isHeader)
             if let count {
@@ -67,7 +84,7 @@ struct SectionHeader<Trailing: View>: View {
                     .background(Ink.chipFill, in: Capsule())
                     .contentTransition(.numericText())
             }
-            if let open {
+            if let open, !pinned {
                 KitIcon.disclosure.image
                     .imageScale(.small)
                     .fontWeight(.bold)
