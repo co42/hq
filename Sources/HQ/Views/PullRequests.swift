@@ -140,14 +140,14 @@ struct PRGroup<Accessory: View>: View {
                     .padding(.horizontal, Space.md)
                     .frame(height: Metric.boxRow, alignment: .top)
             } else {
-                let rows = model.shown(items, in: card)
+                let stacks = model.shownEntries(GitHubItem.stacks(items), in: card)
                 VStack(spacing: 0) {
-                    CardRows(count: rows.count, limit: PRCards.scrollsPast, rowHeight: Metric.prRow, inset: PRCards.inset, name: card.rawValue) {
+                    CardRows(count: stacks.joined().count, limit: PRCards.scrollsPast, rowHeight: Metric.prRow, inset: PRCards.inset,
+                             name: card.rawValue) {
                         VStack(spacing: 0) {
-                            ForEach(rows) { item in
-                                PRRow(item: item)
-                                    .id(ModalRoute.github(item.url).selectionKey)
-                                    .overlay(alignment: .bottom) { if item.id != rows.last?.id { RowRule() } }
+                            ForEach(stacks, id: \.[0].id) { stack in
+                                PRStack(stack: stack)
+                                    .overlay(alignment: .bottom) { if stack[0].id != stacks.last?[0].id { RowRule() } }
                             }
                         }
                     }
@@ -160,6 +160,26 @@ struct PRGroup<Accessory: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .surface()
         .uiTestAnchor("card:\(card.rawValue)")
+    }
+}
+
+/// A stack's PRs (T-570), its base on top, a rail joining their kind tiles; a PR on no other is a stack of one.
+private struct PRStack: View {
+    let stack: [GitHubItem]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(stack) { item in
+                PRRow(item: item, on: item.stacked(in: stack)?.number)
+                    .id(ModalRoute.github(item.url).selectionKey)
+            }
+        }
+        .background(alignment: .topLeading) {
+            if stack.count > 1 {
+                StackRail(rows: stack.count, rowHeight: Metric.prRow)
+                    .padding(.leading, RowLead<EmptyView, EmptyView>.tileCenter)
+            }
+        }
     }
 }
 
@@ -201,9 +221,10 @@ struct ShowMoreButton: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if count > PRCards.shown, !model.cardFiltered(card) {
+        let folded = model.foldedRows(card)
+        if count > folded, !model.cardFiltered(card) {
             let open = model.expandedCards.contains(card)
-            Button(open ? "Show Fewer" : "Show \(count - PRCards.shown) More") { model.toggleExpanded(card) }
+            Button(open ? "Show Fewer" : "Show \(count - folded) More") { model.toggleExpanded(card) }
                 .buttonStyle(.borderless)
                 .kitType(.callout)
                 .help(open ? "Show the first \(PRCards.shown) only" : "Show every \(card.rows) in this card")
@@ -232,16 +253,37 @@ extension AppModel {
     /// Every row of a card, shown or not, top to bottom.
     func cardRoutes(_ card: RowCard) -> [ModalRoute] {
         switch card {
-        case .reviews: searched(reviewRequests).map { .github($0.url) }
-        case .yours: searched(ownPullRequests).map { .github($0.url) }
+        case .reviews, .yours: prStacks(card).joined().map { .github($0.url) }
         case .files: listedFiles.map { .file($0.id) }
         case .artifacts: listedArtifacts.map { .artifact($0.id) }
         }
     }
 
-    /// The rows a card shows, which the keys walk too: all of them while a filter narrows it or Show More opened it, else the first five.
+    /// A PR card's entries: each stack together, its base on top (T-570).
+    func prStacks(_ card: RowCard) -> [[GitHubItem]] {
+        switch card {
+        case .reviews: GitHubItem.stacks(searched(reviewRequests))
+        case .yours: GitHubItem.stacks(searched(ownPullRequests))
+        case .files, .artifacts: []
+        }
+    }
+
+    /// The rows a folded card shows: its first five entries, a stack counting as one.
+    func foldedRows(_ card: RowCard) -> Int {
+        switch card {
+        case .reviews, .yours: prStacks(card).prefix(PRCards.shown).reduce(0) { $0 + $1.count }
+        case .files, .artifacts: PRCards.shown
+        }
+    }
+
+    /// The entries a card shows: all of them while a filter narrows it or Show More opened it, else the first five.
+    func shownEntries<Entry>(_ entries: [Entry], in card: RowCard) -> [Entry] {
+        cardFiltered(card) || expandedCards.contains(card) ? entries : Array(entries.prefix(PRCards.shown))
+    }
+
+    /// The rows a card shows, which the keys walk too, in the order of `cardRoutes`.
     func shown<Row>(_ rows: [Row], in card: RowCard) -> [Row] {
-        cardFiltered(card) || expandedCards.contains(card) ? rows : Array(rows.prefix(PRCards.shown))
+        cardFiltered(card) || expandedCards.contains(card) ? rows : Array(rows.prefix(foldedRows(card)))
     }
 
     /// Show N More or Show Fewer; a selected row Show Fewer hides gives the selection to the last row still shown.
@@ -251,8 +293,9 @@ extension AppModel {
             return
         }
         let rows = cardRoutes(card)
-        if let index = rows.firstIndex(where: { $0.selectionKey == selectedItem }), index >= PRCards.shown {
-            selectedItem = rows[PRCards.shown - 1].selectionKey
+        let folded = foldedRows(card)
+        if let index = rows.firstIndex(where: { $0.selectionKey == selectedItem }), index >= folded, folded > 0 {
+            selectedItem = rows[folded - 1].selectionKey
         }
     }
 }
@@ -287,6 +330,8 @@ struct RowRule: View {
 struct RowLead<Faces: View, Icon: View>: View {
     /// Where a row's text starts: the row's padding, the face, the icon.
     static var textInset: CGFloat { Space.sm + Metric.faceRow + Space.sm + Metric.kindTile + Space.sm }
+    /// The middle of the kind tile, where a stack's rail runs.
+    static var tileCenter: CGFloat { Space.sm + Metric.faceRow + Space.sm + Metric.kindTile / 2 }
 
     @ViewBuilder var faces: Faces
     @ViewBuilder var icon: Icon
@@ -302,10 +347,13 @@ struct RowLead<Faces: View, Icon: View>: View {
 /// "registry #418 · julien · asked 2h ago". Its own view: the clock's tick redraws only this line.
 private struct PRByline: View {
     let item: GitHubItem
+    /// The PR of its stack it's stacked on: "on #80".
+    var on: Int?
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Text("\(item.reference) · \(item.author) · \(PRRow.when(item, now: model.now))")
+        let stacked = on.map { Text("on #\($0) · ").foregroundStyle(.primary) } ?? Text(verbatim: "")
+        Text("\(item.reference) · \(item.author) · \(stacked)\(PRRow.when(item, now: model.now))")
             .kitType(.secondary)
             .foregroundStyle(.secondary)
             .lineLimit(1)
@@ -315,6 +363,8 @@ private struct PRByline: View {
 /// A PR row: its title in the middle; its status and its task's key in fixed columns on the right.
 struct PRRow: View {
     let item: GitHubItem
+    /// The PR of its stack it's stacked on (T-570).
+    var on: Int? = nil
     @Environment(AppModel.self) private var model
     @State private var hovering = false
 
@@ -347,7 +397,7 @@ struct PRRow: View {
                             .kitType(waits ? .titleStrong : .title)
                             .lineLimit(1)
                     }
-                    PRByline(item: item)
+                    PRByline(item: item, on: on)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: Metric.lineGap) {

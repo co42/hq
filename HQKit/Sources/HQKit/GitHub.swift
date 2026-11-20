@@ -51,6 +51,8 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
     public var state: State
     public var updatedAt: Date
     public var headBranch: String?
+    /// The branch it merges into: another PR's head when it's stacked on that one.
+    public var baseBranch: String?
     public var review: Review
     /// Who approved, or who asked for changes, for "Approved by noor".
     public var reviewers: [String]
@@ -85,7 +87,7 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
     public var reference: String { "\(repo.split(separator: "/").last.map(String.init) ?? repo) #\(number)" }
 
     public init(url: String, kind: Kind, number: Int, repo: String, title: String, author: String, state: State,
-                updatedAt: Date, headBranch: String? = nil, review: Review = .none, reviewers: [String] = [],
+                updatedAt: Date, headBranch: String? = nil, baseBranch: String? = nil, review: Review = .none, reviewers: [String] = [],
                 checks: Checks = .none, lastCommitAt: Date? = nil, myReviewAt: Date? = nil,
                 reviewRequested: Bool = false, mine: Bool = false, body: String? = nil, checkRuns: [Check] = []) {
         self.url = url
@@ -97,6 +99,7 @@ public struct GitHubItem: Sendable, Hashable, Codable, Identifiable {
         self.state = state
         self.updatedAt = updatedAt
         self.headBranch = headBranch
+        self.baseBranch = baseBranch
         self.review = review
         self.reviewers = reviewers
         self.checks = checks
@@ -222,7 +225,7 @@ public enum GitHubQuery {
     static let prFragment = """
         fragment pr on PullRequest {
           url number title isDraft state merged updatedAt body
-          author { login } repository { nameWithOwner } headRefName reviewDecision
+          author { login } repository { nameWithOwner } headRefName baseRefName reviewDecision
           latestReviews(first: 20) { nodes { author { __typename login } state submittedAt bodyText url } }
           comments(last: 5) { nodes { author { __typename login } createdAt bodyText url } }
           timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 10) { nodes { ... on ReviewRequestedEvent {
@@ -279,7 +282,7 @@ public enum GitHubQuery {
         }
         var item = GitHubItem(url: url, kind: isPR ? .pullRequest : .issue, number: number, repo: repo, title: title,
                               author: author, state: state, updatedAt: date(node["updatedAt"]) ?? .distantPast,
-                              headBranch: node["headRefName"] as? String, mine: !viewer.isEmpty && author == viewer,
+                              headBranch: node["headRefName"] as? String, baseBranch: node["baseRefName"] as? String, mine: !viewer.isEmpty && author == viewer,
                               body: node["body"] as? String)
         guard isPR else { return item }
         let reviews = ((node["latestReviews"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []

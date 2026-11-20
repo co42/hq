@@ -49,10 +49,21 @@ extension SelfTest {
         model.expandedCards = Set(cards)
         let open = cards.map { model.shown(model.cardRoutes($0), in: $0).count }
         check("Show N More opens a card to all its rows, and the keys walk them",
-              open == cards.map { model.cardRoutes($0).count } && folded.allSatisfy { $0 <= PRCards.shown }
+              open == cards.map { model.cardRoutes($0).count } && folded == cards.map { min(model.foldedRows($0), model.cardRoutes($0).count) }
               && model.sectionRoutes(.pullRequests).count == open[0] + open[1] && model.sectionRoutes(.files).count == open[2] + open[3],
               "folded \(folded), open \(open)")
         model.expandedCards = []
+
+        // Stacked PRs (T-570): image-sync #82 on #81 on #80, together where #82 sat, base first, one entry before Show N More.
+        let pr = { (n: Int) in ModalRoute.github("https://github.com/acme/image-sync/pull/\(n)").selectionKey }
+        let yours = model.cardRoutes(.yours).map(\.selectionKey)
+        check("a stack's PRs sit together in Yours, its base first, where its newest PR was",
+              Array(yours.dropFirst().prefix(3)) == [80, 81, 82].map(pr), "\(yours)")
+        let entries = model.prStacks(.yours).count
+        check("a stack counts as one entry: a folded card shows its first five entries, every row of them",
+              entries < yours.count && model.shown(yours, in: .yours).count == model.prStacks(.yours).prefix(PRCards.shown).joined().count
+              && model.shown(yours, in: .yours).count > min(entries, PRCards.shown),
+              "\(entries) entries, \(model.shown(yours, in: .yours).count) of \(yours.count) rows shown")
         model.search = search
     }
 }

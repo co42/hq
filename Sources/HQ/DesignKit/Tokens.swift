@@ -98,6 +98,8 @@ enum Ink {
     /// A line between rows in a card, inset from the text.
     static let rowRuleNS = dynamic("rowRule", light: gray(0, 0.06), dark: gray(1, 0.06), lightHigh: gray(0, 0.2), darkHigh: gray(1, 0.24))
     static let rowRule = Color(nsColor: rowRuleNS)
+    /// The line joining a stack's kind tiles (T-570): the secondary label, quieter.
+    static let stackRail = Color(nsColor: dynamic("stackRail", light: gray(0, 0.28), dark: gray(1, 0.3), lightHigh: gray(0, 0.5), darkHigh: gray(1, 0.55)))
     /// A card's shadow: a tight contact shadow and a soft far one.
     static let shadowNearNS = dynamic("shadowNear", light: gray(0, 0.06), dark: gray(0, 0.5))
     static let shadowNear = Color(nsColor: shadowNearNS)
@@ -247,6 +249,8 @@ nonisolated enum Metric {
     static var allReviewed: CGFloat { 96 * Zoom.factor }
     /// A PR's, a file's or an artifact's kind tile at the start of its row.
     static var kindTile: CGFloat { 20 * Zoom.factor }
+    /// The rail joining a stack's kind tiles.
+    static var stackRail: CGFloat { 2 * Zoom.factor }
     /// The floating section bar under the toolbar.
     static var sectionBar: CGFloat { 32 * Zoom.factor }
     /// A window at least this wide has room for the section bar in the toolbar, between New and the search.
