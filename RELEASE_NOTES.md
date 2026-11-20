@@ -1,5 +1,10 @@
 # Release notes
 
+## v18.5 · 2026-11-20 · One ring per task
+
+- With several tasks selected, each has one ring: the one the keys act on keeps the full ring, the others a thinner, lighter one. A task the focus is on but not selected gets a faint fill. One task selected looks as before.
+- Bring Back on a dismissed review (its right-click menu, its window's ⋯, its chip on a task) puts it back in Waiting for You and Needs You.
+
 ## v18.4 · 2026-11-20 · Every wait reaches you (plugin 0.13.3)
 
 - Sessions that wait on you end their turn with a question or a ping, never with text alone: work to check, a PR to review or merge, an app to restart, something to try, a screen to unlock. A plain update only for news that needs nothing from you (plugin 0.13.3: new sessions get it).
