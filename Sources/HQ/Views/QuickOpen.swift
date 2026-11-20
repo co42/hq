@@ -166,8 +166,6 @@ final class QuickOpenPanel: NSPanel {
 
 extension Notification.Name {
     static let focusQuickOpen = Notification.Name("HQ.focusQuickOpen")
-    /// The Archive's search field takes the keyboard (T-471).
-    static let focusArchive = Notification.Name("HQ.focusArchive")
 }
 
 struct QuickOpenView: View {
@@ -186,7 +184,8 @@ struct QuickOpenView: View {
                     .font(KitType.field.font)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                QuickOpenField(text: $model.quickOpenQuery, prompt: "Open a session, task, pull request, file or artifact") { command in
+                QuickOpenField(text: $model.quickOpenQuery, prompt: "Open a session, task, pull request, file or artifact",
+                               focus: .focusQuickOpen) { command in
                     switch command {
                     case .up: model.quickOpenIndex = max(index - 1, 0)
                     case .down: model.quickOpenIndex = min(index + 1, max(results.count - 1, 0))
@@ -325,14 +324,14 @@ struct QuickOpenField: NSViewRepresentable {
     @Binding var text: String
     let prompt: String
     var label = "Quick Open"
-    /// What makes it take the keyboard.
-    var focus = Notification.Name.focusQuickOpen
+    /// What makes it take the keyboard again once in its window, which it takes on arriving there.
+    var focus: Notification.Name?
     let onCommand: (Command) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = Field()
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -350,6 +349,15 @@ struct QuickOpenField: NSViewRepresentable {
         if field.stringValue != text { field.stringValue = text }
     }
 
+    /// Takes the keyboard as it arrives in its window: a focus asked for before then finds no field (T-684).
+    final class Field: NSTextField {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { [weak self] in if let self, let window = self.window { window.makeFirstResponder(self) } }
+        }
+    }
+
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: QuickOpenField
         private var token: NSObjectProtocol?
@@ -358,7 +366,8 @@ struct QuickOpenField: NSViewRepresentable {
             self.parent = parent
         }
 
-        func observe(_ field: NSTextField, _ name: Notification.Name) {
+        func observe(_ field: NSTextField, _ name: Notification.Name?) {
+            guard let name else { return }
             token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak field] _ in
                 MainActor.assumeIsolated { _ = field?.window?.makeFirstResponder(field) }
             }

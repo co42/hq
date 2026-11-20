@@ -75,7 +75,6 @@ struct ArchiveView: View {
         .onAppear {
             model.loadArchive()
             if selected == nil { selectFirst() }
-            DispatchQueue.main.async { NotificationCenter.default.post(name: .focusArchive, object: nil) }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(0.2))
                 slow = true
@@ -113,7 +112,7 @@ struct ArchiveView: View {
             KitIcon.search.image.foregroundStyle(.secondary)
             // Quick Open's field: ↑ ↓ move the selection, Return opens, Escape clears, then closes.
             QuickOpenField(text: $model.archiveQuery, prompt: count.flatMap { $0 > 0 ? "Search \($0) archived \($0 == 1 ? "story" : "stories")" : nil } ?? "Search the Archive",
-                           label: "Search the Archive", focus: .focusArchive) { command in
+                           label: "Search the Archive") { command in
                 switch command {
                 case .up: move(-1, in: visibleNow)
                 case .down: move(1, in: visibleNow)

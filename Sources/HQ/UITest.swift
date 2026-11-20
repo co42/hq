@@ -84,6 +84,7 @@ enum UITest {
                 ("sessionDrags", sessionDrags),
                 ("taskLinks", taskLinks),
                 ("archiveWindow", archiveWindow),
+                ("quickOpenFocus", quickOpenFocus),
                 ("sessionStarts", sessionStarts),
                 ("sessionRestarts", sessionRestarts),
                 ("reopenSessions", reopenSessions),

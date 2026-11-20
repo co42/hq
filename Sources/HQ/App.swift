@@ -49,7 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// SwiftUI owns NSApp.delegate, so reach this one here.
     private(set) static weak var shared: AppDelegate?
     private weak var mainWindow: NSWindow?
-    private lazy var quickOpen = QuickOpenPanel(model: model)
+    private var madeQuickOpen: QuickOpenPanel?
+    private var quickOpen: QuickOpenPanel {
+        if let madeQuickOpen { return madeQuickOpen }
+        let panel = QuickOpenPanel(model: model)
+        madeQuickOpen = panel
+        return panel
+    }
     private var keyMonitor: Any?
     private var editorObserver: Any?
 
@@ -200,6 +206,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     var quickOpenPanel: QuickOpenPanel { quickOpen }
+
+    /// No panel yet, as at launch: the next ⌘K makes it. For the UI test.
+    func freshQuickOpen() {
+        madeQuickOpen?.dismiss()
+        madeQuickOpen = nil
+    }
 
     /// Hide the main window instead of closing it: closing and reopening a SwiftUI Window crashes AppKit on macOS 26.
     func adopt(_ window: NSWindow) {
