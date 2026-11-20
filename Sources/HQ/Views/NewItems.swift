@@ -398,7 +398,7 @@ struct ImportArtifactForm: View {
         } buttons: {
             FormButtons(title: "Import", ready: url != nil && !name.isEmpty, anchor: "import-add", add: add)
         }
-        .onAppear { DispatchQueue.main.async { focus = .link } }
+        .onInWindow { focus = .link }
         .task { await fill() }
     }
 

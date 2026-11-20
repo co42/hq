@@ -10,6 +10,12 @@ extension View {
         background(WindowHook())
     }
 
+    /// `action` once the view is in its window, after the update that put it there: a field that takes the keyboard as it
+    /// shows, which SwiftUI ignores while the field isn't there yet.
+    func onInWindow(_ action: @escaping () -> Void) -> some View {
+        background(InWindow(action: action))
+    }
+
     /// Sizes a Form, List, or ScrollView to its content, up to `max` points.
     /// A Settings page or sheet then grows to fit, and scrolls only when its
     /// content is taller than `max`.
@@ -72,6 +78,32 @@ private struct WindowHook: NSViewRepresentable {
         /// AppKit picks a first control right after the window shows. Clear it after that.
         private func clear(_ window: NSWindow) {
             DispatchQueue.main.async { window.makeFirstResponder(nil) }
+        }
+    }
+}
+
+private struct InWindow: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> Probe { Probe(action: action) }
+    func updateNSView(_ probe: Probe, context: Context) { probe.action = action }
+
+    final class Probe: NSView {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            DispatchQueue.main.async { [weak self] in if let self, self.window != nil { self.action() } }
         }
     }
 }

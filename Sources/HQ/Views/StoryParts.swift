@@ -73,7 +73,7 @@ struct HoldPicker: View {
         }
         .padding(Space.md)
         .frame(width: Metric.sheetWidth)
-        .onAppear { focused = true }
+        .onInWindow { focused = true }
     }
 
     private var heading: String {

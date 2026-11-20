@@ -70,7 +70,7 @@ struct NotificationCenterView: View {
             .focusable()
             .focusEffectDisabled()
             .focused($focused)
-            .onAppear { focused = true }
+            .onInWindow { focused = true }
             .onKeyPress(.downArrow) { move(1, proxy); return .handled }
             .onKeyPress(.upArrow) { move(-1, proxy); return .handled }
             .onKeyPress(.return) { openSelected(); return .handled }

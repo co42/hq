@@ -630,7 +630,7 @@ struct LinkPicker: View {
         }
         .padding(Space.md)
         .frame(width: Metric.sheetWidth)
-        .onAppear { focused = true }
+        .onInWindow { focused = true }
     }
 
     static let shown = 40

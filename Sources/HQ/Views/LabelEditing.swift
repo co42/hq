@@ -52,7 +52,7 @@ struct ProjectPicker: View {
                 .onSubmit { finish() }
                 .onExitCommand { naming = false }
                 .onChange(of: focused) { if !focused { finish() } }
-                .onAppear { focused = true }
+                .onInWindow { focused = true }
         } else {
             Menu {
                 Button("None") { set(nil) }.disabled(project == nil)
@@ -109,7 +109,7 @@ struct NewProjectField: View {
                 done(trimmed.isEmpty ? nil : trimmed)
             }
             .onExitCommand { done(nil) }
-            .onAppear { focused = true }
+            .onInWindow { focused = true }
             .padding(Space.md)
     }
 }
@@ -161,7 +161,7 @@ struct TagAdder: View {
                 .onSubmit { commit(again: true) }
                 .onExitCommand { draft = ""; adding = false }
                 .onChange(of: focused) { if !focused { commit(again: false) } }
-                .onAppear { focused = true }
+                .onInWindow { focused = true }
                 .uiTestAnchor("tag-adder-field")
         } else {
             Button { adding = true } label: {
@@ -300,7 +300,7 @@ struct TaskFinder: View {
         }
         .padding(Space.md)
         .frame(width: Metric.sheetWidth)
-        .onAppear { focused = true }
+        .onInWindow { focused = true }
     }
 
     /// Open tasks before done ones, newest first; a number finds its task by key.

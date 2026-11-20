@@ -61,9 +61,9 @@ struct RolesModal: View {
             focus = .page
             model.readClaudeDefaults()
         }
-        // One focus for the page and its field: an edit takes the keyboard from the page in the same step.
+        // One focus for the page and its field: the field takes it as it shows, the page once the edit ends.
         .onChange(of: model.roleEdit) { _, edit in
-            if edit == nil { focus = .page } else if edit?.field != .text { focus = .field }
+            if edit == nil { focus = .page }
         }
         .onKeyPress(.downArrow) { pick(1) }
         .onKeyPress(.upArrow) { pick(-1) }
@@ -262,8 +262,8 @@ private struct RoleDetail: View {
             .textFieldStyle(.plain)
             .kitType(type)
             .focused(focus, equals: .field)
-            // Once it shows: a New Role's page and its field appear in the same update.
-            .onAppear { focus.wrappedValue = .field }
+            // Once its view is in the window: SwiftUI ignores focus for a field that isn't there yet.
+            .onInWindow { focus.wrappedValue = .field }
             .onSubmit { model.finishRoleEdit() }
             .onExitCommand { if edit?.fresh == true { model.finishRoleEdit() } else { model.cancelRoleEdit() } }
             .onChange(of: focus.wrappedValue == .field) { _, has in
