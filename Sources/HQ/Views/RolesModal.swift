@@ -266,7 +266,13 @@ private struct RoleDetail: View {
             .onAppear { focus.wrappedValue = .field }
             .onSubmit { model.finishRoleEdit() }
             .onExitCommand { if edit?.fresh == true { model.finishRoleEdit() } else { model.cancelRoleEdit() } }
-            .onChange(of: focus.wrappedValue == .field) { _, has in if !has, model.roleEdit == edit, edit != nil { model.finishRoleEdit() } }
+            .onChange(of: focus.wrappedValue == .field) { _, has in
+                guard !has, model.roleEdit == edit, let edit else { return }
+                // What took the keyboard, and on which event: a front run saw the name edit end as it began (T-535).
+                let event = NSApp.currentEvent?.type
+                AppLog.write("roles: the \(edit.field) edit lost the keyboard to \(String(describing: focus.wrappedValue)) (event \(event.map { "\($0.rawValue)" } ?? "none"), responder \(NSApp.keyWindow?.firstResponder.map { "\(Swift.type(of: $0))" } ?? "none"))", to: "focus.log")
+                model.finishRoleEdit()
+            }
             .uiTestAnchor("role-field")
     }
 

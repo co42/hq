@@ -177,7 +177,7 @@ extension UITest {
         // The name: a double-click edits it in place, Return keeps it; the sessions with it follow.
         await ui.click(await ui.steadyAnchor("role-name"), count: 2, inSheet: true)
         await ui.until { ui.sheetIsTyping }
-        await check("a double-click on the name edits it in place", model.roleEdit?.field == .name && ui.sheetIsTyping, ui.sheetResponder)
+        await check("a double-click on the name edits it in place", model.roleEdit?.field == .name && ui.sheetIsTyping, ui.sheetResponder + " edit \(String(describing: model.roleEdit))")
         await typeInSheet(ui, "Builder", replacing: true)
         await sheetKey(ui, .return)
         await check("Return renames it, and its sessions follow", model.role(named: "Builder") != nil && model.pickedRole?.name == "Builder"

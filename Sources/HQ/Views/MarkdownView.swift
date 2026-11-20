@@ -423,10 +423,16 @@ struct EditOnDoubleClick: NSViewRepresentable {
                   event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty else { return event }
             let point = convert(event.locationInWindow, from: nil)
             // In its own bounds: a view SwiftUI hosts can report a visible rect far bigger than itself (T-372).
-            guard bounds.contains(point), visibleRect.contains(point), !OwnClicks.Mark.covers(event.locationInWindow, in: window) else { return event }
+            guard bounds.contains(point) else { return event }
             // Only when its text is what's under the pointer: a task window's subtasks below its description take their own
             // double-clicks (T-372).
-            guard let hit = window.contentView?.superview?.hitTest(event.locationInWindow), !Self.covered(self, by: hit) else { return event }
+            let hit = window.contentView?.superview?.hitTest(event.locationInWindow)
+            guard visibleRect.contains(point), !OwnClicks.Mark.covers(event.locationInWindow, in: window), let hit else {
+                // Why a double-click on it edits nothing: a front run saw a role's name not edit (T-535).
+                AppLog.write("a double-click on editable text passed on: visible \(visibleRect.contains(point)), marked \(OwnClicks.Mark.covers(event.locationInWindow, in: window)), hit \(hit.map { "\(type(of: $0))" } ?? "none")", to: "focus.log")
+                return event
+            }
+            guard !Self.covered(self, by: hit) else { return event }
             edit?(point)
             return nil
         }
