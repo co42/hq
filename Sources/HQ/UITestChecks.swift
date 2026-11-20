@@ -1861,7 +1861,9 @@ extension UITest {
             await ui.settle(0.3)
             Pasteboard.copied = nil
             await ui.click(await ui.steadyAnchor("copy-item"), inSheet: true)
-            await check("the modal's Copy copies the item's line: \(route.selectionKey.prefix(12))", Pasteboard.copied == model.line(of: route),
+            // An item with a link copies the link, as Copy Link does (T-619).
+            let expected = model.link(of: route) ?? route.address ?? model.line(of: route)
+            await check("the modal's Copy copies the item's link or line: \(route.selectionKey.prefix(12))", Pasteboard.copied == expected,
                   Pasteboard.copied ?? "nothing")
             if case .session = route {
                 await ui.settle()

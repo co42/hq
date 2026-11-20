@@ -28,6 +28,7 @@ budget_gpu=20            # MB of GPU memory at rest (3; 260 to 420 before)
 budget_busy_cpu=5        # % with tool calls coming in at 10 a second (1.5; 28 before)
 budget_launch=2          # s from opening HQ to its window with the tasks shown (0.4 on the user's store and vault, 2026-11-16)
 budget_store=5           # MB of the store and its log after the busy run (the user's held 161 MB of history before it was pruned, 2026-11-16)
+budget_center=300        # ms the main thread holds to open the notification center, the median of its opens (160 on the seed, 2026-11-20, T-683)
 
 # "88.9M", "3136 KB", "1.2 GB": megabytes.
 megabytes() {
@@ -138,6 +139,10 @@ if [[ ${1:-} == --check ]]; then
   PERF_BUSY=10 measure 15 10
   verdict "CPU with tool calls coming in ($(( events / 15 )) a second)" $cpu $budget_busy_cpu %
   verdict "store size after the busy run" $store_size $budget_store MB
+  # Opening a sheet over the page: the notification center, as a banner click opens it.
+  PERF_OPEN=@center measure 8 6
+  center=$(grep -h "center round" $log | sed -E "s/.*open stall ([0-9]+) ms.*/\1/" | sort -n | awk '{v[NR]=$1} END {print NR ? v[int((NR + 1) / 2)] : 9999}')
+  verdict "opening the notification center (median)" $center $budget_center ms
   mkdir -p ${perf_history:h}
   [[ -f $perf_history ]] || print "date\tcommit\trest cpu %\tmemory MB\tpeak MB\tgpu MB\tbusy cpu %" >| $perf_history
   commit=$(git -C ${0:A:h:h} rev-parse --short HEAD 2>/dev/null)$(git -C ${0:A:h:h} diff --quiet 2>/dev/null || print +)

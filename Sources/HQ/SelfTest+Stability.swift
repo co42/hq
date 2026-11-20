@@ -253,20 +253,20 @@ extension SelfTest {
         // Claude went busy, then the user pressed Esc before any answer: idle, and no Stop comes.
         let sent = model.session(id)?.status.since ?? .now
         claudeRecord(pid, session: id, status: "idle", at: sent.addingTimeInterval(0.4))
-        TurnWatch.check(model, now: sent.addingTimeInterval(1.5))
+        await TurnWatch.check(model, now: sent.addingTimeInterval(1.5))
         check("a Stop just behind Claude's idle still wins: Working holds a moment", model.session(id)?.status.state == .working)
         turnEvent("Stop", id, pid: pid, #","last_assistant_message":"Done.""#)
         check("a Stop ends the turn as done", model.session(id)?.status.state == .done)
-        TurnWatch.check(model, now: .now.addingTimeInterval(10))
+        await TurnWatch.check(model, now: .now.addingTimeInterval(10))
         check("Claude's idle doesn't turn a done session idle", model.session(id)?.status.state == .done)
         turnEvent("UserPromptSubmit", id, pid: pid, #","prompt":"test again""#)
         let again = model.session(id)?.status.since ?? .now
         claudeRecord(pid, session: id, status: "busy", at: again)
-        TurnWatch.check(model, now: again.addingTimeInterval(10))
+        await TurnWatch.check(model, now: again.addingTimeInterval(10))
         check("a Claude that says busy keeps Working", model.session(id)?.status.state == .working)
         let ended = TurnWatch.ended
         claudeRecord(pid, session: id, status: "idle", at: again.addingTimeInterval(0.4))
-        TurnWatch.check(model, now: again.addingTimeInterval(4))
+        await TurnWatch.check(model, now: again.addingTimeInterval(4))
         check("a prompt cancelled before any answer leaves Working within seconds (T-371)",
               model.session(id)?.status.state == .idle && TurnWatch.ended == ended + 1, String(describing: model.session(id)?.status.state))
         check("and the watch stops when no session works", !TurnWatch.running || model.sessions.contains { $0.isRunning && $0.pid != nil && $0.status.state == .working })

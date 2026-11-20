@@ -33,21 +33,15 @@ extension AppModel {
         live.apply(event, now: now)
         item.live = live
         if let cwd = event.cwd, !cwd.isEmpty, cwd != item.cwd { item.cwd = cwd }
-        if ["SessionStart", "Stop"].contains(event.name) || item.repo.isEmpty {
-            (item.repo, item.branch) = GitInfo.describe(item.cwd)
-            item.origin = GitInfo.origin(item.cwd)
-        }
+        let git = ["SessionStart", "Stop"].contains(event.name) || item.repo.isEmpty ? item.cwd : nil
         if let title = event.title { item.title = title }
         if item.firstPrompt == nil, let prompt = event.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
            !prompt.isEmpty, !prompt.hasPrefix("/") {
             item.firstPrompt = prompt.components(separatedBy: .newlines).first
         }
         if let path = event.transcriptPath { item.transcriptPath = path }
-        // A /rename writes the transcript only: read again on each prompt and Stop.
-        if ["UserPromptSubmit", "Stop"].contains(event.name), let path = item.transcriptPath {
-            Self.applyTitles(TranscriptTitle.read(path), to: &item)
-            Self.applyUsage(ClaudeModel.usage(path), to: &item)
-        }
+        // A /rename writes the transcript only: read again on each prompt and Stop, with the repository, off the main thread.
+        readSessionFiles(item.id, git: git, transcript: ["UserPromptSubmit", "Stop"].contains(event.name) ? item.transcriptPath : nil)
         startReported(&item)
         if let pid = event.pid { item.pid = pid }
         if let tty = event.tty { item.tty = tty }
@@ -111,11 +105,9 @@ extension AppModel {
     /// A session HQ hasn't seen: at the end of the grid, with a face no open session shares. After /clear it takes the
     /// card of the session it continues: its place, face, name and PRs.
     private func newItem(for event: HookEvent, replacing replaced: SessionItem?, now: Date) -> SessionItem {
-        let cwd = event.cwd ?? ""
-        let git = GitInfo.describe(cwd)
-        var item = SessionItem(id: event.sessionID, status: SessionStatus(state: .idle, since: now), cwd: cwd,
-                               repo: git.repo, branch: git.branch, origin: GitInfo.origin(cwd), started: now,
-                               order: nextGridOrder)
+        // Its repository comes from `receive`, read off the main thread.
+        var item = SessionItem(id: event.sessionID, status: SessionStatus(state: .idle, since: now), cwd: event.cwd ?? "",
+                               repo: "", branch: "", origin: nil, started: now, order: nextGridOrder)
         item.faceSalt = faceSalt(for: item.id)
         if let replaced {
             item.order = replaced.order
@@ -171,9 +163,17 @@ extension AppModel {
     func capture(_ published: PublishedArtifact, from session: SessionItem) {
         guard let url = URL(string: published.url) else { return }
         let file = published.file.map { $0.hasPrefix("/") || $0.hasPrefix("~") ? $0 : (session.cwd as NSString).appendingPathComponent($0) }
-        let title = file.flatMap(PublishedArtifact.title(ofPage:)) ?? published.title
+        // The page's own title, read off the main thread, wins over the one Claude gave.
+        if let file {
+            Task {
+                guard let title = await Task.detached(priority: .userInitiated, operation: { PublishedArtifact.title(ofPage: file) }).value,
+                      let index = artifacts.firstIndex(where: { $0.id == url }), artifacts[index].title != title else { return }
+                artifacts[index].title = title
+            }
+        }
+        let title = published.title
         if let index = artifacts.firstIndex(where: { $0.id == url }) {
-            if let title, artifacts[index].title != title { artifacts[index].title = title }
+            if file == nil, let title, artifacts[index].title != title { artifacts[index].title = title }
             return
         }
         let name = title ?? file.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? url.lastPathComponent
@@ -623,21 +623,12 @@ extension AppModel {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             guard let self else { return }
             titleReads.remove(id)
-            guard var item = session(id), item.isRunning, let path = item.transcriptPath else {
+            guard let item = session(id), item.isRunning, let path = item.transcriptPath else {
                 titleWatchers.removeValue(forKey: id)?.cancel()
                 return
             }
-            var changed = Self.applyTitles(TranscriptTitle.read(path), to: &item)
-            changed = Self.applyUsage(ClaudeModel.usage(path), to: &item) || changed
             // Esc or Ctrl+C in the terminal: no Stop comes, the transcript says so.
-            if let stopped = TranscriptInterrupt.read(path) {
-                var live = item.live
-                if live.interrupt(at: stopped, now: .now) {
-                    item.live = live
-                    changed = true
-                }
-            }
-            if changed { put(item) }
+            readSessionFiles(id, transcript: path, interrupt: true)
         }
     }
 
@@ -684,10 +675,16 @@ extension AppModel {
         }
     }
 
+    /// Off the main thread (T-683); `waitForSessionSave` waits for it.
     func saveSessionsNow() {
         sessionSave?.cancel()
         sessionSave = nil
-        storage?.save(sessions)
+        storage?.saveInBackground(sessions)
+    }
+
+    /// HQ quits, or a check reads the store: the session saves under way land first.
+    func waitForSessionSave() {
+        storage?.waitForSaves()
     }
 
     // MARK: The grid
@@ -1083,10 +1080,9 @@ extension AppModel {
 
     /// A session HQ starts, before Claude reports it: at the end of the grid, with a face no open session shares.
     private func newSession(_ id: SessionItem.ID, named name: String, in directory: String) -> SessionItem {
-        let git = GitInfo.describe(directory)
         var item = SessionItem(id: id, customName: name, status: SessionStatus(state: .idle, since: .now), cwd: directory,
-                               repo: git.repo, branch: git.branch, origin: GitInfo.origin(directory), started: .now,
-                               order: nextGridOrder)
+                               repo: "", branch: "", origin: nil, started: .now, order: nextGridOrder)
+        readSessionFiles(id, git: directory)
         item.faceSalt = faceSalt(for: id)
         return item
     }

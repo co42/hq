@@ -392,6 +392,8 @@ enum SelfTest {
         let signatures = open.map(\.face.signature)
         check("no two open sessions share background and headwear", Set(signatures).count == signatures.count, "\(signatures)")
         model.saveSessionsNow()
+        model.waitForSessionSave()
+        check("the sessions are saved off the main thread (T-683)", Storage.savedOnMain == false, String(describing: Storage.savedOnMain))
         let stored = (try? Storage(url: Store.url))?.sessions() ?? []
         check("a session's face salt survives a relaunch",
               open.allSatisfy { session in stored.first { $0.id == session.id }?.faceSalt == session.faceSalt } && !stored.isEmpty)
@@ -480,6 +482,7 @@ enum SelfTest {
         let transcript = Store.url.path + "-transcript.jsonl"
         try? "{\"type\":\"ai-title\",\"aiTitle\":\"Registry push path\"}\n".write(toFile: transcript, atomically: false, encoding: .utf8)
         hook("Stop", id, ",\"transcript_path\":\"\(transcript)\"")
+        await settleReads(model)
         check("Stop reads the transcript's title", model.session(id)?.name == "Registry push path", model.session(id)?.name ?? "-")
         func append(_ text: String) {
             guard let handle = FileHandle(forWritingAtPath: transcript) else { return }
@@ -1435,6 +1438,11 @@ enum SelfTest {
             passed = ok()
         }
         check(name, passed, passed ? "" : detail())
+    }
+
+    /// Waits for the reads of sessions' files a hook started off the main thread (T-683).
+    static func settleReads(_ model: AppModel) async {
+        for _ in 0..<200 where model.sessionReads > 0 { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     static func check(_ name: String, _ ok: Bool, _ detail: String = "") {

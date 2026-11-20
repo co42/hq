@@ -514,6 +514,8 @@ final class AppModel {
     @ObservationIgnored var outputsCache: [Int: [ModalRoute]]?
     /// Open reminders by the selection key of what they link, the soonest first (T-311).
     @ObservationIgnored var reminderMarks: [String: [Notice]]?
+    /// Reads of sessions' files under way (`readSessionFiles`): the checks wait for them.
+    @ObservationIgnored var sessionReads = 0
     /// The status a done task had, for ⌘Return twice.
     @ObservationIgnored var doneBefore: [Int: TaskStatus] = [:]
     /// The session or "claude" behind a socket command: what it changes turns blue.

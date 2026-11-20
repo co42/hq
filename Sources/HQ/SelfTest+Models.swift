@@ -39,6 +39,7 @@ extension SelfTest {
         try? (reply + "\n").write(toFile: path, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(atPath: path) }
         _ = agent("hook", ["event": "{\"hook_event_name\":\"Stop\",\"session_id\":\"\(lead)\",\"cwd\":\"\(folder)\",\"transcript_path\":\"\(path)\"}"])
+        await settleReads(model)
         let read = model.session(lead)
         check("a reply's model, effort and context reach its card (T-475)", read?.model == "claude-opus-5-5" && read?.effort == "xhigh"
               && read?.contextTokens == 442_041 && read?.modelLine == "Opus VH · 442k", "\(read?.modelLine ?? "-")")
@@ -49,10 +50,12 @@ extension SelfTest {
               && model.session(lead)?.model == "sonnet", model.ghosttyLog.last ?? "-")
         // The transcript changes (the command's own line): its last reply is older, HQ's change stays until a newer one.
         _ = agent("hook", ["event": "{\"hook_event_name\":\"Stop\",\"session_id\":\"\(lead)\",\"cwd\":\"\(folder)\",\"transcript_path\":\"\(path)\"}"])
+        await settleReads(model)
         check("a reply older than the change doesn't undo it", model.session(lead)?.model == "sonnet", model.session(lead)?.model ?? "-")
         let newer = #"{"type":"assistant","effort":"xhigh","timestamp":""# + Date.now.addingTimeInterval(1).formatted(.iso8601) + #"","message":{"model":"claude-sonnet-5-5","usage":{"input_tokens":5}}}"#
         try? (reply + "\n" + newer + "\n").write(toFile: path, atomically: true, encoding: .utf8)
         _ = agent("hook", ["event": "{\"hook_event_name\":\"Stop\",\"session_id\":\"\(lead)\",\"cwd\":\"\(folder)\",\"transcript_path\":\"\(path)\"}"])
+        await settleReads(model)
         check("a reply after it says what it runs on again", model.session(lead)?.model == "claude-sonnet-5-5" && model.session(lead)?.runChangedAt == nil,
               model.session(lead)?.model ?? "-")
         if var item = model.session(lead) {

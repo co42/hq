@@ -187,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         model.settleActivity()
         model.saveSessionsNow()
+        model.waitForSessionSave()
         model.flushNoteWrites()
         if !Store.isOverridden, let mainWindow { WindowFrame.save(mainWindow) }
         Prefs.forget()

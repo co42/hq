@@ -4,7 +4,7 @@ import SwiftData
 
 /// A session in the store: everything hq knows about it, so a relaunch shows it again.
 @Model
-final class SessionRecord {
+nonisolated final class SessionRecord {
     var sessionID: String = ""
     var customName: String?
     var title: String?
@@ -177,6 +177,57 @@ final class Storage {
 
     func save(_ sessions: [SessionItem]) {
         sync(sessions, key: \.sessionID, id: \.id, make: SessionRecord.init) { $0.update($1) }
+    }
+
+    /// The app's session saves (T-683): on a context of their own, off the main thread, one after another. After launch the
+    /// main context never writes sessions, so the two never write the same rows.
+    private var sessionWrite: Task<Void, Never>?
+    /// Whether the last background save ran on the main thread, for the self-test.
+    nonisolated(unsafe) static var savedOnMain: Bool?
+
+    func saveInBackground(_ sessions: [SessionItem]) {
+        let container = container, removesMissing = loaded.contains(ObjectIdentifier(SessionRecord.self)), failReads = Self.failReads
+        let previous = sessionWrite
+        sessionWrite = Task.detached(priority: .utility) {
+            await previous?.value
+            let problems = Self.write(sessions, in: ModelContext(container), removesMissing: removesMissing, failReads: failReads)
+            guard !problems.isEmpty else { return }
+            await MainActor.run { for line in problems { AppLog.write(line, to: "store.log") } }
+        }
+    }
+
+    /// Waits for the session saves under way: HQ quits, or a check reads the store.
+    func waitForSaves() {
+        guard let write = sessionWrite else { return }
+        let done = DispatchSemaphore(value: 0)
+        Task.detached { await write.value; done.signal() }
+        _ = done.wait(timeout: .now() + 5)
+    }
+
+    /// `sync` for sessions on a background context; what went wrong, for the store's log.
+    nonisolated private static func write(_ items: [SessionItem], in context: ModelContext, removesMissing: Bool, failReads: Bool) -> [String] {
+        savedOnMain = Thread.isMainThread
+        guard !failReads, let records = try? context.fetch(FetchDescriptor<SessionRecord>()) else { return ["couldn't read SessionRecord"] }
+        var problems: [String] = []
+        var byID: [String: SessionRecord] = [:]
+        var extra = 0
+        for record in records {
+            if byID[record.sessionID] == nil { byID[record.sessionID] = record } else { context.delete(record); extra += 1 }
+        }
+        if extra > 0 { problems.append("removed \(extra) duplicate SessionRecord rows on save") }
+        var written: Set<String> = []
+        for item in items where written.insert(item.id).inserted {
+            if let record = byID.removeValue(forKey: item.id) { record.update(item) } else { context.insert(SessionRecord(item)) }
+        }
+        if removesMissing { for record in byID.values { context.delete(record) } }
+        guard context.hasChanges else { return problems }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            problems.append("couldn't save SessionRecord: \(error)")
+        }
+        return problems
     }
 
     func artifacts() -> [ArtifactItem] {

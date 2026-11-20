@@ -22,7 +22,7 @@ enum TurnWatch {
         let working = model.sessions.contains { $0.isRunning && $0.pid != nil && $0.status.state == .working }
         if working, timer == nil {
             let next = Timer(timeInterval: 2, repeats: true) { [weak model] _ in
-                MainActor.assumeIsolated { if let model { check(model) } }
+                MainActor.assumeIsolated { if let model { Task { await check(model) } } }
             }
             next.tolerance = 0.5
             RunLoop.main.add(next, forMode: .common)
@@ -33,10 +33,16 @@ enum TurnWatch {
         }
     }
 
-    static func check(_ model: AppModel, now: Date = .now) {
-        for var item in model.sessions where item.isRunning && item.status.state == .working {
-            guard let pid = item.pid,
-                  let idle = ClaudeSessionFile.idleSince(directory.appending(path: "\(pid).json").path, sessionID: item.id) else { continue }
+    /// Claude's records are read off the main thread (T-683).
+    static func check(_ model: AppModel, now: Date = .now) async {
+        let directory = directory
+        let records = model.sessions.filter { $0.isRunning && $0.status.state == .working }
+            .compactMap { item in item.pid.map { (item.id, directory.appending(path: "\($0).json").path) } }
+        let idles = await Task.detached(priority: .utility) {
+            records.compactMap { id, path in ClaudeSessionFile.idleSince(path, sessionID: id).map { (id, $0) } }
+        }.value
+        for (id, idle) in idles {
+            guard var item = model.session(id), item.isRunning, item.status.state == .working else { continue }
             var live = item.live
             guard live.claudeIdle(since: idle, now: now) else { continue }
             AppLog.write("\(item.id.prefix(8)) \(item.name): Claude idle since \(idle.formatted(.iso8601)) with no Stop, Working ends", to: "sessions.log")
