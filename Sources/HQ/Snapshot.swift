@@ -1,7 +1,9 @@
 import AppKit
 import HQKit
 import IOKit.pwr_mgt
+import ScreenCaptureKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 /// Screenshot mode for agents and review.
@@ -540,7 +542,7 @@ enum Snapshot {
         }
         let only = env["APP_SNAPSHOT_PAGES"].map { Set($0.split(separator: ",").map(String.init)) }
         Task {
-            // A sleeping display gives screencapture nothing.
+            // A sleeping display gives a capture nothing.
             var activity: IOPMAssertionID = 0
             IOPMAssertionDeclareUserActivity("Snapshots" as CFString, kIOPMUserActiveLocal, &activity)
             var awake: IOPMAssertionID = 0
@@ -561,9 +563,9 @@ enum Snapshot {
                 for mode in ["light", "dark"] {
                     appearance(mode)
                     await ready()
-                    capture(main, to: "\(dir)/\(name)-\(mode).png")
+                    await capture(main, to: "\(dir)/\(name)-\(mode).png")
                 }
-                finish(dir)
+                await finish(dir)
                 return
             }
 
@@ -585,8 +587,8 @@ enum Snapshot {
                         switch page.capture {
                         case .window:
                             if env["APP_DEBUG_TOOLBAR"] == "1" { debugToolbar(main, "\(page.name) \(Int(size.width))") }
-                            capture(main, to: path)
-                        case .sheet, .quickOpen: captureRegion(of: main, to: path)
+                            await capture(main, to: path)
+                        case .sheet, .quickOpen: await captureRegion(of: main, to: path)
                         }
                         if page.capture == .quickOpen { AppDelegate.shared?.quickOpenPanel.dismiss() }
                         if page.capture == .sheet {
@@ -608,11 +610,11 @@ enum Snapshot {
                         model.settingsTab = tab
                         await ready()
                         let path = "\(dir)/settings-\(tab.rawValue)-\(mode).png"
-                        if let settings = settingsWindow(besides: main) { capture(settings, to: path) } else { fail("\(path): no Settings window") }
+                        if let settings = settingsWindow(besides: main) { await capture(settings, to: path) } else { fail("\(path): no Settings window") }
                     }
                 }
             }
-            finish(dir)
+            await finish(dir)
         }
     }
 
@@ -672,7 +674,8 @@ enum Snapshot {
         NSApp.windows.first { $0.isVisible && $0 !== main && !$0.isSheet && $0.canBecomeKey && !($0 is NSPanel) }
     }
 
-    private static func finish(_ dir: String) {
+    private static func finish(_ dir: String) async {
+        for (path, done) in writing where !(await done.value) { fail("\(path): its PNG couldn't be written") }
         print(failures == 0 ? "SNAPSHOT done \(dir)" : "SNAPSHOT FAIL \(failures) pages in \(dir)")
         for window in NSApp.windows { if let sheet = window.attachedSheet { window.endSheet(sheet) } }
         if failures > 0 { Prefs.forget(); exit(1) }
@@ -690,10 +693,9 @@ enum Snapshot {
         window.setFrame(NSRect(x: screen.maxX - size.width, y: screen.maxY - height, width: size.width, height: height), display: true)
     }
 
-    /// Captures one window with screencapture, so glass and sidebars look as on screen.
-    /// Needs Screen Recording permission for the app that started this one.
+    /// Captures one window as on screen, so glass and sidebars look right.
     /// In the background (the default) the window stays behind the user's and looks inactive; HQ_FOREGROUND=1 captures it as the key window.
-    private static func capture(_ window: NSWindow, to path: String) {
+    private static func capture(_ window: NSWindow, to path: String) async {
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
         if Store.background {
             window.orderBack(nil)
@@ -702,29 +704,36 @@ enum Snapshot {
             window.makeKeyAndOrderFront(nil)
         }
         writeLayout(window, path)
-        run(["-x", "-o", "-l", String(window.windowNumber), path], path: path, fallback: window)
+        await shoot(window, to: path)
     }
 
-    /// Captures the window's area of the screen, to include a sheet or Quick Open over it.
-    /// In the background that area shows the user's windows, so it captures the sheet, panel or popover alone.
-    private static func captureRegion(of window: NSWindow, to path: String) {
+    /// Captures a sheet with its window, or the window's area of the screen to include Quick Open over it.
+    /// In the background that area shows the user's windows, so it captures the panel or popover alone.
+    private static func captureRegion(of window: NSWindow, to path: String) async {
         if NSApp.isHidden { NSApp.unhideWithoutActivation() }
         if let sheet = window.attachedSheet, sheet.frame.width > window.frame.width + 0.5 || sheet.frame.height > window.frame.height + 0.5 {
             fail("\(path): the sheet (\(Int(sheet.frame.width)) × \(Int(sheet.frame.height))) is bigger than its window (\(Int(window.frame.width)) × \(Int(window.frame.height)))")
         }
         if Store.background {
-            let overlay = window.attachedSheet ?? NSApp.windows
+            // A window's capture includes its sheet.
+            let overlay = window.attachedSheet != nil ? nil : NSApp.windows
                 .filter { $0 !== window && $0.isVisible && $0.frame.intersects(window.frame) }
                 .max { $0.level.rawValue < $1.level.rawValue }
             writeLayout(window, path)
-            run(["-x", "-o", "-l", String((overlay ?? window).windowNumber), path], path: path, fallback: overlay ?? window)
+            await shoot(overlay ?? window, to: path)
             return
         }
         writeLayout(window, path)
         let top = NSScreen.screens.first?.frame.height ?? 0
         let frame = window.frame
         let rect = "\(Int(frame.minX)),\(Int(top - frame.maxY)),\(Int(frame.width)),\(Int(frame.height))"
-        run(["-x", "-R", rect, path], path: path, fallback: nil)
+        try? FileManager.default.removeItem(atPath: path)
+        let shot = Process()
+        shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        shot.arguments = ["-x", "-R", rect, path]
+        try? shot.run()
+        shot.waitUntilExit()
+        if FileManager.default.fileExists(atPath: path) { print("SNAPSHOT \(path)") } else { fail("\(path): the capture failed") }
     }
 
     /// The grid's probes, at 100% only: zoomed sizes leave the 4 pt grid on purpose.
@@ -734,22 +743,21 @@ enum Snapshot {
         GridProbes.shared.write(to: layout, window: window.contentView?.bounds.size ?? .zero)
     }
 
-    private static func run(_ arguments: [String], path: String, fallback: NSWindow?) {
+    /// PNGs still being encoded: the run waits for them before it quits.
+    private static var writing: [(path: String, done: Task<Bool, Never>)] = []
+
+    /// Grabs one window, its shadow left out, and encodes its PNG off the main thread while the next page gets ready.
+    private static func shoot(_ window: NSWindow, to path: String) async {
         try? FileManager.default.removeItem(atPath: path)
         // The first capture of a run sometimes misses the window. Try three times.
         for _ in 1...3 {
-            let shot = Process()
-            shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            shot.arguments = arguments
-            try? shot.run()
-            shot.waitUntilExit()
-            if FileManager.default.fileExists(atPath: path) {
-                print("SNAPSHOT \(path)")
+            if let image = await grab(window) {
+                writing.append((path, Task.detached { encode(image, to: path) }))
                 return
             }
-            Thread.sleep(forTimeInterval: 0.5)
+            try? await Task.sleep(for: .milliseconds(500))
         }
-        guard let window = fallback, let view = window.contentView?.superview ?? window.contentView,
+        guard let view = window.contentView?.superview ?? window.contentView,
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
             fail("\(path): the capture failed")
             return
@@ -757,7 +765,28 @@ enum Snapshot {
         view.cacheDisplay(in: view.bounds, to: rep)
         if let data = rep.representation(using: .png, properties: [:]) {
             try? data.write(to: URL(fileURLWithPath: path))
-            print("SNAPSHOT \(path) (fallback: no Screen Recording permission, sidebars and glass are blank)")
+            print("SNAPSHOT \(path) (fallback: the capture failed, sidebars and glass are blank)")
         }
+    }
+
+    /// The window and its sheet as the window server draws them, at the screen's pixel scale.
+    private static func grab(_ window: NSWindow) async -> CGImage? {
+        guard let content = try? await SCShareableContent.currentProcess,
+              let shared = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else { return nil }
+        let filter = SCContentFilter(desktopIndependentWindow: shared)
+        let config = SCStreamConfiguration()
+        config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
+        config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
+        config.ignoreShadowsSingleWindow = true
+        config.showsCursor = false
+        return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+    }
+
+    nonisolated private static func encode(_ image: CGImage, to path: String) -> Bool {
+        guard let file = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil) else { return false }
+        CGImageDestinationAddImage(file, image, nil)
+        guard CGImageDestinationFinalize(file) else { return false }
+        print("SNAPSHOT \(path)")
+        return true
     }
 }

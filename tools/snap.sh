@@ -3,7 +3,7 @@
 # Usage: tools/snap.sh            all pages, the four passes side by side
 #        APP_SNAPSHOT_PAGES=sessions,settings tools/snap.sh
 #        SNAP_PASSES=1 tools/snap.sh   one process for all, one pass after another
-# Runs the binary directly, so screencapture uses your terminal's Screen Recording permission.
+# Runs the binary directly: a foreground run (HQ_FOREGROUND=1) captures with screencapture, under your terminal's Screen Recording permission.
 # It runs beside your own HQ: a test run opens its window through Window › HQ. Exit code 1 when a page failed.
 set -u
 # Background jobs at full priority: zsh nices them, and macOS then keeps them on the efficiency cores.
