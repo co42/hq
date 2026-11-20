@@ -479,8 +479,9 @@ struct Driver {
                                pressure: type == .leftMouseDown ? 1 : 0)
         }
         guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return false }
+        // Through the queue, as a real click: SwiftUI misses a press sent while it updates.
+        NSApp.postEvent(down, atStart: false)
         NSApp.postEvent(up, atStart: false)
-        NSApp.sendEvent(down)
         await settle(0.4)
         return true
     }
@@ -551,19 +552,16 @@ struct Driver {
                                    pressure: type == .leftMouseDown ? 1 : 0)
             }
             guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { continue }
-            // Active, the press and the release go through the queue as a real click does: views read it as the current event.
-            // A real click activates HQ before AppKit delivers it to a view that accepts the first
-            // mouse. While HQ can't be active (a locked screen), a table gets the click directly.
-            if NSApp.isActive {
-                NSApp.postEvent(down, atStart: false)
-                NSApp.postEvent(up, atStart: false)
-            } else if let hit = hitView(point, in: target), hit.acceptsFirstMouse(for: down),
+            // The press and the release go through the queue as a real click does: views read it as the current event, and
+            // SwiftUI misses a press sent while it updates. In the background, where HQ is never active, a table gets the press
+            // directly: it takes no queued one in an inactive app.
+            if !NSApp.isActive, let hit = hitView(point, in: target), hit.acceptsFirstMouse(for: down),
                       let table = sequence(first: hit, next: \.superview).first(where: { $0 is NSTableView }) {
                 NSApp.postEvent(up, atStart: false)
                 table.mouseDown(with: down)
             } else {
+                NSApp.postEvent(down, atStart: false)
                 NSApp.postEvent(up, atStart: false)
-                NSApp.sendEvent(down)
             }
             await drain()
         }
@@ -580,13 +578,8 @@ struct Driver {
                                pressure: type == .rightMouseDown ? 1 : 0)
         }
         guard let down = event(.rightMouseDown), let up = event(.rightMouseUp) else { return }
-        if NSApp.isActive {
-            NSApp.postEvent(down, atStart: false)
-            NSApp.postEvent(up, atStart: false)
-        } else {
-            NSApp.postEvent(up, atStart: false)
-            NSApp.sendEvent(down)
-        }
+        NSApp.postEvent(down, atStart: false)
+        NSApp.postEvent(up, atStart: false)
         await settle(0.3)
     }
 
