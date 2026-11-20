@@ -371,6 +371,15 @@ final class OutlineContainer: NSView {
         return outline.rect(ofRow: rows - 1).maxY + trailing
     }
 
+    /// What's wrong when the container doesn't hold its rows, or the outline doesn't fill it; nil when they're apart by
+    /// less than a point: SwiftUI rounds the container to the screen's pixels, and a zoom makes rows fractions of a point.
+    static func defect(container: NSRect, outline: NSRect, rows: CGFloat) -> String? {
+        let apart = [rows - container.height, abs(outline.width - container.width), abs(outline.height - container.height), abs(outline.minX), abs(outline.minY)]
+        guard apart.contains(where: { $0 >= 1 }) else { return nil }
+        let size = { (rect: NSRect) in String(format: "%.2f × %.2f at %.2f, %.2f", rect.width, rect.height, rect.minX, rect.minY) }
+        return "container \(size(container)), outline \(size(outline)), rows \(String(format: "%.2f", rows))"
+    }
+
     /// The page sizes the container from its rows: told the moment AppKit lays them out (`tile`).
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: contentHeight) }
     private var reported: CGFloat = -1
@@ -1484,9 +1493,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             // A later report means rows SwiftUI may not have had yet: that report's check judges them.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self, report == reports, let container = self.container, container.window != nil else { return }
-                let rows = container.contentHeight
-                guard container.frame.height + 0.5 < rows || container.outline.frame != container.bounds else { return }
-                AppLog.write("outline: container \(container.frame.integral), outline \(container.outline.frame.integral), rows \(Int(rows))", to: "outline.log")
+                guard let defect = OutlineContainer.defect(container: container.frame, outline: container.outline.frame, rows: container.contentHeight)
+                else { return }
+                AppLog.write("outline: \(defect)", to: "outline.log")
             }
         }
     }

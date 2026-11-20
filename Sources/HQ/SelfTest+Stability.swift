@@ -15,6 +15,17 @@ extension SelfTest {
         bringForwardChecks(model)
         await lostClientChecks()
         await hangChecks(model)
+        outlineDefectChecks()
+    }
+
+    /// T-689: the outline's container rounded to the screen's pixels is no defect; rows cut off or an outline short of it is.
+    private static func outlineDefectChecks() {
+        let page = NSRect(x: 0, y: 0, width: 885, height: 4327.5)
+        check("an outline container rounded to half a point under its rows logs no defect (T-689)",
+              OutlineContainer.defect(container: page, outline: page, rows: 4328.05) == nil)
+        check("rows a point past their container, or an outline short of it, are a defect",
+              OutlineContainer.defect(container: page, outline: page, rows: 4329) != nil
+              && OutlineContainer.defect(container: page, outline: NSRect(x: 0, y: 0, width: 885, height: 4300), rows: 4327.5) != nil)
     }
 
     /// T-683: a main thread held over 2 s leaves a line in hangs.log and a sample of its stack; a banner click logs its steps.
