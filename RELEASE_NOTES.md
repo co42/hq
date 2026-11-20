@@ -1,5 +1,9 @@
 # Release notes
 
+## v18.3 · 2026-11-20 · ⌘K types at once
+
+- The first ⌘K after launch puts the cursor in Quick Open's search field, as later ones do; the Archive's search field the same.
+
 ## v18.2 · 2026-11-20 · Clicks you can see
 
 - Every small control a click acts on lights up under the pointer: faces, status glyphs, keys, project and blocker chips, link icons, chevrons, header and notification buttons, Focus. It deepens while pressed. A task card itself no longer changes under the pointer: only the control does.
