@@ -363,6 +363,7 @@ struct CodeBlock: View {
                         .imageScale(.small)
                         .padding(Space.xs)
                         .help("Copy this code")
+                        .ownsItsClicks()
                 }
             }
     }

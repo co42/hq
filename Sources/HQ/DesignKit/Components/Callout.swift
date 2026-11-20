@@ -61,6 +61,7 @@ struct CalloutBox<Content: View>: View {
                     .buttonStyle(.plain)
                     .help(folded ? "Show it" : "Hide it")
                     .accessibilityValue(folded ? "Folded" : "Open")
+                    .ownsItsClicks()
             } else {
                 header
             }

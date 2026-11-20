@@ -108,6 +108,7 @@ struct NoteEmbed: View {
         }
         .buttonStyle(.plain)
         .help("Open \(name)")
+        .ownsItsClicks()
     }
 }
 

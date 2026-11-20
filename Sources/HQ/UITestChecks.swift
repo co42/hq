@@ -1607,6 +1607,17 @@ extension UITest {
                 await ui.key(.escape)
                 await ui.settle(0.5)
             }
+            // A checkbox's second quick click is the checkbox's, not the description's (T-573).
+            model.setDescription(task.id, "- [ ] one\n\n" + lines)
+            await ui.settle(0.6)
+            if let box = ui.anchor("checkbox:0"), let double = ui.mouseDown(box, clicks: 2) {
+                await check("in the outline, the second of two quick clicks on a checkbox goes to the checkbox and edits nothing (T-573)",
+                            coordinator.descriptionClick(double) != nil && model.editingDescription == nil, "editing \(String(describing: model.editingDescription))")
+            } else {
+                await check("the outline's description shows its checkbox", false)
+            }
+            model.setDescription(task.id, lines)
+            await ui.settle(0.4)
         } else {
             await check("the description shows under its row", false)
         }
@@ -3499,6 +3510,13 @@ extension UITest {
         await ui.click(ui.anchor("checkbox:0"), inSheet: true)
         await ui.until(2) { model.task(third.id)?.body.contains("- [x] one") == true }
         await check("a click in the middle of an empty checkbox ticks it", model.task(third.id)?.body.contains("- [x] one") == true, model.task(third.id)?.body ?? "")
+        // A control inside rendered markdown takes both of two quick clicks; the text never edits (T-573).
+        await ui.click(ui.anchor("checkbox:0"), count: 2, inSheet: true)
+        await ui.settle(0.3)
+        await check("two quick clicks on a checkbox untick it and tick it again, and open no editor (T-573)",
+                    model.task(third.id)?.body.contains("- [x] one") == true && !model.modalEditingDescription,
+                    "\(model.task(third.id)?.body ?? ""), editing \(model.modalEditingDescription)")
+        model.saveModalEdits()
         model.setDescription(third.id, thirdBody)
         model.setStatus(third.id, .todo)
         model.closeModal()

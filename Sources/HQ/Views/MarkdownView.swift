@@ -262,6 +262,7 @@ private struct MarkdownBlockView: View {
                     .accessibilityLabel(text)
                     .accessibilityValue(checked ? "Done" : "To do")
                     .accessibilityAddTraits(.isToggle)
+                    .ownsItsClicks()
                     .uiTestAnchor("checkbox:\(task)")
             } else {
                 mark.accessibilityLabel(text).accessibilityValue(checked ? "Done" : "To do")
@@ -422,7 +423,7 @@ struct EditOnDoubleClick: NSViewRepresentable {
                   event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty else { return event }
             let point = convert(event.locationInWindow, from: nil)
             // In its own bounds: a view SwiftUI hosts can report a visible rect far bigger than itself (T-372).
-            guard bounds.contains(point), visibleRect.contains(point) else { return event }
+            guard bounds.contains(point), visibleRect.contains(point), !OwnClicks.Mark.covers(event.locationInWindow, in: window) else { return event }
             // Only when its text is what's under the pointer: a task window's subtasks below its description take their own
             // double-clicks (T-372).
             guard let hit = window.contentView?.superview?.hitTest(event.locationInWindow), !Self.covered(self, by: hit) else { return event }
@@ -440,6 +441,37 @@ struct EditOnDoubleClick: NSViewRepresentable {
             }
             return true
         }
+    }
+}
+
+/// A control inside rendered markdown: its clicks are its own, so two quick ones act twice and never edit the text (T-573).
+struct OwnClicks: NSViewRepresentable {
+    func makeNSView(context: Context) -> Mark { Mark() }
+    func updateNSView(_ view: Mark, context: Context) {}
+
+    final class Mark: NSView {
+        private static let all = NSHashTable<Mark>.weakObjects()
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            Self.all.add(self)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        /// A control's mark is under this point of the window.
+        static func covers(_ point: NSPoint, in window: NSWindow) -> Bool {
+            all.allObjects.contains { $0.window === window && !$0.isHiddenOrHasHiddenAncestor && $0.convert($0.visibleRect, to: nil).contains(point) }
+        }
+    }
+}
+
+extension View {
+    /// Marks a control inside rendered markdown: a double-click on it is two clicks, never an edit.
+    func ownsItsClicks() -> some View {
+        background(OwnClicks())
     }
 }
 

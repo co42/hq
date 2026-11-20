@@ -16,6 +16,7 @@ struct CornerButton: View {
             .buttonBorderShape(.circle)
             .controlSize(.small)
             .help(help)
+            .ownsItsClicks()
             .uiTestAnchor(anchor)
     }
 }
