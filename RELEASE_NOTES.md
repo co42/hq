@@ -1,5 +1,9 @@
 # Release notes
 
+## v18.6 · 2026-11-20 · The focus stays put
+
+- With several tasks selected, the focus no longer jumps: leaving Tasks and coming back, or a session or the vault moving one of the selected tasks, keeps it on the task you were on, so X acts on that one.
+
 ## v18.5 · 2026-11-20 · One ring per task
 
 - With several tasks selected, each has one ring: the one the keys act on keeps the full ring, the others a thinner, lighter one. A task the focus is on but not selected gets a faint fill. One task selected looks as before.
