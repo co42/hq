@@ -224,6 +224,7 @@ final class GitHubService {
         model.noteGitHubEvents(before: model.github, after: snapshot)
         model.github = snapshot
         model.setup.githubAccount = snapshot.viewer
+        model.bannerNewReviews()
     }
 
     /// Mentions and comments on threads the user takes part in, outside their own PRs (the poll's query has those),

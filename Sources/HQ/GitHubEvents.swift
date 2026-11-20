@@ -31,6 +31,23 @@ extension AppModel {
         if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
     }
 
+    /// A review newly asked of the user, within the lookback: a banner, once per time it's asked (T-657). Its row is the
+    /// review request in Needs You; no notice repeats it.
+    func bannerNewReviews(now: Date = .now) {
+        let floor = githubFloor(now: now)
+        var known = noticeStore.githubEvents
+        // The first time HQ does this, the reviews already waiting are known, not new.
+        let first = !known.keys.contains { $0.contains("|review|") }
+        if first { known["|review|seeded"] = now }
+        for item in waitingReviews where item.reviewAskedAt > floor {
+            let key = "\(item.url)|review|\(Int(item.reviewAskedAt.timeIntervalSince1970))"
+            guard known[key] == nil else { continue }
+            known[key] = now
+            if !first { postBanner(id: "review|\(item.url)", title: "\(item.reference) waits for your review", body: item.title) }
+        }
+        if known != noticeStore.githubEvents { noticeStore.githubEvents = known }
+    }
+
     /// Events older than the lookback (Settings › GitHub) never notify. Their keys last 30 days, longer than any lookback, so nothing notifies twice.
     func githubFloor(now: Date = .now) -> Date {
         now.addingTimeInterval(-Double(githubLookback) * 86_400)

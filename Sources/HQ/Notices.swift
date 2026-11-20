@@ -546,33 +546,51 @@ extension AppModel {
 
     // MARK: Banners
 
-    /// A macOS banner for what needs the user. Never in a test run: those keep it in `ghosttyLog`.
+    /// A macOS banner with its sound for what needs the user (DESIGN.md §11, T-657), HQ in front or not; a session's
+    /// ping none while its terminal has the focus. Never in a test run: those keep it in `ghosttyLog`.
     func banner(_ row: Notice) {
         let title: String = switch row.kind {
         case .session: session(row.source).map { "\($0.name) needs you" } ?? "A session needs you"
         case .github: githubItem(row.source).map(\.reference) ?? row.source.flatMap(GitHubThreads.reference) ?? "GitHub"
         case .reminder: "Reminder"
         }
-        postBanner(id: row.id.uuidString, title: title, body: MarkdownLine.plain(row.text))
+        let body = MarkdownLine.plain(row.text)
+        guard row.kind == .session, let tty = session(row.source)?.tty else { return postBanner(id: row.id.uuidString, title: title, body: body) }
+        Task { [weak self] in
+            guard let self else { return }
+            if await self.looksAtTerminal(tty) { return self.noBanner(title) }
+            self.postBanner(id: row.id.uuidString, title: title, body: body)
+        }
     }
 
-    /// A session started to wait on the user: a banner, unless they are already looking at its terminal.
+    /// A session started to wait on the user: a banner, unless its terminal has the focus.
     func sessionBlocked(_ id: String) {
         guard let item = session(id), item.isRunning, item.status.needsYou else { return }
         let since = item.status.since
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(Self.bannerDelay))
             guard let self, let item = self.session(id), item.status.needsYou, item.status.since == since else { return }
-            let tty = Store.isOverridden ? nil : await Task.detached { [setup] () -> String? in
-                guard setup.ghosttyAllowed, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Ghostty.bundleID else { return nil }
-                return try? Ghostty.focusedTTY()
-            }.value
-            guard tty == nil || tty != item.tty else { return }
+            if await self.looksAtTerminal(item.tty) { return self.noBanner("\(item.name) needs you") }
             self.postBanner(id: "\(id)-\(since.timeIntervalSince1970)", title: "\(item.name) needs you", body: item.reason ?? item.status.title)
         }
     }
 
-    private func postBanner(id: String, title: String, body: String) {
+    /// A banner left out: its terminal has the focus. A test run keeps it in `ghosttyLog`.
+    private func noBanner(_ title: String) {
+        if Store.isOverridden { ghosttyLog.append("no banner \(title): its terminal has the focus") }
+    }
+
+    /// How long a session waits before its banner: an answer within it needs none.
+    static var bannerDelay: TimeInterval = 2
+
+    /// The terminal on `tty` really has the focus: Ghostty is the app in front, and it's the focused terminal of its front
+    /// window's selected tab. Merely on screen isn't enough.
+    func looksAtTerminal(_ tty: String?) async -> Bool {
+        guard let tty, setup.ghosttyAllowed || Ghostty.faked, Ghostty.inFront else { return false }
+        return await Task.detached { try? Ghostty.focusedTTY() }.value == tty
+    }
+
+    func postBanner(id: String, title: String, body: String) {
         if Store.isOverridden { return ghosttyLog.append("banner \(title): \(body)") }
         let center = UNUserNotificationCenter.current()
         Task {
@@ -586,13 +604,16 @@ extension AppModel {
     }
 }
 
-/// A click on a banner opens the center; while HQ is in front, its bell says it already.
+/// A click on a banner opens the center. HQ in front shows it too, with its sound (T-657).
 final class BannerDelegate: NSObject, UNUserNotificationCenterDelegate {
     weak var model: AppModel?
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.list]
+        Self.presentation
     }
+
+    /// How a banner shows while HQ is in front: as when it isn't.
+    nonisolated static let presentation: UNNotificationPresentationOptions = [.banner, .sound, .list]
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let clicked = CACurrentMediaTime()

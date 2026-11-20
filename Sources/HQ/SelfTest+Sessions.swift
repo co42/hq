@@ -6,6 +6,7 @@ import HQKit
 extension SelfTest {
     static func sessionFixChecks(_ model: AppModel) async {
         await watchedStopChecks(model)
+        await bannerChecks(model)
         await ghosttyQueueChecks()
         subagentChecks(model)
         await closeKeysChecks(model)
@@ -51,6 +52,61 @@ extension SelfTest {
         check("and Ghostty was asked off the main thread", fake.scripts.count == 1 && fake.onMain == 0, "\(fake.scripts.count) scripts, \(fake.onMain) on main")
         Ghostty.fake.withLock { $0.front = false }
         model.sessions.removeAll { $0.id == id }
+    }
+
+    /// T-657: a banner with its sound for everything that needs the user, HQ in front too; none only while that session's
+    /// terminal has the focus (Ghostty in front, its front window's selected tab), not when it's merely on screen.
+    private static func bannerChecks(_ model: AppModel) async {
+        let id = "5e550000-0000-4000-8000-0000000000b3", tty = "/dev/ttys0b3", name = "Banner rules"
+        let delay = AppModel.bannerDelay
+        AppModel.bannerDelay = 0.1
+        defer {
+            AppModel.bannerDelay = delay
+            Ghostty.fake.withLock { $0 = Ghostty.Fake() }
+            model.sessions.removeAll { $0.id == id }
+        }
+        check("a banner shows with its sound while HQ is in front", BannerDelegate.presentation.contains(.banner) && BannerDelegate.presentation.contains(.sound))
+        event("SessionStart", id, #","source":"startup""#, tty: tty)
+        model.renameSession(id, to: name)
+        func asks(_ question: String) async -> String {
+            event("UserPromptSubmit", id, #","prompt":"go""#)
+            let before = model.ghosttyLog.count
+            event("PreToolUse", id, #","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"\#(question)","options":[{"label":"Yes"}]}]}"#)
+            await expect("\(question): HQ decides about its banner", model.ghosttyLog.dropFirst(before).contains { $0.contains("banner \(name) needs you") }, within: 2)
+            return model.ghosttyLog.dropFirst(before).last { $0.contains("banner \(name)") } ?? ""
+        }
+        let cases: [(name: String, front: Bool, focused: String?, banner: Bool)] = [
+            ("Ghostty in the back", false, nil, true),
+            ("its terminal on screen, Ghostty in the back", false, tty, true),
+            ("Ghostty in front on another terminal", true, "/dev/ttys0b4", true),
+            ("its terminal has the focus", true, tty, false),
+        ]
+        for test in cases {
+            Ghostty.fake.withLock { $0 = Ghostty.Fake(); $0.front = test.front; $0.focused = test.focused }
+            let said = await asks(test.name)
+            check("\(test.name): \(test.banner ? "a banner" : "no banner")", said.hasPrefix(test.banner ? "banner" : "no banner"), said)
+        }
+        Ghostty.fake.withLock { $0 = Ghostty.Fake(); $0.front = true; $0.focused = tty }
+        let ping = model.notify("Merge it?", level: .important, source: id)
+        await expect("a ping from a session whose terminal has the focus: no banner", model.ghosttyLog.contains("no banner \(name) needs you: its terminal has the focus"))
+        model.notices.removeAll { $0.id == ping.id }
+        Ghostty.fake.withLock { $0.front = false }
+        let other = model.notify("Merge it now?", level: .important, source: id)
+        await expect("the same ping, Ghostty in the back: a banner", model.ghosttyLog.contains("banner \(name) needs you: Merge it now?"))
+        model.notices.removeAll { $0.id == other.id }
+        // A review asked of the user: a banner, once; the ones waiting the first time are known, not new.
+        guard let review = model.waitingReviews.first else { return check("a review that waits", false) }
+        let events = model.noticeStore.githubEvents
+        defer { model.noticeStore.githubEvents = events }
+        model.noticeStore.githubEvents = events.filter { !$0.key.contains("|review|") }
+        let logged = model.ghosttyLog.count
+        model.bannerNewReviews()
+        check("the reviews waiting the first time post no banner", !model.ghosttyLog.dropFirst(logged).contains { $0.contains("waits for your review") })
+        model.noticeStore.githubEvents = model.noticeStore.githubEvents.filter { !$0.key.hasPrefix("\(review.url)|review|") }
+        model.bannerNewReviews()
+        model.bannerNewReviews()
+        check("a review newly asked: one banner", model.ghosttyLog.dropFirst(logged).filter { $0.hasPrefix("banner \(review.reference) waits for your review") }.count == 1,
+              model.ghosttyLog.dropFirst(logged).joined(separator: "; "))
     }
 
     private static func ghosttyQueueChecks() async {
