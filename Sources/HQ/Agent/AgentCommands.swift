@@ -330,7 +330,7 @@ enum AgentCommands {
                               .init(name: "history", help: "a session whose conversation it starts with: its id or name"),
                               .init(name: "cwd", help: "its directory (default: the --history session's, else this session's, else the current one)"),
                               .init(name: "message", help: "its first message, markdown; - reads stdin (default: one that sends it to the task)")],
-                     example: "hq session new \"T-12 Dedup layers\" --task T-12 --role Worker", output: sessionOutput + "; started") { args, model in
+                     example: "hq session new \"T-12 Dedup layers\" --task T-12 --role Builder", output: sessionOutput + "; started") { args, model in
             try newSessionCommand(args, model)
         },
         AgentCommand(name: "session edit", summary: "Move a session under another, as Move Under does in HQ, or to the top level with --parent none. Never under its own team.",

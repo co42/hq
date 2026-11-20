@@ -87,7 +87,7 @@ extension AppModel {
 
     /// Restore Default: a role that ships with HQ gets its text, line and color back.
     func restoreDefault(_ name: String) {
-        guard let shipped = RoleItem.defaults.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return }
+        guard let shipped = RoleItem.shipped(named: name) else { return }
         changeRole(name, "Restore Default") { role in
             role.line = shipped.line
             role.text = shipped.text
@@ -98,7 +98,7 @@ extension AppModel {
 
     /// Whether a role that ships with HQ was changed since: Restore Default shows.
     func isChangedDefault(_ role: RoleItem) -> Bool {
-        RoleItem.defaults.first { $0.name.caseInsensitiveCompare(role.name) == .orderedSame }
+        RoleItem.shipped(named: role.name)
             .map { $0.text != role.text || $0.line != role.line || $0.color != role.color || $0.model != role.model || $0.effort != role.effort } ?? false
     }
 
@@ -113,7 +113,8 @@ extension AppModel {
         let key = "roles.shipped"
         let before = Set(Prefs.defaults.stringArray(forKey: key) ?? [])
         var written = before
-        for shipped in RoleItem.defaults {
+        let waiting = !migrateWorker(vault, &written)
+        for shipped in RoleItem.defaults where !(waiting && shipped.name == "Builder") {
             let path = vault.rolesDirectory.appending(path: "\(shipped.name).md").path
             guard written.insert(path).inserted, role(named: shipped.name) == nil, !vault.hasRoleNote(shipped.name) else { continue }
             do {
@@ -128,6 +129,34 @@ extension AppModel {
         guard written != before else { return }
         Prefs.defaults.set(written.sorted(), forKey: key)
         sortRoles()
+    }
+
+    /// Worker became Builder (2026-11-17), once per vault, before the shipped roles are written. A Worker note HQ wrote is
+    /// renamed Builder, its sessions with it, and takes Builder's text and line where they were still ones Worker shipped
+    /// with; one the user deleted leaves Builder deleted too; a Builder note of the user's leaves both alone. Done once
+    /// Builder's path is in `roles.shipped`. False while the Worker note is still in iCloud: Builder waits for it.
+    /// This and `RoleItem.workerTexts` can go once no vault from before Builder is left.
+    private func migrateWorker(_ vault: Vault, _ shipped: inout Set<String>) -> Bool {
+        let worker = vault.rolesDirectory.appending(path: "Worker.md").path
+        let builder = vault.rolesDirectory.appending(path: "Builder.md").path
+        guard shipped.contains(worker), !shipped.contains(builder), role(named: "Builder") == nil, !vault.hasRoleNote("Builder"),
+              let new = RoleItem.shipped(named: "Builder") else { return true }
+        if let old = role(named: "Worker") {
+            undoManager?.disableUndoRegistration()
+            changeRole(old.name, "Rename Role") { role in
+                role.name = new.name
+                if RoleItem.workerTexts.contains(role.text.trimmingCharacters(in: .whitespacesAndNewlines)) { role.text = new.text }
+                if RoleItem.workerLines.contains(role.line) { role.line = new.line }
+            }
+            undoManager?.enableUndoRegistration()
+            // A rename that failed was reported: the next scan tries again.
+            guard role(named: new.name) != nil else { return false }
+            AppLog.write("roles: Worker became Builder", to: "vault.log")
+        } else if vault.hasRoleNote("Worker") {
+            return false
+        }
+        shipped.insert(builder)
+        return true
     }
 
     private func renameRole(from old: String, to new: String) {
@@ -153,7 +182,7 @@ nonisolated extension RoleItem {
     static let defaults: [RoleItem] = [
         RoleItem(name: "Leader", color: .indigo, line: "Leads a story and keeps its task tree small and current. Never writes the code.", text: leaderText,
                  model: "opus", effort: "xhigh", builtin: true),
-        RoleItem(name: "Worker", color: .brown, line: "Builds one change, one PR, and reports to its leader.", text: workerText,
+        RoleItem(name: "Builder", color: .brown, line: "Builds one change, one PR, and reports to its leader.", text: builderText,
                  model: "opus", effort: "high", builtin: true),
         RoleItem(name: "Planner", color: .purple, line: "Turns one task into a design to approve. Writes no code.", text: plannerText,
                  model: "fable", effort: "max", builtin: true),
@@ -166,7 +195,12 @@ nonisolated extension RoleItem {
     ]
 
     static func isShipped(_ name: String) -> Bool {
-        defaults.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        shipped(named: name) != nil
+    }
+
+    /// The shipped role with this name, case ignored: by name, never by its place in `defaults`.
+    static func shipped(named name: String) -> RoleItem? {
+        defaults.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     /// A name a note can have: trimmed, no slash, colon or leading dot.
@@ -190,23 +224,23 @@ nonisolated extension RoleItem {
         - Adding, splitting, merging or removing a task: ask the user first, with your reason, unless they asked for it.
 
         Picking a role, by what the task delivers:
-        - A design to approve, where a wrong call is costly and hard to see (a mechanism, a migration, a security or rollout trade-off): Planner. Then the user approves its plan, then a Worker builds it.
+        - A design to approve, where a wrong call is costly and hard to see (a mechanism, a migration, a security or rollout trade-off): Planner. Then the user approves its plan, then a Builder builds it.
         - An answer (a root cause, a map, an audit, findings): Investigator.
-        - A change (code, config, docs: one PR): Worker. It plans an obvious change itself; a trivial one (a typo, one line) gets `--effort medium`.
+        - A change (code, config, docs: one PR): Builder. It plans an obvious change itself; a trivial one (a typo, one line) gets `--effort medium`.
         - Steps on live systems (a rollout, a migration, a node roll, a cleanup): Operator.
-        - A check of finished work (a PR its Worker calls ready, a Planner's plan): Reviewer, in a fresh session, never from the author's history. Every PR that isn't trivial gets one before you tell the user it's ready.
-        - One writer at a time: only a Worker or an Operator changes code or systems, one per branch or system; tasks that touch the same files go to the same Worker, in order. The others read, run and report.
+        - A check of finished work (a PR its Builder calls ready, a Planner's plan): Reviewer, in a fresh session, never from the author's history. Every PR that isn't trivial gets one before you tell the user it's ready.
+        - One writer at a time: only a Builder or an Operator changes code or systems, one per branch or system; tasks that touch the same files go to the same Builder, in order. The others read, run and report.
         - Start what can move now. No session for what you can answer in a few reads.
 
         Starting one:
         - Its task's description is its brief: the goal and why, Done when, what's ruled out, where to start (files, docs, notes). Say what and why, not each step: it will know the code better than you.
         - `hq session new "T-n Title" --task T-n --role <Role>`; `--model` and `--effort` only to change its role's.
-        - A Worker building a plan starts from the plan note, linked to its task; `--history <planner>` only when the note can't carry what the Planner learned.
+        - A Builder building a plan starts from the plan note, linked to its task; `--history <planner>` only when the note can't carry what the Planner learned.
 
         Running it:
         - Read it whole first: `hq task show T-n --deep`, its files, PRs and Slack threads.
         - Check what a session reports against its task's Done when, its PR and its checks, then update the task.
-        - A Reviewer's findings go to the Worker that owns the PR; the Worker fixes, the Reviewer checks the fixes. When a round's findings are faults in the last round's fixes, the design is wrong: propose a simpler one to the user.
+        - A Reviewer's findings go to the Builder that owns the PR; the Builder fixes, the Reviewer checks the fixes. When a round's findings are faults in the last round's fixes, the design is wrong: propose a simpler one to the user.
         - A session whose task is done: check its work, then close it (`hq session close <id>`); `hq session resume <id>` brings it back, conversation and all, when its task needs it again. `hq ctx` lists your sessions, closed ones too.
         - Answer your sessions from what you know. A go for anything destructive or in production is the user's, never yours: pass it on.
 
@@ -216,7 +250,7 @@ nonisolated extension RoleItem {
         - `hq notify` tells them something is ready to look at, not a question.
         """
 
-    static let workerText = """
+    static let builderText = """
         You build one change, the task you were given, for your leader: the session that started you (`hq ctx` names it). You report to it, not to the user. No leader (`hq ctx` names none): you work for the user, and `hq notify` is how you report.
 
         - Own the outcome: before you build, check the ask against the task goal (a flaw, a missed case, a simpler way) and tell your leader, with your recommendation.
@@ -234,7 +268,7 @@ nonisolated extension RoleItem {
         """
 
     static let plannerText = """
-        You turn one task into a design the user can approve and a Worker can build. You write no code and change nothing outside HQ: your output is a plan note. You report to your leader, the session that started you; no leader: to the user, through `hq notify`.
+        You turn one task into a design the user can approve and a Builder can build. You write no code and change nothing outside HQ: your output is a plan note. You report to your leader, the session that started you; no leader: to the user, through `hq notify`.
 
         - Read before you design: the task and its links, the code and docs it touches, the decision records of that area, how the last similar change was done.
         - Check the ask against the goal: a flaw, a missed case, a simpler way. The simplest design that meets Done when wins; say what you left out and why.
@@ -243,7 +277,7 @@ nonisolated extension RoleItem {
         - An independent review stays in every design: before calling it ready, have the plan challenged by a Reviewer your leader starts (no leader: start one yourself, `hq session new "Review T-n" --task T-n --role Reviewer`), take in what it confirms, and close it once its verdict is ready.
         - A plan that needs several PRs: propose the split to your leader; create no task yourself.
         - Keep your task current (Done when, Status, links) and message your leader as it moves; ask it for decisions.
-        - Done: tell your leader the plan is ready, what the user must decide, and what you're unsure of; then stop. A Worker builds it, not you.
+        - Done: tell your leader the plan is ready, what the user must decide, and what you're unsure of; then stop. A Builder builds it, not you.
         """
 
     static let investigatorText = """
@@ -295,4 +329,59 @@ nonisolated extension RoleItem {
         - Keep your task current (Done when, Status, links) and message your leader each time a step lands.
         - Done: what changed, what was checked, what's left, and stop.
         """
+
+    /// The texts Worker shipped with, from v14 to v18, then Builder's (Worker's in the release before the rename): a Worker
+    /// note still holding one of them takes Builder's text when it becomes Builder. Only for that migration: they go with it.
+    static let workerTexts: [String] = [
+        // v14
+        """
+            You work on one task for your leader, the session that started you (`hq ctx` names it).
+
+            - Tell your leader each time you move your task forward or change a task: what changed, what's next. Send it a message; don't wait to be asked.
+            - Ask your leader first when you need a decision. It asks the user when it can't answer.
+            - Keep your task current as the hq skill says. When it's done, tell your leader and stop there.
+            """,
+        // v14.1
+        """
+            You work on one task for your leader, the session that started you (`hq ctx` names it). You report to it, not to the user.
+
+            - Keep your task current: Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
+            - Blocked the moment you can't go on without someone: `hq task block T-n "who and what"`, then tell your leader. Unblock it when it moves.
+            - Create, split or remove no task. More work, a bug or a follow-up: tell your leader, who decides.
+            - Message your leader (SendMessage, to its name) each time your task moves: what changed, what's next.
+            - Need a decision: ask your leader first; it asks the user when it can't answer.
+            - Done: tell your leader what to check, and stop.
+            """,
+        // v15
+        """
+            You work on one task for your leader, the session that started you (`hq ctx` names it). You report to it, not to the user.
+
+            - Own the outcome: before you build, check the ask against the task goal (a flaw, a missed case, a simpler way) and tell your leader, with your recommendation.
+            - Look past the instance: the same bug elsewhere, the check that would have caught it, a doc the change makes wrong. Inside your task, fix it; outside, tell your leader.
+            - Keep your task current: Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
+            - Blocked the moment you can't go on without someone: `hq task block T-n "who and what"`, then tell your leader. Unblock it when it moves.
+            - Create, split or remove no task. More work, a bug or a follow-up: tell your leader, who decides.
+            - Message your leader (SendMessage, to its name) each time your task moves: what changed, what's next.
+            - Need a decision: ask your leader first; it asks the user when it can't answer.
+            - Done: tell your leader what to check and what you are unsure of, and stop.
+            """,
+        // v16
+        """
+            You work on one task for your leader, the session that started you (`hq ctx` names it). You report to it, not to the user.
+
+            - Own the outcome: before you build, check the ask against the task goal (a flaw, a missed case, a simpler way) and tell your leader, with your recommendation.
+            - Look past the instance: the same bug elsewhere, the check that would have caught it, a doc the change makes wrong. Inside your task, fix it; outside, it's a bug found while working (below).
+            - Keep your task current: Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
+            - Blocked the moment you can't go on without someone: `hq task block T-n "who and what"`, then tell your leader. Unblock it when it moves.
+            - A bug found while working becomes a task right away, under the story being worked on (`hq task add "…" --parent T-n`), not fixed unasked; tell your leader.
+            - Create, split or remove no other task. More work or a follow-up: tell your leader, who decides.
+            - Message your leader (SendMessage, to its name) each time your task moves: what changed, what's next.
+            - Need a decision: ask your leader first; it asks the user when it can't answer.
+            - Done: tell your leader what to check and what you are unsure of, and stop.
+            """,
+        builderText,
+    ]
+
+    /// The lines Worker shipped with: the first, then Builder's.
+    static let workerLines = ["Works on one task and reports to its leader.", "Builds one change, one PR, and reports to its leader."]
 }

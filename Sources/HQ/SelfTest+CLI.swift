@@ -243,10 +243,10 @@ extension SelfTest {
 
         // session new: under its caller, in its Ghostty window, with a role.
         var log = model.ghosttyLog.count
-        let worker = agent("session new", ["name": "CLI worker", "task": task.key, "role": "worker", "_session": lead])
+        let worker = agent("session new", ["name": "CLI worker", "task": task.key, "role": "builder", "_session": lead])
         let workerID = worker["id"] as? String ?? ""
         check("session new from a session starts under it, with its role, in a tab of its Ghostty window",
-              model.session(workerID)?.parent == lead && model.session(workerID)?.role == "Worker" && worker["role"] as? String == "Worker"
+              model.session(workerID)?.parent == lead && model.session(workerID)?.role == "Builder" && worker["role"] as? String == "Builder"
               && worker["parent"] as? String == lead && model.ghosttyLog.count == log + 1
               && model.ghosttyLog.last?.hasPrefix("new tab in the window of /dev/ttys077, in \(folder): claude --session-id \(workerID)") == true
               && (worker["started"] as? String)?.contains("it reports to you") == true, "\(worker) \(model.ghosttyLog.last ?? "-")")
@@ -278,7 +278,7 @@ extension SelfTest {
         let noRole = failure(agent("session new", ["name": "CLI no role", "role": "Pilot", "_session": lead]))
         let noParent = failure(agent("session new", ["name": "CLI no parent", "parent": "nobody-at-all", "_session": lead]))
         check("--beside with --parent, or outside a session, is refused", both?.code == "usage" && alone?.code == "usage", "\(String(describing: both)) \(String(describing: alone))")
-        check("an unknown role is refused, naming the roles", noRole?.code == "not_found" && noRole?.message.contains("Roles: Leader, Worker, Planner, Investigator, Reviewer, Operator") == true, noRole?.message ?? "-")
+        check("an unknown role is refused, naming the roles", noRole?.code == "not_found" && noRole?.message.contains("Roles: Leader, Builder, Planner, Investigator, Reviewer, Operator") == true, noRole?.message ?? "-")
         check("an unknown session is refused, naming the open ones, the latest first", noParent?.code == "not_found"
               && noParent?.message.contains("Open sessions: ") == true && noParent?.message.contains("CLI worker") == true, noParent?.message ?? "-")
         let refused = model.sessions.filter { ["CLI both", "CLI alone", "CLI no role", "CLI no parent"].contains($0.name) }
@@ -303,26 +303,26 @@ extension SelfTest {
         let leadText = leadCtx["text"] as? String ?? ""
         check("hq ctx shows the session's role and its sessions with their role, state and task, indented",
               leadText.hasPrefix("This session: CLI lead · Leader") && leadText.contains("Your sessions (")
-              && leadText.contains("\n  \(workerID.prefix(8)) [idle] CLI worker · Worker · \(task.key)")
+              && leadText.contains("\n  \(workerID.prefix(8)) [idle] CLI worker · Builder · \(task.key)")
               && (leadCtx["team"] as? [JSONObject])?.compactMap { $0["id"] as? String }.contains(handoff) == true, leadText)
-        let workerText = agent("ctx", ["_session": workerID])["text"] as? String ?? ""
-        check("and the session that started it, with how to message it", workerText.contains("Started by: CLI lead (Leader, idle) · \(lead.prefix(8)). You report to it: SendMessage, to “CLI lead”")
-              && !workerText.contains("Other open sessions:\n  CLI lead"), workerText)
+        let builderText = agent("ctx", ["_session": workerID])["text"] as? String ?? ""
+        check("and the session that started it, with how to message it", builderText.contains("Started by: CLI lead (Leader, idle) · \(lead.prefix(8)). You report to it: SendMessage, to “CLI lead”")
+              && !builderText.contains("Other open sessions:\n  CLI lead"), builderText)
 
         // ls sessions --tree, ls roles.
         let tree = agent("ls", ["kind": "sessions", "tree": "true"])
         let rows = (tree["sessions"] as? [JSONObject] ?? []).map { ($0["id"] as? String ?? "", $0["depth"] as? Int ?? -1) }
         let at = rows.firstIndex { $0.0 == lead }
         check("ls sessions --tree lists each team under its top session, with depths", at.map { rows.indices.contains($0 + 1) && rows[$0 + 1] == (workerID, 1) && rows[$0].1 == 0 } == true
-              && AgentCLI.human(tree).contains("\n  \(workerID.prefix(8)) [Idle] CLI worker · Worker"), "\(rows.suffix(6))")
+              && AgentCLI.human(tree).contains("\n  \(workerID.prefix(8)) [Idle] CLI worker · Builder"), "\(rows.suffix(6))")
         check("--tree is for sessions only", failure(agent("ls", ["kind": "tasks", "tree": "true"]))?.code == "usage")
         let roles = agent("ls", ["kind": "roles"])
-        check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(6).compactMap { $0["name"] as? String } == ["Leader", "Worker", "Planner", "Investigator", "Reviewer", "Operator"]
+        check("ls roles lists them, shipped ones first, with how many open sessions have each", (roles["roles"] as? [JSONObject])?.prefix(6).compactMap { $0["name"] as? String } == ["Leader", "Builder", "Planner", "Investigator", "Reviewer", "Operator"]
               && AgentCLI.human(roles).hasPrefix("Leader [indigo] Leads a story and keeps its task tree small and current. Never writes the code. · opus xhigh · ships with HQ · "), AgentCLI.human(roles))
 
         // role show, new, edit, delete.
-        let shown = AgentCLI.human(agent("role show", ["role": "worker"]))
-        check("role show prints its line, its text and who uses it", shown.hasPrefix("Worker [brown] · opus high · ships with HQ · ") && shown.contains(RoleItem.workerText)
+        let shown = AgentCLI.human(agent("role show", ["role": "builder"]))
+        check("role show prints its line, its text and who uses it", shown.hasPrefix("Builder [brown] · opus high · ships with HQ · ") && shown.contains(RoleItem.builderText)
               && shown.contains("\n\nUsed by:\n") && shown.contains("\n  \(workerID.prefix(8)) [idle] CLI worker"), shown)
         let made = agent("role new", ["name": "CLI Reviewer", "line": "Reviews one PR.", "color": "pink", "body": "Read the diff.\n"])
         check("role new makes its note", model.role(named: "CLI Reviewer").map { $0.color == .pink && $0.line == "Reviews one PR." && $0.text == "Read the diff." && $0.path != nil } == true
@@ -342,7 +342,7 @@ extension SelfTest {
               && AgentCLI.human(again).hasPrefix("CLI Critic [pink]") && AgentCLI.human(again).contains(written), "\(again)")
         check("role edit with nothing to change is refused", failure(agent("role edit", ["role": "CLI Critic"]))?.code == "usage")
         check("so is a name another role has", failure(agent("role edit", ["role": "CLI Critic", "name": "Leader"]))?.code == "invalid")
-        check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Worker, Planner, Investigator, Reviewer, Operator") == true)
+        check("role show on a role that isn't there names the roles", failure(agent("role show", ["role": "CLI Reviewer"]))?.message.contains("Roles: Leader, Builder, Planner, Investigator, Reviewer, Operator") == true)
         let would = agent("role delete", ["role": "CLI Critic"])
         check("role delete without --yes only says what it would do", would["wouldDelete"] as? String == "CLI Critic" && model.role(named: "CLI Critic") != nil)
         let deleted = agent("role delete", ["role": "CLI Critic", "yes": "true"])

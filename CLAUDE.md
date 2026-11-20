@@ -19,7 +19,7 @@ Native macOS app (SwiftUI, AppKit where needed) that runs the user's day with Cl
 ## Working with the user
 
 - A question gets an answer, not a change ("answer no fix"). Act once they say so.
-- Do what was asked, no more: fix the data when they ask to fix data, not the app; add no task they didn't ask for, except a bug you find: it becomes a task right away, under the story being worked on (a Worker tells its leader), and is not fixed unasked.
+- Do what was asked, no more: fix the data when they ask to fix data, not the app; add no task they didn't ask for, except a bug you find: it becomes a task right away, under the story being worked on (a Builder tells its leader), and is not fixed unasked.
 - A question to them says what it means for them, in their words: never a type, a flag or an internal name they'd have to look up. Ask every open decision at once, each with your recommendation.
 - They add subtasks and edit the task while you work: `hq task show` between pieces and take the new ones in.
 - Time-box: before a hunt that takes more than a few builds (a perf bisect, profiling rounds), say what you found, what's left and whether it's worth it, and let them choose (T-260).

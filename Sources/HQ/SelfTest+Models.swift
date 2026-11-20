@@ -10,15 +10,15 @@ extension SelfTest {
                               started: .now, tty: "/dev/ttys046", order: model.nextGridOrder, role: "Leader"))
         defer { model.sessions.removeAll { $0.id == lead || $0.parent == lead } }
 
-        // Shipped defaults: Leader on Opus, very high; Worker on Opus, high.
-        check("Leader and Worker ship on Opus, very high and high", model.role(named: "Leader").map { ($0.model, $0.effort) } ?? (nil, nil) == ("opus", "xhigh")
-              && model.role(named: "Worker").map { ($0.model, $0.effort) } ?? (nil, nil) == ("opus", "high"))
+        // Shipped defaults: Leader on Opus, very high; Builder on Opus, high.
+        check("Leader and Builder ship on Opus, very high and high", model.role(named: "Leader").map { ($0.model, $0.effort) } ?? (nil, nil) == ("opus", "xhigh")
+              && model.role(named: "Builder").map { ($0.model, $0.effort) } ?? (nil, nil) == ("opus", "high"))
 
         // hq session new: its role's model and effort by default, or what it says.
-        let worker = agent("session new", ["name": "Model worker", "role": "Worker", "_session": lead])
+        let worker = agent("session new", ["name": "Model worker", "role": "Builder", "_session": lead])
         check("session new starts on its role's model and effort", model.ghosttyLog.last?.contains("--model 'opus' --effort 'high'") == true
               && (worker["started"] as? String)?.contains("on Opus high") == true, model.ghosttyLog.last ?? "-")
-        _ = agent("session new", ["name": "Model trivial", "role": "Worker", "model": "sonnet", "effort": "medium", "_session": lead])
+        _ = agent("session new", ["name": "Model trivial", "role": "Builder", "model": "sonnet", "effort": "medium", "_session": lead])
         check("--model and --effort win over the role's", model.ghosttyLog.last?.contains("--model 'sonnet' --effort 'medium'") == true, model.ghosttyLog.last ?? "-")
         let bad = agent("session new", ["name": "Model bad", "effort": "huge", "_session": lead])
         check("an effort Claude Code doesn't take is refused", bad["ok"] as? Bool == false && "\(bad["error"] ?? "")".contains("xhigh"), "\(bad)")
@@ -29,7 +29,7 @@ extension SelfTest {
         check("Start a Session takes its role's model and effort", model.startDraft?.model == "opus" && model.startDraft?.effort == "xhigh")
         model.startDraft?.effort = "low"
         model.startDraft?.modelChosen = true
-        model.setStartRole("Worker")
+        model.setStartRole("Builder")
         check("and keeps the ones the user picked", model.startDraft?.effort == "low")
         model.closeModal()
 
@@ -60,15 +60,15 @@ extension SelfTest {
               model.session(lead)?.model ?? "-")
         // Role ▸ (T-666): its role changes and its terminal is told, with the new role's text; model and effort stay.
         let before = model.session(lead)
-        model.changeRole(lead, to: "Worker")
+        model.changeRole(lead, to: "Builder")
         let typed = model.ghosttyLog.last ?? "-"
         check("Role ▸ changes its role and types one line in its terminal, its input emptied first: how to read the new role",
-              model.session(lead)?.role == "Worker" && typed.hasPrefix("clear the input, then type HQ changed your role to Worker")
-                && typed.contains("Read your new role with `hq role show Worker`") && !typed.contains("\n") && typed.hasSuffix("in /dev/ttys046"), typed)
+              model.session(lead)?.role == "Builder" && typed.hasPrefix("clear the input, then type HQ changed your role to Builder")
+                && typed.contains("Read your new role with `hq role show Builder`") && !typed.contains("\n") && typed.hasSuffix("in /dev/ttys046"), typed)
         check("its model and effort stay", model.session(lead)?.model == before?.model && model.session(lead)?.effort == before?.effort)
         model.changeRole(lead, to: nil)
         check("Role ▸ None removes it and says so, on one line", model.session(lead)?.role == nil
-              && model.ghosttyLog.last == "clear the input, then type HQ removed your role (it was Worker); your model and effort stay. Work without a role from now on. in /dev/ttys046",
+              && model.ghosttyLog.last == "clear the input, then type HQ removed your role (it was Builder); your model and effort stay. Work without a role from now on. in /dev/ttys046",
               model.ghosttyLog.last ?? "-")
         if var item = model.session(lead) {
             item.live.apply(HookEvent(name: "UserPromptSubmit", sessionID: lead), now: .now)
@@ -81,12 +81,12 @@ extension SelfTest {
               model.ghosttyLog.last ?? "-")
 
         // hq role edit: --model and --effort, none for Claude Code's own.
-        _ = agent("role edit", ["role": "Worker", "model": "sonnet", "effort": "low"])
-        let edited = model.role(named: "Worker")
-        _ = agent("role edit", ["role": "Worker", "model": "none", "effort": "none"])
-        let cleared = model.role(named: "Worker")
-        model.restoreDefault("Worker")
+        _ = agent("role edit", ["role": "Builder", "model": "sonnet", "effort": "low"])
+        let edited = model.role(named: "Builder")
+        _ = agent("role edit", ["role": "Builder", "model": "none", "effort": "none"])
+        let cleared = model.role(named: "Builder")
+        model.restoreDefault("Builder")
         check("role edit sets a role's model and effort, none clears them", edited?.model == "sonnet" && edited?.effort == "low"
-              && cleared?.model == nil && cleared?.effort == nil && model.role(named: "Worker")?.effort == "high")
+              && cleared?.model == nil && cleared?.effort == nil && model.role(named: "Builder")?.effort == "high")
     }
 }

@@ -102,12 +102,12 @@ enum SeedData {
             $0.tool = "Bash"
             $0.toolInput = "kubectl rollout restart deploy/registry-api -n registry-staging"
         })
-        // Teams: a leader with three Workers, one asking, one with a session of its own; a closed leader whose Worker runs.
+        // Teams: a leader with three Builders, one asking, one with a session of its own; a closed leader whose Builder runs.
         // Children's orders follow their parent's, so the flat list reads as the grid.
         let lead = "5eed0000-0000-4000-8000-00000000000c", rollout = "5eed0000-0000-4000-8000-00000000000d"
         sessions += [
             session(lead, "registry: ready for more customers", .idle, minutes: 180, repo: "registry", branch: "main", order: 3,
-                    last: "Three Workers on the story; the retry budget is in review.") {
+                    last: "Three Builders on the story; the retry budget is in review.") {
                 $0.role = "Leader"
                 $0.tty = "/dev/ttys031"
             },
@@ -119,25 +119,25 @@ enum SeedData {
             session("5eed0000-0000-4000-8000-00000000000f", "registry: dedup layers", .idle, minutes: 300, repo: "registry", branch: "dedup",
                     order: 3.3, last: "Waiting for the retry budget to land.") {
                 $0.parent = lead
-                $0.role = "Worker"
+                $0.role = "Builder"
                 $0.tty = "/dev/ttys033"
             },
             session(rollout, "image-sync: v2 rollout", .ended, minutes: 300, repo: "image-sync", branch: "main", order: 4, closed: ago(300),
-                    last: "Workers are on push progress and the canary.") { $0.role = "Leader" },
+                    last: "Builders are on push progress and the canary.") { $0.role = "Leader" },
         ]
         for index in sessions.indices {
             switch sessions[index].id {
             case s1:
                 sessions[index].parent = lead
-                sessions[index].role = "Worker"
+                sessions[index].role = "Builder"
                 sessions[index].order = 3.1
             case "5eed0000-0000-4000-8000-00000000000b":
                 sessions[index].parent = lead
-                sessions[index].role = "Worker"
+                sessions[index].role = "Builder"
                 sessions[index].order = 3.2
             case s8:
                 sessions[index].parent = rollout
-                sessions[index].role = "Worker"
+                sessions[index].role = "Builder"
                 sessions[index].order = 4.1
             default: break
             }
@@ -168,7 +168,7 @@ enum SeedData {
             Row(id: 48, title: "A 503 on multipart complete retries once", status: .done, parent: 13, order: 2),
             Row(id: 49, title: "Canary on registry-staging, 30 minutes green", status: .doing, parent: 13, order: 3),
             Row(id: 16, title: "Move CDN workers to machine identities", status: .doing, type: .chore, project: "CDN", tags: ["security"], order: 2,
-                body: "CDN workers read a static `SECRETS_TOKEN` nobody rotates.\n\n- [x] Plan: *machine identities for CDN workers*\n- [ ] One identity per pool, in Terraform\n- [ ] Drop the static secret\n\n| Pool | Identity | Workers |\n|:--|:--|--:|\n| `edge-eu` | [cdn-edge](https://example.com/edge) | 12 |\n| origin | none yet | 4 |",
+                body: "CDN workers read a static `SECRETS_TOKEN` nobody rotates.\n\n- [x] Plan: *machine identities for CDN workers*\n- [ ] One identity per pool, in Terraform\n- [ ] Drop the static secret\n\n| Pool | Identity | Builders |\n|:--|:--|--:|\n| `edge-eu` | [cdn-edge](https://example.com/edge) | 12 |\n| origin | none yet | 4 |",
                 sessions: [s2], links: [gh + "infra-secrets/pull/44"]),
             Row(id: 50, title: "One identity per worker pool, in Terraform", status: .doing, parent: 16, order: 1, sessions: [s2]),
             Row(id: 51, title: "Universal auth in the worker init container", parent: 16, order: 2),

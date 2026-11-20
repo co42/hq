@@ -16,13 +16,13 @@ extension UITest {
         await closedTeam(model, ui)
     }
 
-    /// A Leader with two Workers, on top of the seed: two running sessions of the seed under a third.
+    /// A Leader with two Builders, on top of the seed: two running sessions of the seed under a third.
     private static func makeTeam(_ model: AppModel, _ ui: Driver) async -> (lead: SessionItem, worker: SessionItem, helper: SessionItem)? {
         if model.roles.isEmpty { model.roles = RoleItem.defaults }
         let running = model.gridRoots.filter { $0.isRunning && model.team(of: $0.id).isEmpty }
         guard running.count >= 3 else { return nil }
         let (lead, worker, helper) = (running[0].id, running[1].id, running[2].id)
-        for (id, role) in [(lead, "Leader"), (worker, "Worker"), (helper, "Worker")] {
+        for (id, role) in [(lead, "Leader"), (worker, "Builder"), (helper, "Builder")] {
             guard var item = model.session(id) else { continue }
             item.role = role
             model.put(item)
@@ -89,8 +89,8 @@ extension UITest {
         await check("Start Child Session… opens the form with Role, Parent and History pop-ups",
                     shown(ui, "Role") != nil && shown(ui, "Parent") != nil && shown(ui, "History") != nil,
                     "\(shown(ui, "Role") ?? "-"), \(shown(ui, "Parent") ?? "-"), \(shown(ui, "History") ?? "-")")
-        await check("it fills in the parent, its folder, and the role its sessions have: Worker",
-                    shown(ui, "Parent") == team.lead.name && shown(ui, "Role") == "Worker" && shown(ui, "History") == "None"
+        await check("it fills in the parent, its folder, and the role its sessions have: Builder",
+                    shown(ui, "Parent") == team.lead.name && shown(ui, "Role") == "Builder" && shown(ui, "History") == "None"
                     && model.startDraft?.folder == team.lead.cwd, "\(shown(ui, "Parent") ?? "-"), \(shown(ui, "Role") ?? "-")")
         await check("the form is 720 pt wide", ui.window.attachedSheet.map { abs($0.frame.width - Metric.startSheet.width) < 1 } ?? false,
                     "\(ui.window.attachedSheet?.frame.width ?? 0)")
@@ -139,7 +139,7 @@ extension UITest {
         model.beginStart(history: team.helper.id)
         await ui.until { shown(ui, "Role") != nil }
         await check("from Start Session from Its History…: History is that session, Parent its parent, its role, ⑂",
-                    shown(ui, "History") == team.helper.name && shown(ui, "Parent") == team.lead.name && shown(ui, "Role") == "Worker"
+                    shown(ui, "History") == team.helper.name && shown(ui, "Parent") == team.lead.name && shown(ui, "Role") == "Builder"
                     && model.startDraft?.name == "\(team.helper.name) ⑂", "\(String(describing: model.startDraft))")
         model.closeModal()
         await ui.until { ui.window.attachedSheet == nil }
@@ -165,12 +165,12 @@ extension UITest {
         await check("its list has each role and New Role", model.roles.allSatisfy { ui.anchorFrame("role:\($0.name)") != nil } && ui.anchorFrame("roles-new") != nil)
 
         // A click picks; ↓ and ↑ walk the list.
-        await ui.click(await ui.steadyAnchor("role:Worker"), inSheet: true)
-        await check("a click on a role's row picks it", model.pickedRole?.name == "Worker", model.pickedRole?.name ?? "-")
+        await ui.click(await ui.steadyAnchor("role:Builder"), inSheet: true)
+        await check("a click on a role's row picks it", model.pickedRole?.name == "Builder", model.pickedRole?.name ?? "-")
         await sheetKey(ui, .up)
         await check("↑ picks the role above", model.pickedRole?.name == "Leader", model.pickedRole?.name ?? "-")
         await sheetKey(ui, .down)
-        await check("↓ picks the role below", model.pickedRole?.name == "Worker", model.pickedRole?.name ?? "-")
+        await check("↓ picks the role below", model.pickedRole?.name == "Builder", model.pickedRole?.name ?? "-")
         await check("Used by lists the sessions that have it", ui.anchorFrame("role-user:\(team.worker.id)") != nil
                     && ui.anchorFrame("role-user:\(team.helper.id)") != nil)
 
@@ -178,23 +178,23 @@ extension UITest {
         await ui.click(await ui.steadyAnchor("role-name"), count: 2, inSheet: true)
         await ui.until { ui.sheetIsTyping }
         await check("a double-click on the name edits it in place", model.roleEdit?.field == .name && ui.sheetIsTyping, ui.sheetResponder)
-        await typeInSheet(ui, "Builder", replacing: true)
+        await typeInSheet(ui, "Maker", replacing: true)
         await sheetKey(ui, .return)
-        await check("Return renames it, and its sessions follow", model.role(named: "Builder") != nil && model.pickedRole?.name == "Builder"
-                    && model.session(team.worker.id)?.role == "Builder" && model.roleEdit == nil, "\(model.roles.map(\.name))")
+        await check("Return renames it, and its sessions follow", model.role(named: "Maker") != nil && model.pickedRole?.name == "Maker"
+                    && model.session(team.worker.id)?.role == "Maker" && model.roleEdit == nil, "\(model.roles.map(\.name))")
 
         // The line: the same, Escape drops it.
         await ui.click(await ui.steadyAnchor("role-line"), count: 2, inSheet: true)
         await ui.until { ui.sheetIsTyping }
         await typeInSheet(ui, "Builds one thing", replacing: true)
         await sheetKey(ui, .escape)
-        await check("Escape in the line drops the edit", model.role(named: "Builder")?.line != "Builds one thing" && model.roleEdit == nil
-                    && model.modal == .roles, "line \(model.role(named: "Builder")?.line ?? "-"), edit \(String(describing: model.roleEdit)), responder \(ui.sheetResponder), modal \(String(describing: model.modal))")
+        await check("Escape in the line drops the edit", model.role(named: "Maker")?.line != "Builds one thing" && model.roleEdit == nil
+                    && model.modal == .roles, "line \(model.role(named: "Maker")?.line ?? "-"), edit \(String(describing: model.roleEdit)), responder \(ui.sheetResponder), modal \(String(describing: model.modal))")
         await ui.click(await ui.steadyAnchor("role-line"), count: 2, inSheet: true)
         await ui.until { ui.sheetIsTyping }
         await typeInSheet(ui, "Builds one thing", replacing: true)
         await sheetKey(ui, .return)
-        await check("Return keeps the line", model.role(named: "Builder")?.line == "Builds one thing")
+        await check("Return keeps the line", model.role(named: "Maker")?.line == "Builds one thing")
 
         // The text: ⌘E (Edit Role) edits it in place; Escape saves.
         await check("Edit › Edit Role (⌘E) is on while Roles shows a role", MenuState.shared.canEditRole && menuItem("Edit", key: "e") != nil,
@@ -207,20 +207,20 @@ extension UITest {
                     && ui.anchorFrame("role-more") == nil)
         await typeInSheet(ui, "\n\nOne more line.")
         await sheetKey(ui, .escape)
-        await check("Escape saves the text", model.role(named: "Builder")?.text.hasSuffix("One more line.") == true && model.roleEdit == nil
+        await check("Escape saves the text", model.role(named: "Maker")?.text.hasSuffix("One more line.") == true && model.roleEdit == nil
                     && model.modal == .roles)
 
         // Near the hook's limit, a word says so.
-        model.changeRole("Builder") { $0.text = String(repeating: "Do the work well. ", count: AppModel.roleTextLimit / 18 + 2) }
+        model.changeRole("Maker") { $0.text = String(repeating: "Do the work well. ", count: AppModel.roleTextLimit / 18 + 2) }
         await check("a text near the hook's limit shows a warning", ui.anchorFrame("role-limit") != nil)
 
         // Delete in its menu (the header's ⋯ too), then Undo: sessions lose the chip and get it back.
-        if let builder = model.role(named: "Builder") { perform(menu(RoleMenu(role: builder), model), "Delete") }
+        if let maker = model.role(named: "Maker") { perform(menu(RoleMenu(role: maker), model), "Delete") }
         await check("Delete removes the role and picks another; its sessions lose the chip",
-                    model.role(named: "Builder") == nil && model.pickedRole != nil && model.role(named: model.session(team.worker.id)?.role) == nil)
+                    model.role(named: "Maker") == nil && model.pickedRole != nil && model.role(named: model.session(team.worker.id)?.role) == nil)
         await endUndoGroup(model)
         model.undoManager?.undo()
-        await check("Undo brings it back, and the chip", model.role(named: "Builder") != nil && model.role(named: model.session(team.worker.id)?.role) != nil)
+        await check("Undo brings it back, and the chip", model.role(named: "Maker") != nil && model.role(named: model.session(team.worker.id)?.role) != nil)
 
         // Restore Default shows once a shipped role changed, and gives its text back.
         await ui.click(await ui.steadyAnchor("role:Leader"), inSheet: true)

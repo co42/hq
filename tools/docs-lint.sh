@@ -74,6 +74,7 @@ retired=(
   'handCursors()' 'nothing: the arrow over controls, the hand over text links only (T-601)'
   'trackHandCursor' 'nothing: the arrow over controls, the hand over text links only (T-601)'
   'HandTrackingView' 'nothing: the arrow over controls, the hand over text links only (T-601)'
+  'Worker' 'Builder: the role was renamed (2026-11-17)'
 )
 
 lint='

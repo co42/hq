@@ -20,7 +20,7 @@ extension SelfTest {
         ]
         for (id, name, parent, state, pid, tty) in people {
             var item = SessionItem(id: id, customName: name, status: SessionStatus(state: state, since: .now), cwd: folder, repo: "life", branch: "main",
-                                   started: .now, pid: pid, tty: tty, order: model.nextGridOrder, parent: parent, role: parent == nil ? "Leader" : "Worker")
+                                   started: .now, pid: pid, tty: tty, order: model.nextGridOrder, parent: parent, role: parent == nil ? "Leader" : "Builder")
             // A session that ran has a conversation to resume; the ghost never reported.
             if pid != nil { item.transcriptPath = "/tmp/HQ-life-\(id).jsonl" }
             model.put(item)
@@ -80,8 +80,8 @@ extension SelfTest {
         let context = agent("ctx", ["_session": lead])
         let text = context["text"] as? String ?? ""
         check("hq ctx lists every session it started, closed ones too, with how long since, role and state",
-              text.contains("\n  \(worker.prefix(8)) [closed <1m ago] Life worker · Worker") && text.contains("\n    \(helper.prefix(8)) [closed <1m ago] Life helper · Worker")
-              && text.contains("\n  \(asking.prefix(8)) [asks] Life asking · Worker") && text.contains("(1 open, 2 closed: hq session resume brings one back")
+              text.contains("\n  \(worker.prefix(8)) [closed <1m ago] Life worker · Builder") && text.contains("\n    \(helper.prefix(8)) [closed <1m ago] Life helper · Builder")
+              && text.contains("\n  \(asking.prefix(8)) [asks] Life asking · Builder") && text.contains("(1 open, 2 closed: hq session resume brings one back")
               && (context["team"] as? [JSONObject])?.contains { $0["id"] as? String == worker && $0["closed"] as? Bool == true && $0["closedAt"] != nil } == true, text)
 
         // ls sessions --tree --all: closed ones in their teams; without --all, not there.
@@ -90,7 +90,7 @@ extension SelfTest {
         let at = rows.firstIndex { $0.0 == lead }
         check("ls sessions --tree --all shows closed ones in their teams, marked closed",
               at.map { rows.indices.contains($0 + 2) && rows[$0 + 1] == (worker, 1) && rows[$0 + 2] == (helper, 2) } == true
-              && AgentCLI.human(all).contains("\n  \(worker.prefix(8)) [closed] Life worker · Worker"), "\(rows.filter { $0.0.hasPrefix("c1") })")
+              && AgentCLI.human(all).contains("\n  \(worker.prefix(8)) [closed] Life worker · Builder"), "\(rows.filter { $0.0.hasPrefix("c1") })")
         let open = (agent("ls", ["kind": "sessions", "tree": "true"])["sessions"] as? [JSONObject] ?? []).compactMap { $0["id"] as? String }
         check("and without --all, only the open ones", !open.contains(worker) && open.contains(asking))
 

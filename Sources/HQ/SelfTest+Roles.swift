@@ -16,7 +16,7 @@ extension SelfTest {
         }
         await rescan()
         let leader = RoleItem.defaults[0]
-        let shipped = ["Leader", "Worker", "Planner", "Investigator", "Reviewer", "Operator"]
+        let shipped = ["Leader", "Builder", "Planner", "Investigator", "Reviewer", "Operator"]
         let miswritten = RoleItem.defaults.filter { role in
             guard let note = note(role.name) else { return true }
             return note.string("color") != role.color.rawValue || note.string("line") != role.line || note.body != role.text + "\n"
@@ -26,7 +26,7 @@ extension SelfTest {
               RoleItem.defaults.map(\.name) == shipped && miswritten.isEmpty && model.roles.prefix(6).map(\.name) == shipped
               && model.roles.prefix(6).allSatisfy { $0.path != nil && $0.builtin && !model.isChangedDefault($0) },
               "\(model.roles.map(\.name)) miswritten: \(miswritten.map(\.name))")
-        check("Leader, Worker, Planner, Investigator, Reviewer and Operator ship in their colors, models and efforts",
+        check("Leader, Builder, Planner, Investigator, Reviewer and Operator ship in their colors, models and efforts",
               RoleItem.defaults.map { "\($0.color.rawValue) \($0.model ?? "-") \($0.effort ?? "-")" }
                 == ["indigo opus xhigh", "brown opus high", "purple fable max", "teal opus xhigh", "pink opus xhigh", "orange opus xhigh"])
 
@@ -94,15 +94,17 @@ extension SelfTest {
         check("Restore Default writes its shipped text back", note("Leader")?.body == leader.text + "\n" && model.role(named: "Leader").map(model.isChangedDefault) == false)
 
         // Written once: a shipped role the user deleted stays deleted.
-        try? FileManager.default.removeItem(at: url("Worker"))
+        try? FileManager.default.removeItem(at: url("Builder"))
         await rescan()
         model.writeShippedRoles()
-        check("a shipped role is written once: deleted, it isn't written again", note("Worker") == nil && model.role(named: "Worker") == nil,
+        check("a shipped role is written once: deleted, it isn't written again", note("Builder") == nil && model.role(named: "Builder") == nil,
               "\(model.roles.map(\.name))")
-        model.newRole(named: "Worker")
-        model.restoreDefault("Worker")
-        check("New Role “Worker” and Restore Default bring it back", note("Worker")?.body == RoleItem.workerText + "\n" && note("Worker")?.string("color") == "brown"
-              && model.roles.prefix(2).map(\.name) == ["Leader", "Worker"], "\(model.roles.map(\.name))")
+        model.newRole(named: "Builder")
+        model.restoreDefault("Builder")
+        check("New Role “Builder” and Restore Default bring it back", note("Builder")?.body == RoleItem.builderText + "\n" && note("Builder")?.string("color") == "brown"
+              && model.roles.prefix(2).map(\.name) == ["Leader", "Builder"], "\(model.roles.map(\.name))")
+
+        await workerMigrationChecks(model, url: url, note: note, rescan: rescan)
 
         // The shipped texts name commands hq has, with options it takes.
         var unknown: [String] = []
@@ -142,6 +144,77 @@ extension SelfTest {
         model.sessions.removeAll { $0.id == reviewing }
     }
 
+    /// Worker became Builder, once per vault: the Worker note HQ wrote is renamed, its text and line updated where they were
+    /// Worker's shipped ones; one the user deleted leaves Builder deleted; a Builder of the user's leaves both alone; a Worker
+    /// note still in iCloud makes Builder wait.
+    private static func workerMigrationChecks(_ model: AppModel, url: (String) -> URL, note: (String) -> FrontMatter?, rescan: () async -> Void) async {
+        let key = "roles.shipped"
+        let shippedBefore = Prefs.defaults.stringArray(forKey: key) ?? []
+        let workerPath = url("Worker").path, builderPath = url("Builder").path
+        let placeholder = url("Worker").deletingLastPathComponent().appending(path: ".Worker.md.icloud")
+        guard let builder = RoleItem.shipped(named: "Builder") else { return check("Builder ships with HQ", false) }
+        let session = "7e1e0000-0000-4000-8000-0000000000c1"
+        func shipped() -> Set<String> { Set(Prefs.defaults.stringArray(forKey: key) ?? []) }
+        // A vault from before the rename: Worker written by HQ (with this text and line, or deleted), Builder never.
+        func vaultBefore(worker text: String?, line: String = RoleItem.workerLines[0], builderOfTheUser: String? = nil) async {
+            for name in ["Builder", "Worker"] { try? FileManager.default.removeItem(at: url(name)) }
+            if let text {
+                try? "---\ncolor: brown\nline: \(line)\nmodel: opus\neffort: high\n---\n\(text)\n".write(to: url("Worker"), atomically: true, encoding: .utf8)
+            }
+            if let builderOfTheUser {
+                try? "---\ncolor: green\nline: Mine.\n---\n\(builderOfTheUser)\n".write(to: url("Builder"), atomically: true, encoding: .utf8)
+            }
+            Prefs.defaults.set(shipped().subtracting([builderPath]).union([workerPath]).sorted(), forKey: key)
+            model.put(SessionItem(id: session, customName: "Migrated worker", status: SessionStatus(state: .idle, since: .now), cwd: NSTemporaryDirectory(),
+                                  repo: "roles", branch: "main", started: .now, order: model.session(session)?.order ?? model.nextGridOrder, role: "Worker"))
+            await rescan()
+        }
+
+        await vaultBefore(worker: RoleItem.workerTexts[0])
+        check("a Worker note HQ wrote at v14, unchanged, becomes Builder: Builder's text and line, its sessions with it",
+              note("Worker") == nil && note("Builder")?.body == builder.text + "\n" && note("Builder")?.string("line") == builder.line
+              && model.role(named: "Worker") == nil && model.role(named: "Builder").map { !model.isChangedDefault($0) && $0.builtin } == true
+              && model.session(session)?.role == "Builder" && shipped().contains(builderPath),
+              "\(model.roles.map(\.name)) \(note("Builder")?.text.prefix(120) ?? "no Builder note")")
+        await rescan()
+        check("and it runs once: a vault read after it leaves Builder as it is", note("Builder")?.body == builder.text + "\n" && note("Worker") == nil)
+
+        await vaultBefore(worker: "Report to me at each step.")
+        check("a Worker whose text the user changed becomes Builder with their text, Builder's line, and Restore Default offered",
+              note("Worker") == nil && note("Builder")?.body == "Report to me at each step.\n" && note("Builder")?.string("line") == builder.line
+              && model.role(named: "Builder").map(model.isChangedDefault) == true && model.session(session)?.role == "Builder",
+              note("Builder")?.text ?? "no Builder note")
+
+        await vaultBefore(worker: RoleItem.workerTexts[3], line: "My line.")
+        check("a line the user changed stays theirs; an unchanged v16 text takes Builder's",
+              note("Builder")?.string("line") == "My line." && note("Builder")?.body == builder.text + "\n", note("Builder")?.text ?? "no Builder note")
+
+        await vaultBefore(worker: nil)
+        check("Worker deleted by the user: Builder counts as deleted, not written", note("Builder") == nil && model.role(named: "Builder") == nil
+              && shipped().contains(builderPath), "\(model.roles.map(\.name))")
+        await rescan()
+        check("and stays deleted at the next vault read", note("Builder") == nil && model.role(named: "Builder") == nil)
+
+        await vaultBefore(worker: RoleItem.workerTexts[3], builderOfTheUser: "My own builder.")
+        check("a Builder note of the user's: both stay as they are", note("Builder")?.body == "My own builder.\n" && note("Builder")?.string("line") == "Mine."
+              && note("Worker")?.body == RoleItem.workerTexts[3] + "\n" && model.session(session)?.role == "Worker" && model.role(named: "Worker") != nil,
+              "\(model.roles.map(\.name))")
+
+        try? "".write(to: placeholder, atomically: true, encoding: .utf8)
+        await vaultBefore(worker: nil)
+        check("a Worker note still in iCloud: Builder waits, nothing written or recorded", note("Builder") == nil && !shipped().contains(builderPath),
+              "\(model.roles.map(\.name))")
+
+        // Leave the vault as the other checks had it: Builder shipped and as it ships, no Worker.
+        try? FileManager.default.removeItem(at: placeholder)
+        for name in ["Builder", "Worker"] { try? FileManager.default.removeItem(at: url(name)) }
+        Prefs.defaults.set(shippedBefore, forKey: key)
+        await rescan()
+        model.newRole(named: "Builder")
+        model.restoreDefault("Builder")
+        model.sessions.removeAll { $0.id == session }
+    }
+
     /// T-413: HQ's line, who started the session, and its role's text, at every SessionStart; cut to stay whole under the cap.
     private static func startTextChecks(_ model: AppModel) async {
         let lead = "7e1e0000-0000-4000-8000-0000000000b1", worker = "7e1e0000-0000-4000-8000-0000000000b2"
@@ -149,31 +222,31 @@ extension SelfTest {
         model.put(SessionItem(id: lead, customName: "registry: ready for more customers", status: SessionStatus(state: .idle, since: .now),
                               cwd: NSTemporaryDirectory(), repo: "roles", branch: "main", started: .now, order: model.nextGridOrder, role: "Leader"))
         model.put(SessionItem(id: worker, customName: "T-61 Retry budget", status: SessionStatus(state: .idle, since: .now), cwd: NSTemporaryDirectory(),
-                              repo: "roles", branch: "main", started: .now, pid: pid, order: model.nextGridOrder, parent: lead, role: "Worker"))
+                              repo: "roles", branch: "main", started: .now, pid: pid, order: model.nextGridOrder, parent: lead, role: "Builder"))
         func start(_ id: String, _ source: String, pid: Int32? = nil) -> String {
             var args = ["event": "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"\(id)\",\"cwd\":\"\(NSTemporaryDirectory())\",\"source\":\"\(source)\"}"]
             if let pid { args["pid"] = "\(pid)" }
             return agent("hook", args)["context"] as? String ?? ""
         }
         let worker0 = start(worker, "startup")
-        check("a Worker's start text: HQ tracks it, its leader by name and how to message it, then its role's text",
+        check("a Builder's start text: HQ tracks it, its leader by name and how to message it, then its role's text",
               worker0.hasPrefix("HQ tracks this session.") && worker0.contains("The session “registry: ready for more customers” (Leader) started this one: this session reports to it.")
               && worker0.contains("SendMessage, to “registry: ready for more customers”") && worker0.contains("Load the hq skill")
-              && worker0.contains("This session's role is Worker: \(RoleItem.defaults[1].line) Its text, from HQ:\n\n" + RoleItem.workerText)
-              && worker0.hasSuffix(RoleItem.workerText), worker0)
+              && worker0.contains("This session's role is Builder: \(RoleItem.shipped(named: "Builder")?.line ?? "-") Its text, from HQ:\n\n" + RoleItem.builderText)
+              && worker0.hasSuffix(RoleItem.builderText), worker0)
         let lead0 = start(lead, "startup")
         check("a Leader's start text says it started sessions that report to it, and has the Leader's text",
               lead0.contains("This session started 1 session that reports to it") && lead0.contains(RoleItem.leaderText) && !lead0.contains("started this one"), lead0)
         var missed: [String] = []
-        for source in ["resume", "compact", "fork"] where !start(worker, source).contains(RoleItem.workerText) { missed.append(source) }
-        model.changeRole("Worker") { $0.text = "Report at each step." }
+        for source in ["resume", "compact", "fork"] where !start(worker, source).contains(RoleItem.builderText) { missed.append(source) }
+        model.changeRole("Builder") { $0.text = "Report at each step." }
         if !start(worker, "compact").hasSuffix("Report at each step.") { missed.append("compact after an edit") }
-        model.restoreDefault("Worker")
+        model.restoreDefault("Builder")
         // After /clear the new id keeps the role: same process, a new session id.
         let source = DispatchSource.makeProcessSource(identifier: getpid(), eventMask: .exit, queue: .main)
         source.resume()
         model.exitWatchers[pid] = source
-        if !start(cleared, "clear", pid: pid).contains(RoleItem.workerText) { missed.append("clear") }
+        if !start(cleared, "clear", pid: pid).contains(RoleItem.builderText) { missed.append("clear") }
         model.exitWatchers.removeValue(forKey: pid)?.cancel()
         check("the role's text comes at start, on resume, after a compact (as it reads now), after /clear and in a fork", missed.isEmpty, missed.joined(separator: ", "))
         check("hooks.json sends every SessionStart, whatever its source, to hq hook", sessionStartHooked(), "no SessionStart without a matcher")

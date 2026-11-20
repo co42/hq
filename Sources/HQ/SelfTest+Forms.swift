@@ -9,7 +9,7 @@ extension SelfTest {
         let lead = "f0a50000-0000-4000-8000-0000000000b1", worker = "f0a50000-0000-4000-8000-0000000000b2"
         let helper = "f0a50000-0000-4000-8000-0000000000b3", loner = "f0a50000-0000-4000-8000-0000000000b4"
         let folder = NSTemporaryDirectory() + "forms-lead"
-        for (id, name, role) in [(lead, "Forms lead", "Leader"), (worker, "Forms worker", "Worker"), (helper, "Forms helper", "Worker"),
+        for (id, name, role) in [(lead, "Forms lead", "Leader"), (worker, "Forms worker", "Builder"), (helper, "Forms helper", "Builder"),
                                  (loner, "Forms loner", nil)] {
             var item = SessionItem(id: id, customName: name, status: SessionStatus(state: .idle, since: .now), cwd: id == lead ? folder : NSTemporaryDirectory(),
                                    repo: "forms", branch: "main", started: .now, order: model.nextGridOrder)
@@ -23,17 +23,17 @@ extension SelfTest {
         // What each entry point fills in.
         model.beginStart(parent: lead)
         check("Start Child Session… fills in the parent, its folder and the role its sessions have",
-              model.startDraft?.parent == lead && model.startDraft?.folder == folder && model.startDraft?.role == "Worker"
+              model.startDraft?.parent == lead && model.startDraft?.folder == folder && model.startDraft?.role == "Builder"
               && model.startDraft?.history == nil && model.startDraft?.name == "", "\(String(describing: model.startDraft))")
         model.beginStart(history: worker)
         check("Start Session from Its History… fills in that session as History, its parent, its role, and its name with ⑂",
-              model.startDraft?.history == worker && model.startDraft?.parent == lead && model.startDraft?.role == "Worker"
+              model.startDraft?.history == worker && model.startDraft?.parent == lead && model.startDraft?.role == "Builder"
               && model.startDraft?.name == "Forms worker ⑂", "\(String(describing: model.startDraft))")
 
         // Parent picked in the form: its folder and its sessions' role follow, until a role is picked.
         model.beginStart()
         model.setStartParent(lead)
-        check("picking a Parent takes its folder and its sessions' role", model.startDraft?.folder == folder && model.startDraft?.role == "Worker",
+        check("picking a Parent takes its folder and its sessions' role", model.startDraft?.folder == folder && model.startDraft?.role == "Builder",
               "\(String(describing: model.startDraft))")
         model.setStartRole("Leader")
         model.setStartParent(loner)
@@ -76,18 +76,18 @@ extension SelfTest {
 
         await UITest.endUndoGroup(model)
         // Roles edited in place: a rename follows to the sessions that have it; Cancel writes nothing.
-        model.selectedRole = "Worker"
+        model.selectedRole = "Builder"
         model.beginRoleEdit(.name)
-        model.roleEdit?.text = "Builder"
+        model.roleEdit?.text = "Maker"
         model.commitRoleEdit()
-        check("a role renamed in place keeps its pick, and its sessions follow", model.selectedRole == "Builder"
-              && model.session(worker)?.role == "Builder" && model.role(named: "Worker") == nil, "\(model.roles.map(\.name))")
+        check("a role renamed in place keeps its pick, and its sessions follow", model.selectedRole == "Maker"
+              && model.session(worker)?.role == "Maker" && model.role(named: "Builder") == nil, "\(model.roles.map(\.name))")
         model.beginRoleEdit(.line)
         model.roleEdit?.text = "Something else"
         model.cancelRoleEdit()
-        check("Cancel writes nothing", model.role(named: "Builder")?.line == RoleItem.defaults[1].line)
+        check("Cancel writes nothing", model.role(named: "Maker")?.line == RoleItem.shipped(named: "Builder")?.line)
         model.undoManager?.undo()
-        await expect("Undo brings the name back", model.role(named: "Worker") != nil)
-        model.selectedRole = "Worker"
+        await expect("Undo brings the name back", model.role(named: "Builder") != nil)
+        model.selectedRole = "Builder"
     }
 }

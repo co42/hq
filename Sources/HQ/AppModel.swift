@@ -717,7 +717,7 @@ final class AppModel {
         open(.start, push: push)
     }
 
-    /// The role most of a new session's siblings have, else none: a leader's next session is a Worker, and no rule names one.
+    /// The role most of a new session's siblings have, else none: a leader's next session is a Builder, and no rule names one.
     func siblingsRole(under parent: SessionItem.ID?) -> String? {
         let tree = sessionTree
         let roles = (parent.map { tree.children(of: $0) } ?? tree.roots).compactMap { session($0) }.map { role(named: $0.role)?.name ?? "" }

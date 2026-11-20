@@ -69,7 +69,7 @@ extension SelfTest {
         for id in [parent, child] {
             model.put(SessionItem(id: id, customName: id == parent ? "Clear lead" : "Clear worker", status: SessionStatus(state: .idle, since: .now),
                                   cwd: NSTemporaryDirectory(), repo: "team", branch: "main", started: .now, pid: id == parent ? pid : nil,
-                                  order: model.nextGridOrder, parent: id == child ? parent : nil, role: id == parent ? "Leader" : "Worker"))
+                                  order: model.nextGridOrder, parent: id == child ? parent : nil, role: id == parent ? "Leader" : "Builder"))
         }
         let source = DispatchSource.makeProcessSource(identifier: getpid(), eventMask: .exit, queue: .main)
         source.resume()
@@ -83,9 +83,9 @@ extension SelfTest {
 
         // Start a Session under a parent, with a role and another session's history.
         let log = model.ghosttyLog.count
-        let started = model.startSession(named: "Team child", in: NSTemporaryDirectory(), parent: cleared, role: "Worker", history: child)
+        let started = model.startSession(named: "Team child", in: NSTemporaryDirectory(), parent: cleared, role: "Builder", history: child)
         check("Start a Session under a parent: in its team, with its role and that history",
-              model.session(started)?.parent == cleared && model.session(started)?.role == "Worker"
+              model.session(started)?.parent == cleared && model.session(started)?.role == "Builder"
               && model.ghosttyLog.count == log + 1 && model.ghosttyLog.last?.contains("claude --resume \(child) --fork-session --session-id \(started)") == true,
               model.ghosttyLog.last ?? "-")
         model.sessions.removeAll { [lead, worker, helper, parent, child, cleared, started].contains($0.id) }
