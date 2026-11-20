@@ -62,15 +62,14 @@ extension SelfTest {
         let before = model.session(lead)
         model.changeRole(lead, to: "Worker")
         let typed = model.ghosttyLog.last ?? "-"
-        check("Role ▸ changes its role and types it in its terminal with the role's text, its input emptied first",
+        check("Role ▸ changes its role and types one line in its terminal, its input emptied first: how to read the new role",
               model.session(lead)?.role == "Worker" && typed.hasPrefix("clear the input, then type HQ changed your role to Worker")
-                && typed.contains(String(RoleItem.workerText.prefix(40))) && typed.hasSuffix("in /dev/ttys046"), typed)
+                && typed.contains("Read your new role with `hq role show Worker`") && !typed.contains("\n") && typed.hasSuffix("in /dev/ttys046"), typed)
         check("its model and effort stay", model.session(lead)?.model == before?.model && model.session(lead)?.effort == before?.effort)
         model.changeRole(lead, to: nil)
-        check("Role ▸ None removes it and says so", model.session(lead)?.role == nil
-              && model.ghosttyLog.last == "clear the input, then type HQ removed your role (it was Worker): you have none now. Your model and effort stay. in /dev/ttys046",
+        check("Role ▸ None removes it and says so, on one line", model.session(lead)?.role == nil
+              && model.ghosttyLog.last == "clear the input, then type HQ removed your role (it was Worker); your model and effort stay. Work without a role from now on. in /dev/ttys046",
               model.ghosttyLog.last ?? "-")
-        check("a role's text reaches the terminal on several lines", Ghostty.typeScript("a\nb", tty: "/dev/x", interrupting: false, clearing: false).contains(#"input text "a\nb""#))
         if var item = model.session(lead) {
             item.live.apply(HookEvent(name: "UserPromptSubmit", sessionID: lead), now: .now)
             model.put(item)

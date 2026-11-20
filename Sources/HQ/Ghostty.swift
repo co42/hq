@@ -194,7 +194,7 @@ enum Ghostty {
         tell application id "\(bundleID)"
             set found to every terminal whose tty is "\(Self.escape(tty))"
             if (count of found) is 0 then return false
-            \(escape)\(clear)input text "\(Self.escape(text).replacingOccurrences(of: "\n", with: "\\n"))" to (item 1 of found)
+            \(escape)\(clear)input text "\(Self.escape(text))" to (item 1 of found)
             send key "enter" to (item 1 of found)
             return true
         end tell

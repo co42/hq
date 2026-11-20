@@ -739,14 +739,14 @@ extension AppModel {
         }
     }
 
-    /// Role ▸ (T-666): its role changed, and a message typed in its terminal while it waits for its next one, saying so with
-    /// the new role's text. Model and effort stay.
+    /// Role ▸ (T-666): its role changed, and one line typed in its terminal while it waits for its next message, saying so
+    /// and how to read the new role. Model and effort stay.
     func changeRole(_ id: String, to name: String?) {
         guard var item = session(id), canChangeRun(item), let tty = item.tty, item.role != name else { return }
         let old = item.role
         item.role = name
         put(item)
-        let message = Self.roleMessage(to: name, from: old, text: role(named: name)?.text)
+        let message = Self.roleMessage(to: name, from: old)
         if Store.isOverridden { return ghosttyLog.append("clear the input, then type \(message) in \(tty)") }
         Task.detached {
             let typed = (try? Ghostty.type(message, tty: tty, clearing: true)) ?? false
@@ -754,12 +754,11 @@ extension AppModel {
         }
     }
 
-    /// "HQ changed your role to Worker (it was Leader). …", then the role's text.
-    nonisolated static func roleMessage(to name: String?, from old: String?, text: String?) -> String {
+    /// One line: Return in Claude's input sends, so a second line would go as another message.
+    nonisolated static func roleMessage(to name: String?, from old: String?) -> String {
         let was = old.map { " (it was \($0))" } ?? ""
-        guard let name else { return "HQ removed your role\(was): you have none now. Your model and effort stay." }
-        let head = "HQ changed your role to \(name)\(was). Your model and effort stay. From now on, work by its text:"
-        return text.map { "\(head)\n\n\($0.trimmingCharacters(in: .whitespacesAndNewlines))" } ?? head
+        guard let name else { return "HQ removed your role\(was); your model and effort stay. Work without a role from now on." }
+        return "HQ changed your role to \(name)\(was); your model and effort stay. Read your new role with `hq role show \(name)` and work by it from now on."
     }
 
     /// Close Session: /exit in its terminal, Escape first while it works, then the terminal closes once Claude has quit.
