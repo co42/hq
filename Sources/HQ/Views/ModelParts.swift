@@ -67,7 +67,7 @@ extension SessionItem {
     }
 }
 
-/// Model ▸ and Effort ▸ for a running session, the current one checked: they type /model or /effort in its terminal while
+/// Model ▸, Effort ▸ and Role ▸ for a running session, the current one checked: they type /model, /effort or its new role in its terminal while
 /// it waits for its next message (T-446).
 struct RunMenus: View {
     let session: SessionItem
@@ -82,6 +82,14 @@ struct RunMenus: View {
         .disabled(!ready)
         Picker("Effort", selection: Binding(get: { session.effort ?? "" }, set: { model.changeRun(session.id, effort: $0) })) {
             ForEach(ClaudeModel.efforts, id: \.self) { Text(ClaudeModel.effortTitle($0)).tag($0) }
+        }
+        .disabled(!ready)
+        // Its role, told to it in its terminal (T-666).
+        Picker("Role", selection: Binding(get: { model.role(named: session.role)?.name ?? "" },
+                                         set: { model.changeRole(session.id, to: $0.isEmpty ? nil : $0) })) {
+            Text("None").tag("")
+            Divider()
+            ForEach(model.roles, id: \.name) { Text($0.name).tag($0.name) }
         }
         .disabled(!ready)
     }

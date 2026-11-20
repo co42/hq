@@ -739,6 +739,29 @@ extension AppModel {
         }
     }
 
+    /// Role ▸ (T-666): its role changed, and a message typed in its terminal while it waits for its next one, saying so with
+    /// the new role's text. Model and effort stay.
+    func changeRole(_ id: String, to name: String?) {
+        guard var item = session(id), canChangeRun(item), let tty = item.tty, item.role != name else { return }
+        let old = item.role
+        item.role = name
+        put(item)
+        let message = Self.roleMessage(to: name, from: old, text: role(named: name)?.text)
+        if Store.isOverridden { return ghosttyLog.append("clear the input, then type \(message) in \(tty)") }
+        Task.detached {
+            let typed = (try? Ghostty.type(message, tty: tty, clearing: true)) ?? false
+            await MainActor.run { AppLog.write("role \(name ?? "none") in \(tty): \(typed ? "typed" : "no terminal")", to: "clicks.log") }
+        }
+    }
+
+    /// "HQ changed your role to Worker (it was Leader). …", then the role's text.
+    nonisolated static func roleMessage(to name: String?, from old: String?, text: String?) -> String {
+        let was = old.map { " (it was \($0))" } ?? ""
+        guard let name else { return "HQ removed your role\(was): you have none now. Your model and effort stay." }
+        let head = "HQ changed your role to \(name)\(was). Your model and effort stay. From now on, work by its text:"
+        return text.map { "\(head)\n\n\($0.trimmingCharacters(in: .whitespacesAndNewlines))" } ?? head
+    }
+
     /// Close Session: /exit in its terminal, Escape first while it works, then the terminal closes once Claude has quit.
     /// One that waits on the user gets no keys: Return could answer its prompt, so HQ asks them to answer it first. A
     /// background session is stopped (`claude stop`), its conversation kept; one HQ can reach neither way opens its modal,

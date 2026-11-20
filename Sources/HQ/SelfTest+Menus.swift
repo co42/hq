@@ -25,7 +25,7 @@ extension SelfTest {
         }
         if let session = model.gridRoots.first(where: { $0.isRunning && $0.tty != nil && $0.startTrouble == nil && model.team(of: $0.id).isEmpty }) {
             menu("a running session's menu", SessionMenu(session: session), model, ["Focus", "Restart Session", "Start ▸", "—", "Model ▸",
-                 "Effort ▸", "Team ▸", "—", "Copy ▸", "—", "Close Session"])
+                 "Effort ▸", "Role ▸", "Team ▸", "—", "Copy ▸", "—", "Close Session"])
             menu("its Copy menu", SessionMenu(session: session), model, ["Copy", "Copy Resume Command", "Copy Session ID"], in: "Copy")
         } else {
             check("the seed has a running session alone on its card", false)

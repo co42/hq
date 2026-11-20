@@ -58,13 +58,28 @@ extension SelfTest {
         await settleReads(model)
         check("a reply after it says what it runs on again", model.session(lead)?.model == "claude-sonnet-5-5" && model.session(lead)?.runChangedAt == nil,
               model.session(lead)?.model ?? "-")
+        // Role ▸ (T-666): its role changes and its terminal is told, with the new role's text; model and effort stay.
+        let before = model.session(lead)
+        model.changeRole(lead, to: "Worker")
+        let typed = model.ghosttyLog.last ?? "-"
+        check("Role ▸ changes its role and types it in its terminal with the role's text, its input emptied first",
+              model.session(lead)?.role == "Worker" && typed.hasPrefix("clear the input, then type HQ changed your role to Worker")
+                && typed.contains(String(RoleItem.workerText.prefix(40))) && typed.hasSuffix("in /dev/ttys046"), typed)
+        check("its model and effort stay", model.session(lead)?.model == before?.model && model.session(lead)?.effort == before?.effort)
+        model.changeRole(lead, to: nil)
+        check("Role ▸ None removes it and says so", model.session(lead)?.role == nil
+              && model.ghosttyLog.last == "clear the input, then type HQ removed your role (it was Worker): you have none now. Your model and effort stay. in /dev/ttys046",
+              model.ghosttyLog.last ?? "-")
+        check("a role's text reaches the terminal on several lines", Ghostty.typeScript("a\nb", tty: "/dev/x", interrupting: false, clearing: false).contains(#"input text "a\nb""#))
         if var item = model.session(lead) {
             item.live.apply(HookEvent(name: "UserPromptSubmit", sessionID: lead), now: .now)
             model.put(item)
         }
         let log = model.ghosttyLog.count
         model.changeRun(lead, effort: "low")
-        check("never while it works", model.ghosttyLog.count == log && model.session(lead)?.effort == "xhigh", model.ghosttyLog.last ?? "-")
+        model.changeRole(lead, to: "Leader")
+        check("never while it works", model.ghosttyLog.count == log && model.session(lead)?.effort == "xhigh" && model.session(lead)?.role == nil,
+              model.ghosttyLog.last ?? "-")
 
         // hq role edit: --model and --effort, none for Claude Code's own.
         _ = agent("role edit", ["role": "Worker", "model": "sonnet", "effort": "low"])

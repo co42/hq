@@ -712,7 +712,7 @@ struct SessionModal: View {
                             .padding(.trailing, Space.sm + 2)
                             .frame(height: Metric.statePill + Space.xs)
                             .background(session.status.needsYou ? AnyShapeStyle(session.status.state == .failed ? Ink.failedFill : Ink.needsYouFill) : AnyShapeStyle(Ink.labelFill), in: Capsule())
-                            // What it runs on, "Opus VH · 442k", while it runs (T-446, T-475); Model ▸ and Effort ▸ are in ⋯.
+                            // What it runs on, "Opus VH · 442k", while it runs (T-446, T-475); Model ▸, Effort ▸ and Role ▸ are in ⋯.
                             ModelChip(session: session, tall: true)
                                 .uiTestAnchor("session-model")
                         }
