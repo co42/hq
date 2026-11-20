@@ -284,6 +284,7 @@ private struct StatusButton: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+        .hoverPlate(.circle, outset: CGSize(width: Metric.plateOutset, height: Metric.plateOutset))
         .help("\(status.title): click for the next status, hold for the list")
         .accessibilityLabel("Status: \(status.title)")
         .uiTestAnchor("modal-status")
@@ -394,6 +395,7 @@ private struct TaskRelations: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
                     .frame(width: Metric.rowAction, height: Metric.rowAction)
+                    .hoverPlate(.chip)
                     .help("Take this link off")
             }
         }
@@ -453,6 +455,7 @@ struct SessionChip: View {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
+                    .hoverPlate(.chip, outset: CGSize(width: Metric.plateOutset, height: Metric.plateOutset))
                     .help("Unlink this session from the task")
             }
         }
@@ -487,6 +490,7 @@ struct OutputRows: View {
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.secondary)
                                 .frame(width: Metric.rowAction, height: Metric.rowAction)
+                                .hoverPlate(.chip)
                                 .help("Unlink it from the task")
                         }
                     }
@@ -741,6 +745,7 @@ struct SessionModal: View {
                                     .labelStyle(.iconOnly)
                                     .buttonStyle(.borderless)
                                     .foregroundStyle(.secondary)
+                                    .hoverPlate(.chip, outset: CGSize(width: Metric.plateOutset, height: Metric.plateOutset))
                                     .help("Unlink this task from the session")
                             }
                             .kitType(.title)
@@ -773,7 +778,7 @@ struct SessionModal: View {
                         if let role = model.role(named: session.role) {
                             DetailRow(label: "Role") {
                                 Button { model.openRoles(role.name, push: true) } label: { RoleChip(role: role) }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(PlateButtonStyle(shape: .capsule))
                                     .help("\(role.name): open it in Roles")
                                     .uiTestAnchor("session-role")
                             }
@@ -1128,7 +1133,7 @@ struct GitHubModal: View {
                     .frame(maxWidth: Metric.linkedTaskMax)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PlateButtonStyle(shape: .chip, outset: Metric.keyPlate))
                 .help("Open \(task.key) \(task.title)")
             }
             ForEach(model.sessions(onPullRequest: item)) { session in

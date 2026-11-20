@@ -37,7 +37,7 @@ private struct Row<Trailing: View>: View {
                 Button { withAnimation(Motion.lift) { open.wrappedValue.toggle() } } label: {
                     titleLine(open: open.wrappedValue).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PlateButtonStyle(shape: .rounded(Radius.tile + Space.xs), outset: CGSize(width: Space.xs, height: Space.xs)))
                 .help((open.wrappedValue ? "Hide \(title)" : "Show \(title)") + (key.map { " (\($0))" } ?? ""))
                 .accessibilityLabel(count.map { "\(title), \($0)" } ?? title)
                 .accessibilityValue(open.wrappedValue ? "Shown" : "Folded")
@@ -298,7 +298,7 @@ struct ModalGroup<Content: View, Actions: View>: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PlateButtonStyle(shape: .chip, outset: Metric.keyPlate))
                 .help(open.wrappedValue ? "Hide \(title)" : "Show \(title)")
                 .accessibilityValue(open.wrappedValue ? "Shown" : "Folded")
             } else {

@@ -42,6 +42,7 @@ struct WaitingFaces: View {
                         .padding(.horizontal, Space.xs + 2)
                         .frame(minWidth: Metric.waitingButton, minHeight: Metric.sectionBarItem)
                         .contentShape(Capsule())
+                        .hoverPlate(.rounded(Radius.control))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -95,17 +96,13 @@ private struct WaitingButtonStyle: ButtonStyle {
 private struct WaitingPlate<Label: View>: View {
     let pressed: Bool
     @ViewBuilder let label: Label
-    @State private var hovering = false
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
         label
             .frame(width: Metric.waitingButton, height: Metric.sectionBarItem)
-            .background(hovering || pressed ? Ink.hoverFill : .clear, in: shape)
-            .contentShape(shape)
+            .contentShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .hoverPlate(.rounded(Radius.control), pressed: pressed)
             .scaleEffect(pressed ? 0.96 : 1)
-            .onHover { hovering = $0 }
-            .animation(Motion.hover, value: hovering)
             .animation(Motion.hover, value: pressed)
     }
 }

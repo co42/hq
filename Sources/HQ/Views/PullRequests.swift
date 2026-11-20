@@ -225,7 +225,7 @@ struct ShowMoreButton: View {
         if count > folded, !model.cardFiltered(card) {
             let open = model.expandedCards.contains(card)
             Button(open ? "Show Fewer" : "Show \(count - folded) More") { model.toggleExpanded(card) }
-                .buttonStyle(.borderless)
+                .buttonStyle(PlateButtonStyle(shape: .capsule, outset: CGSize(width: Space.sm, height: Metric.lineGap)))
                 .kitType(.callout)
                 .help(open ? "Show the first \(PRCards.shown) only" : "Show every \(card.rows) in this card")
                 .uiTestAnchor("show-more:\(card.rawValue)")
@@ -310,6 +310,7 @@ struct OpenOnGitHubButton: View {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .frame(width: Metric.rowAction, height: Metric.rowAction)
+            .hoverPlate(.chip)
             .help("Open on GitHub")
     }
 }
@@ -376,6 +377,7 @@ struct PRRow: View {
                 RowLead {
                     // As a task's faces: a click shows the first session's menu, or starts one.
                     FaceStack(sessions: Array(sessions.prefix(1)), size: Metric.faceRow, limit: 1)
+                        .facePlate(Metric.faceRow)
                         .overlay {
                             ClickTarget { view in
                                 if let first = sessions.first, let menu = model.faceMenu(first.id, pullRequest: item) {

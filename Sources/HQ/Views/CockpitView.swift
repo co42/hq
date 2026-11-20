@@ -278,7 +278,7 @@ private struct SectionBar: View {
                         }
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PlateButtonStyle(shape: .capsule))
                     .help("Go to \(section.title)")
                     .accessibilityLabel(section.title)
                     .accessibilityAddTraits(current == section ? .isSelected : [])

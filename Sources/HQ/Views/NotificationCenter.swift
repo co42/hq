@@ -57,7 +57,7 @@ struct NotificationCenterView: View {
                             ForEach(shownEarlier(earlier)) { notice in row(notice) }
                             if earlier.count > Self.earlierShown {
                                 Button(allEarlier ? "Show Fewer" : "Show \(earlier.count - Self.earlierShown) More") { allEarlier.toggle() }
-                                    .buttonStyle(.borderless)
+                                    .buttonStyle(PlateButtonStyle(shape: .capsule, outset: CGSize(width: Space.sm, height: Metric.lineGap)))
                                     .kitType(.callout)
                                     .padding(.leading, Space.sm)
                                     .frame(maxWidth: .infinity, minHeight: Metric.boxRow, alignment: .leading)
@@ -225,8 +225,10 @@ private struct BlockedRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Button(session.isRunning ? "Focus" : "Resume") { model.open(session.id) }
                 .buttonStyle(.glassProminent)
+                .hoverPlate(.capsule, over: true)
                 .tint(Ink.needsYou)
                 .help("Bring its terminal forward to answer it (⌘O)")
+                .uiTestAnchor("focus:\(session.id)")
         }
         .listCard(selected: selected, active: active)
         .opensOnDoubleClick { model.open(session.id) } // the center's rows keep their own selection
@@ -288,6 +290,7 @@ private struct NoticeRow: View {
             if notice.action == .restartIdle, !done, case let count = model.restartableIdle.count, count > 0 {
                 Button("Restart Idle Sessions (\(count))") { model.restartIdleSessions() }
                     .buttonStyle(.glassProminent)
+                    .hoverPlate(.capsule, over: true)
                     .tint(Ink.accent)
                     .help("Restart the sessions on an older Claude Code that wait at their prompt; working ones keep running")
                     .uiTestAnchor("restart-idle:\(notice.id.uuidString)")
@@ -343,7 +346,7 @@ private struct NoticeRow: View {
         let label = NoticeName(name: name, title: title, bold: !done)
         if let source {
             Button { model.markRead(notice.id); model.open(source, from: notice) } label: { label }
-                .buttonStyle(.plain)
+                .buttonStyle(PlateButtonStyle(shape: .chip, outset: Metric.keyPlate))
                 .help("Open \(name)")
         } else {
             label
@@ -384,6 +387,7 @@ private struct NoticeRow: View {
             if reminder {
                 Button("Edit", icon: .edit, action: edit)
                     .frame(width: Metric.rowAction, height: Metric.rowAction)
+                    .hoverPlate(.chip)
                     .help("Edit the reminder (Return)")
                     .uiTestAnchor("edit:\(notice.id.uuidString)")
             }
@@ -392,23 +396,27 @@ private struct NoticeRow: View {
                     .kitType(.meta)
                     .padding(.horizontal, Space.xs)
                     .frame(height: Metric.rowAction)
+                    .hoverPlate(.chip)
                     .help("Change when it comes back")
                     .uiTestAnchor("due:\(notice.id.uuidString)")
             } else {
                 Button("Later", icon: .later) { showLater = true }
                     .frame(width: Metric.rowAction, height: Metric.rowAction)
+                    .hoverPlate(.chip)
                     .help("Put it away until later (L)")
                     .uiTestAnchor("later:\(notice.id.uuidString)")
             }
             Button(doneTitle, icon: doneIcon) { model.setDone(notice.id, !done) }
                 .foregroundStyle(done && reminder ? AnyShapeStyle(Ink.done) : AnyShapeStyle(.secondary))
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .hoverPlate(.chip)
                 .help("\(reminder ? (done ? "Mark it not done" : "Mark it done") : (done ? "Mark it unread" : "Mark it read")) (E)")
                 .uiTestAnchor("read:\(notice.id.uuidString)")
             Menu { menu } label: { Label("More", icon: .more) }
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .hoverPlate(.chip)
                 .help("More")
         }
         .labelStyle(.iconOnly)
@@ -492,7 +500,7 @@ private struct NoticeChip: View {
             if let notice, notice.kind != .reminder { model.markRead(notice.id) }
             model.open(route, from: notice)
         } label: {
-            OutputChip(route: route, plain: true)
+            OutputChip(route: route, plain: true, plated: true)
         }
         .buttonStyle(.plain)
         .help("Open \(model.title(of: route))")
@@ -625,6 +633,7 @@ private struct ChipLine: View {
         } label: {
             Text("+\(rest.count)").kitType(.meta).foregroundStyle(.secondary)
                 .padding(.horizontal, Space.sm).frame(height: Metric.rowAction)
+                .hoverPlate(.capsule)
                 .background(Ink.chipFill, in: Capsule())
         }
         .menuStyle(.button)
@@ -683,7 +692,7 @@ struct ReminderMark: View {
                 KitIcon.reminder.image.imageScale(.small).fontWeight(.semibold)
                     .foregroundStyle(mark.due && notice.level == .important ? AnyShapeStyle(Ink.needsYou) : AnyShapeStyle(.secondary))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PlateButtonStyle(shape: .chip, outset: CGSize(width: Metric.plateOutset, height: Metric.plateOutset)))
             .help(mark.help)
             .accessibilityLabel(mark.help)
             .uiTestAnchor("reminder-mark:\(route.selectionKey)")
@@ -740,6 +749,7 @@ private struct ReviewRow: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .hoverPlate(.chip)
                 .help(until == nil ? "Put it away until later (L)" : "Change when it comes back (L)")
                 .popover(isPresented: $showLater, arrowEdge: .bottom) {
                     WhenPicker(now: model.now, current: until) { date in
@@ -750,6 +760,7 @@ private struct ReviewRow: View {
                 .uiTestAnchor("review-later:\(item.url)")
             Button("Review") { model.open(.github(item.url), push: true) }
                 .buttonStyle(.glassProminent)
+                .hoverPlate(.capsule, over: true)
                 .tint(Ink.needsYou)
                 .help("Open the pull request to review it (Return)")
         }

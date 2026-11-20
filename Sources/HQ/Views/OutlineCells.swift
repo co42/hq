@@ -135,8 +135,10 @@ final class GlyphButton: TaskGlyphView {
 
     /// A click steps to the next status; ⌥-click picks one from the menu.
     override func mouseDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.option) { showMenu() } else { onNext() }
-        takeRelease()
+        HoverPlateView.pressing(self) {
+            if event.modifierFlags.contains(.option) { showMenu() } else { onNext() }
+            takeRelease()
+        }
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func isAccessibilityElement() -> Bool { true }
@@ -277,6 +279,9 @@ final class BlockersView: NSView, NSViewToolTipOwner {
             return NSRect(x: x, y: 0, width: width, height: bounds.height)
         }
     }
+
+    /// Each chip, in this view's coordinates: their hover plates.
+    var chipFrames: [NSRect] { layoutFrames() }
 
     /// The blocking tasks under a point in this view.
     func ids(at point: NSPoint) -> [Int]? {
@@ -425,8 +430,10 @@ final class ProjectButton: LabelStripView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { !labels.isEmpty && frame.contains(point) ? self : nil }
     override func mouseDown(with event: NSEvent) {
-        showMenu()
-        takeRelease()
+        HoverPlateView.pressing(self) {
+            showMenu()
+            takeRelease()
+        }
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
@@ -481,6 +488,10 @@ final class KeyField: NSTextField {
 
     override func mouseDown(with event: NSEvent) {
         guard !copied.isEmpty else { return }
+        HoverPlateView.pressing(self) { copyLine() }
+    }
+
+    private func copyLine() {
         Pasteboard.copy(copied)
         flashes += 1
         let flash = flashes
@@ -559,13 +570,13 @@ final class TaskCell: NSTableCellView {
     /// A block's progress, or a folded task's, at its line's end.
     let progress = BlockProgressView()
     /// A reminder that links the task, after its key (T-311).
-    let reminderMark = NSButton()
+    let reminderMark = PlateButton()
     /// The fold chevron at the card's top right: its subtasks shown or hidden (2026-11-12).
-    let fold = NSButton()
+    let fold = PlateButton()
     /// Beside the chevron, or a story's filter button: shows or hides the task's description in its card, on every card that has one.
-    let note = NSButton()
+    let note = PlateButton()
     /// Beside the chevron, on a story with subtasks: on, its tree shows only its Blocked and doing tasks (2026-11-12).
-    let filter = NSButton()
+    let filter = PlateButton()
     private var reminderNotice: Notice?
     let key = KeyField(labelWithString: "")
     /// The tasks it's blocked by, still open: "T-268, T-269", first at the line's end.
@@ -578,6 +589,8 @@ final class TaskCell: NSTableCellView {
     private(set) var descriptionHost: NSHostingView<AnyView>?
     /// The task's PRs, issues, files, artifacts, Slack messages and web pages, at the line's end.
     let links = LinkTokensView()
+    /// Under its controls: the plate under the pointer (DESIGN.md §12, Hover).
+    let plate = HoverPlateView()
     private(set) var id: Int?
     private weak var coordinator: OutlineCoordinator?
     private weak var model: AppModel?
@@ -643,6 +656,7 @@ final class TaskCell: NSTableCellView {
         reasonMark.image = KitIcon.blocked.nsImage(.mark, weight: .semibold)
         reasonMark.contentTintColor = Ink.blockedTextNS
         reasonMark.imageScaling = .scaleProportionallyDown
+        addSubview(plate)
         for view in [glyph, key, reminderMark, fold, note, filter, title, project, labels, blockers, links, progress, reasonMark, reason] as [NSView] {
             addSubview(view)
         }
@@ -901,6 +915,37 @@ final class TaskCell: NSTableCellView {
             descriptionHost.frame = NSRect(x: underX, y: start, width: max(bounds.width - underX, 0),
                                            height: max(bounds.height - start - Self.lineTop(big: big), 0))
         }
+        plate.frame = bounds
+        plate.spots = plateSpots()
+    }
+
+    /// A spot per control on the first line, in its own shape (DESIGN.md §12, Hover).
+    private func plateSpots() -> [HoverPlateView.Spot] {
+        let around = CGSize(width: Metric.plateOutset, height: Metric.plateOutset)
+        var spots: [HoverPlateView.Spot?] = [HoverPlateView.Spot.around(glyph, in: plate, .circle, outset: around)]
+        if !key.isHidden, !key.copied.isEmpty {
+            var rect = key.frame
+            rect.size.width = min(ceil(key.intrinsicContentSize.width), rect.width)
+            spots.append(HoverPlateView.Spot(rect: plate.convert(rect, from: self).insetBy(dx: -Metric.keyPlate.width, dy: -Metric.keyPlate.height), shape: .chip))
+        }
+        spots.append(HoverPlateView.Spot.around(reminderMark, in: plate, .chip))
+        if !project.labels.isEmpty { spots.append(HoverPlateView.Spot.around(project, in: plate, project.project == nil ? .chip : .capsule)) }
+        if !blockers.isHidden {
+            for frame in blockers.chipFrames { spots.append(HoverPlateView.Spot(rect: plate.convert(frame, from: blockers), shape: .capsule)) }
+        }
+        if !links.isHidden {
+            let height = Metric.rowAction
+            for frame in links.tokenFrames {
+                let rect = NSRect(x: frame.minX, y: frame.midY - height / 2, width: frame.width, height: height)
+                spots.append(HoverPlateView.Spot(rect: plate.convert(rect, from: links), shape: .chip))
+            }
+        }
+        let side = Metric.cardEndControl
+        for button in [note, filter, fold] where !button.isHidden && button.frame.width > 0 {
+            let rect = NSRect(x: button.frame.midX - side / 2, y: button.frame.midY - side / 2, width: side, height: side)
+            spots.append(HoverPlateView.Spot(rect: plate.convert(rect, from: self), shape: .chip))
+        }
+        return spots.compactMap(\.self)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1042,6 +1087,9 @@ final class LinkTokensView: NSView, NSViewToolTipOwner {
         return nil
     }
 
+    /// Each token as its click takes it, in this view's coordinates: their hover plates.
+    var tokenFrames: [NSRect] { layoutFrames().map { $0.insetBy(dx: -Space.xs / 2, dy: 0) } }
+
     /// The token's links under a point in this view.
     func routes(at point: NSPoint) -> [ModalRoute]? {
         for (frame, token) in zip(layoutFrames(), tokens) where frame.insetBy(dx: -Space.xs / 2, dy: 0).contains(point) { return token.routes }
@@ -1122,6 +1170,8 @@ final class FacesCell: NSTableCellView {
     static let id = NSUserInterfaceItemIdentifier("faces-cell")
     private let faces = FaceStackView()
     let noSession = NoSessionFace()
+    /// The face's plate under the pointer (DESIGN.md §12, Hover).
+    let plate = HoverPlateView()
     private var start: () -> Void = {}
     /// The session whose face shows.
     var shownSession: String? { faces.faces.first?.session }
@@ -1143,6 +1193,7 @@ final class FacesCell: NSTableCellView {
         faces.limit = OutlineCoordinator.faces
         faces.showsMore = false
         faces.clickable = true
+        addSubview(plate)
         addSubview(faces)
         noSession.toolTip = "No session on this task: click to start one"
         noSession.setAccessibilityLabel("No session")
@@ -1188,6 +1239,10 @@ final class FacesCell: NSTableCellView {
         let side = Metric.faceRow
         faces.frame = NSRect(x: 0, y: gap + lineTop + (Metric.cardLine - side) / 2, width: faces.contentWidth, height: side)
         noSession.frame = NSRect(x: 0, y: faces.frame.minY, width: side, height: side)
+        let outset = Metric.plateOutset
+        plate.frame = bounds.insetBy(dx: -outset, dy: -outset)
+        let face = noSession.isHidden ? faces : noSession
+        plate.spots = face.isHidden ? [] : [HoverPlateView.Spot(rect: plate.convert(face.frame, from: self).insetBy(dx: -outset, dy: -outset), shape: .face(side))]
     }
 
     /// The face takes the hit; the rest of the cell drags the card.
@@ -1198,7 +1253,7 @@ final class FacesCell: NSTableCellView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if click(event) { takeRelease() }
+        HoverPlateView.pressing(self) { if click(event) { takeRelease() } }
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -1556,6 +1611,8 @@ struct OutputChip: View {
     var short = false
     /// Only drawn: what holds it acts on clicks (the notification center).
     var plain = false
+    /// Plain, but its holder is a button: it shows the plate.
+    var plated = false
     /// Under a task's row on the page: that task.
     var task: Int?
     @Environment(AppModel.self) private var model
@@ -1571,6 +1628,7 @@ struct OutputChip: View {
             .kitType(compact ? .secondary : .callout)
             .padding(.horizontal, compact ? Space.xs + 2 : Space.sm)
             .frame(height: compact ? Metric.chipHeight : Metric.rowAction)
+            .hoverPlate(.rounded(Radius.control), shown: !plain || plated)
             .background(compact ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Ink.chipFill),
                         in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .modifier(ChipClick(route: route, task: task, active: !plain))

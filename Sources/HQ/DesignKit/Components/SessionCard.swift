@@ -164,6 +164,7 @@ struct SessionCard: View {
     private var top: some View {
         HStack(spacing: Space.md) {
             SessionFace(session, size: Metric.faceCard, badged: false)
+                .uiTestAnchor("card-face:\(session.id)")
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text(session.name)
                     .kitType(.titleStrong)
@@ -213,6 +214,7 @@ struct SessionCard: View {
                 HStack(spacing: Space.xs) {
                     ForEach(faces.shown) { member in
                         SessionFace(team: member.session)
+                            .uiTestAnchor("tray-face:\(member.session.id)")
                     }
                     if faces.more > 0 {
                         Text("+\(faces.more)")
@@ -295,7 +297,8 @@ private struct TeamToggle: View {
             .rotationEffect(.degrees(open ? 90 : 0))
             .foregroundStyle(open ? AnyShapeStyle(Ink.accentText) : hovering ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .frame(width: Metric.teamToggle, height: Metric.teamToggle)
-            .background(open ? AnyShapeStyle(Ink.workingFill) : hovering ? AnyShapeStyle(Ink.hoverFill) : AnyShapeStyle(Ink.chipFill), in: Circle())
+            .hoverPlate(.circle)
+            .background(open ? AnyShapeStyle(Ink.workingFill) : AnyShapeStyle(Ink.chipFill), in: Circle())
             .contentShape(Circle())
             .onHover { hovering = $0 }
             .animation(Motion.lift, value: open)

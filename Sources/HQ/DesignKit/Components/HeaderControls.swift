@@ -43,6 +43,7 @@ private struct HeaderControl<Label: View>: View {
             .padding(.horizontal, Space.sm + 2)
             .frame(minWidth: height, minHeight: height, maxHeight: height)
             .contentShape(Capsule())
+            .hoverPlate(.capsule, pressed: pressed)
             // Glass: the section's controls float like a toolbar's; a toggle that is on is tinted with the accent.
             .glassEffect(on ? .regular.tint(Ink.accent).interactive() : .regular.interactive(), in: Capsule())
             .scaleEffect(pressed ? 0.96 : 1)
@@ -80,6 +81,7 @@ private struct ModalControl<Label: View>: View {
             .padding(.horizontal, circle ? 0 : Space.sm + 2)
             .frame(minWidth: Metric.modalButton, minHeight: Metric.modalButton, maxHeight: Metric.modalButton)
             .contentShape(shape)
+            .hoverPlate(circle ? .circle : .rounded(Radius.control), pressed: pressed)
             .glassEffect(prominent ? .regular.tint(Ink.accent).interactive() : .regular.interactive(), in: shape)
             .scaleEffect(pressed ? 0.96 : 1)
             .opacity(enabled ? 1 : 0.45)

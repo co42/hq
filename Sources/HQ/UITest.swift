@@ -88,6 +88,7 @@ enum UITest {
                 ("sessionRestarts", sessionRestarts),
                 ("reopenSessions", reopenSessions),
                 // Last in its copy: the drag session it starts through AppKit never ends in a test copy, and holds back alerts.
+                ("hoverPlates", hoverPlates),
                 ("severalTasks", severalTasks),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.

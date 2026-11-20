@@ -25,10 +25,13 @@ struct SessionFace: View {
     var state: SessionGlyphKind?
     /// In a team's tray: the card takes its click, and the tray's tooltip names it.
     var inTray = false
+    /// A plate under the pointer when a click acts on it; off where what holds it draws its own.
+    var plated = true
 
     /// `badged`: false where something else already says it needs the user (its own glowing card), or where it doesn't
     /// matter (the maker of a file): orange stays for what waits on the user (2026-11-11).
-    init(_ session: SessionItem, size: CGFloat = Metric.faceCard, badged: Bool = true) {
+    init(_ session: SessionItem, size: CGFloat = Metric.faceCard, badged: Bool = true, plated: Bool = true) {
+        self.plated = plated
         spec = session.face
         self.size = size
         badge = badged && session.status.needsYou ? (session.status.state == .failed ? .failed : .needsYou) : nil
@@ -53,6 +56,7 @@ struct SessionFace: View {
         self.init(session, size: size, badged: false)
         state = glyph
         inTray = true
+        plated = false
     }
 
     init(spec: FaceSpec, size: CGFloat, badge: FaceArt.Badge? = nil, ended: Bool = false, label: String? = nil) {
@@ -66,6 +70,7 @@ struct SessionFace: View {
     var body: some View {
         FaceImage(spec: spec, ended: ended, working: working)
         .frame(width: size, height: size)
+        .modifier(FacePlate(side: size, shown: plated && session != nil && Self.click != nil))
         .overlay(alignment: .bottomTrailing) {
             if let badge {
                 let side = FaceArt.badgeSide(size)
@@ -138,6 +143,16 @@ struct ClickTarget: NSViewRepresentable {
     }
 }
 
+/// A face a click acts on: its plate under the pointer.
+private struct FacePlate: ViewModifier {
+    let side: CGFloat
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        if shown { content.facePlate(side) } else { content }
+    }
+}
+
 /// A face's tooltip, or none where its container's says it.
 private struct FaceHelp: ViewModifier {
     let text: String?
@@ -181,7 +196,7 @@ struct FaceStack: View {
                     .accessibilityLabel("No session")
             } else {
                 ForEach(sessions.prefix(limit)) { session in
-                    SessionFace(session, size: size)
+                    SessionFace(session, size: size, plated: false)
                         .padding(1)
                         .background(Ink.content, in: RoundedRectangle(cornerRadius: (size + 2) * FaceArt.corner, style: .continuous))
                 }

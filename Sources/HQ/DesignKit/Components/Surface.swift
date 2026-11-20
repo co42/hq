@@ -166,7 +166,7 @@ struct CardToggle: View {
                 .background(on ? Color(nsColor: Ink.markOnNS) : .clear, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PlateButtonStyle(shape: .chip))
         .help(help)
         .accessibilityLabel(on ? "Show Less" : "Show More")
     }

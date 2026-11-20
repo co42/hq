@@ -121,6 +121,7 @@ private struct ItemRow: View {
                     if let maker = model.maker(of: route) { SessionFace(maker, size: Metric.faceRow, badged: false) } else { FaceStack(sessions: [], size: Metric.faceRow) }
                 }
                 .frame(width: Metric.faceRow, height: Metric.faceRow)
+                .uiTestAnchor("file-face:\(route.selectionKey)")
             } icon: {
                 KindTile(icon: route.isFile ? .fileTile : .artifact, tint: route.isFile ? Ink.fileTile : Ink.artifactTile)
                     .accessibilityLabel(route.isFile ? "File" : "Artifact")
@@ -151,6 +152,7 @@ private struct ItemRow: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(item.pinned ? AnyShapeStyle(Ink.accentText) : AnyShapeStyle(.secondary))
                 .frame(width: Metric.rowAction, height: Metric.rowAction)
+                .hoverPlate(.chip)
                 .opacity(item.pinned || hovering ? 1 : 0)
                 .help(item.pinned ? "Unpin" : "Pin to the top")
                 .frame(width: Metric.rowKey, alignment: .trailing)

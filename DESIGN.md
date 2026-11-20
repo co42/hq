@@ -133,7 +133,7 @@ One AppKit outline (`NSOutlineView`, view-based) holds the list (one since 2026-
 
 ### Card
 
-**The same at rest and under the pointer** (2026-11-10): no grip, no buttons, no empty square appear; the menus and keys do what they did (§13, §18). A card's first line, 36 pt (12 pt in from its left), Body 13:
+**The same at rest and under the pointer** (2026-11-10): no grip, no buttons, no empty square appear; the menus and keys do what they did (§13, §18); its controls show their plate (§12, Hover). A card's first line, 36 pt (12 pt in from its left), Body 13:
 
 ```
 ◐ T-282  ⏰ cluster-api: place by instance + optional geo region  • tag     ⊘ T-285  ⑂ #5460 Draft  ▤ 2  ▬▬ 1/3  [face] ⌄
@@ -439,6 +439,10 @@ Other symbols are SF Symbols named once in `KitIcon`; the self-test checks each 
 
 **As macOS does** (2026-11-18, T-601, Co): buttons, toggles, pop-ups, menus, icons, faces, chips, checkboxes, rows and cards keep the arrow; the pointing hand shows only over a link in text: a note's or a notification's rendered links (`LinkText`, a tracking area that follows scrolling, the arrow between links) and a table cell's (`MarkdownCell`). Text keeps the I-beam. A card's fold chevron is its own button, not AppKit's disclosure (2026-11-10). A card has no grip: it drags from anywhere, as a Finder icon does (2026-11-10). No cursor rects: they go stale as the page scrolls. `tools/code-lint.sh` refuses the pointing hand outside the text-link code, and cursor rects.
 
+### Hover
+
+**A plate under the pointer on every small control** (2026-11-20, T-637, Co: option A of the v18 mockups), as macOS 26 draws borderless toolbar buttons and Finder's path bar: faces, status glyphs, keys, the project chip, blocking tasks' chips, link icons, reminder marks, chevrons and card toggles, section header and modal buttons, a section's fold title, the section bar, who waits, the team toggle, Show N More, and in the center the faces, names, chips, Focus and the hover bar's buttons. The plate is the rows' quiet fill a step stronger (`Ink.plate`, so it reads on a hovered row), in the control's own shape (a capsule for chips and buttons, a circle around a glyph, a rounded square around a face, concentric with it), a few points outside it so nothing moves, deeper while pressed (`Ink.platePressed`); it fades in and out with `Motion.hover`. On a control that fills itself (Focus) it tints it from above. One part, `HoverPlate`: `.hoverPlate()` and `PlateButtonStyle` in SwiftUI (drawn by SwiftUI over a tracker: an AppKit view inside glass draws black), `HoverPlateView` in the outline's cells, one per cell with a spot per control. What holds a control keeps its own hover: rows fill, session cards lift, a task card stays still (§7). Tags, plain text and the native toolbar (bell, New, search) take no plate: tags and text take no click, the toolbar has the system's. `tools/code-lint.sh` refuses a hover fill made by hand on a control and the plate's colors outside the part; the UI test's `hoverPlates` group points at each kind and reads its plate.
+
 ## 13. Commands and keys
 
 **Quick Open** (⌘K, File › Quick Open…): a panel over the window, as Raycast's: a big field, then sessions, tasks, pull requests, files and artifacts that match, up to five of each, each row its glyph or face, title, a detail and the key of its action. Empty, it lists the sessions on the page, the doing tasks and the latest items, three of each. Typed, the query whole ranks first (a word found as typed above scattered letters), and the kind with the best match comes first, so the top hit is row 1 (2026-11-11). Typed, its last row is "Search the Archive for “drag”", which opens the Archive with that search (2026-11-16, T-471): archived tasks aren't listed above it. ↑ ↓ move, Return opens the item in HQ, ⌘Return does its outside action (Focus or Resume, Open on GitHub, Open in Obsidian), Escape closes.
@@ -497,7 +501,7 @@ Reasons read as sentences without a subject: "Wants to run Bash", "Asks: …", "
 
 ## 16. Parts, gallery, sample data
 
-- **DesignKit parts**: `SurfaceModifier` (`.surface()`, `.listCard()` for a SwiftUI card in a list), `CardToggle`, `SkyView`, `SectionTile`, `SessionFace`, `SessionGlyph`, `TaskGlyph`, `TypeIcon`, `SessionCard`, `NotificationBell`, `MenuBarIcon`, `RowHighlight` (`.rowHighlight()`), `PRRow`, `OutputChip`, `Chip`, `KeyLabel`, `HeaderButtonStyle`, `HeaderToggleStyle`, `HeaderSearch`, `InlineBanner`, `QuickOpenRow`, `SectionHeader`, `CodeBlock`, `TextCard` (markdown on a card: a note's, `.page`, and a task's description in its window, `.compact`; an accent outline while editing), `MarkdownSurface`, `MarkdownField`, `MarkdownLine` (§9: every place markdown shows or is written), `ModalHeader`, `FilterBar`. Each draws every state (rest, hover, pressed, selected, focused, disabled, dragging, drop target) with a forced-state initializer for the gallery.
+- **DesignKit parts**: `SurfaceModifier` (`.surface()`, `.listCard()` for a SwiftUI card in a list), `CardToggle`, `SkyView`, `SectionTile`, `SessionFace`, `SessionGlyph`, `TaskGlyph`, `TypeIcon`, `SessionCard`, `NotificationBell`, `MenuBarIcon`, `RowHighlight` (`.rowHighlight()`), `HoverPlate` (`.hoverPlate()`, `PlateButtonStyle`, `HoverPlateView` in AppKit cells), `PRRow`, `OutputChip`, `Chip`, `KeyLabel`, `HeaderButtonStyle`, `HeaderToggleStyle`, `HeaderSearch`, `InlineBanner`, `QuickOpenRow`, `SectionHeader`, `CodeBlock`, `TextCard` (markdown on a card: a note's, `.page`, and a task's description in its window, `.compact`; an accent outline while editing), `MarkdownSurface`, `MarkdownField`, `MarkdownLine` (§9: every place markdown shows or is written), `ModalHeader`, `FilterBar`. Each draws every state (rest, hover, pressed, selected, focused, disabled, dragging, drop target) with a forced-state initializer for the gallery.
 - **Gallery**: `APP_KIT_GALLERY=1` (parts), `APP_KIT_GALLERY=faces` (120 faces at 16, 22, 40 and 72 pt).
 - **Sample data** (`APP_SEED=1`) mirrors the mockup: sessions in every state, tasks with subtasks, tags and projects, descriptions with checkboxes and code, the Backlog, PRs in every state, an issue, files, artifacts, hidden and closed sessions, notifications in every section of the center; the snapshots' Archive holds eight stories (this week, last week, October; one a backlog idea archived by hand). `APP_SEED=large`: 500 tasks and 30 sessions.
 
@@ -580,7 +584,7 @@ What each gesture does on each element. Change this table before the code; a new
 | Header controls, toolbar and modal buttons | act | | | tooltips name the action and end with its key |
 
 - Where a double-click means nothing more, the click acts on the press: it never waits out the double-click interval (faces, glyphs, keys, chips' controls).
-- The arrow over everything a click acts on; the pointing hand only over a link in text; text keeps the I-beam (§12, Pointer).
+- The arrow over everything a click acts on; the pointing hand only over a link in text; text keeps the I-beam (§12, Pointer); a plate under every small control (§12, Hover).
 - Everything in a context menu is also in the menu bar, with its key (§13).
 
 ## 19. Gone

@@ -20,6 +20,30 @@ struct KitGallery: View {
         let now = Date.now
         let sessions = model.sessions.isEmpty ? Self.sampleSessions(now) : model.sessions
         return VStack(alignment: .leading, spacing: Space.xxl) {
+            section("Hover plates: rest, hover, pressed") {
+                VStack(alignment: .leading, spacing: Space.md) {
+                    ForEach([PartState.rest, .hover, .pressed]) { state in
+                        HStack(spacing: Space.xl) {
+                            caption(state.rawValue).frame(width: Metric.faceCard, alignment: .leading)
+                            SessionFace(spec: sessions[0].face, size: Metric.faceRow).facePlate(Metric.faceRow)
+                            TaskGlyph(status: .doing).hoverPlate(.circle, outset: CGSize(width: Metric.plateOutset, height: Metric.plateOutset))
+                            KeyLabel(key: "T-13").hoverPlate(.chip, outset: Metric.keyPlate)
+                            Chip(text: "Registry", icon: .project).hoverPlate(.chip)
+                            KitIcon.link.image.frame(width: Metric.rowAction, height: Metric.rowAction).hoverPlate(.chip)
+                            KitIcon.disclosure.image.frame(width: Metric.rowAction, height: Metric.rowAction).hoverPlate(.chip)
+                            Button("Backlog", icon: KitIcon.showBacklog) {}.buttonStyle(HeaderButtonStyle())
+                            Button("Focus") {}.buttonStyle(.glassProminent).tint(Ink.needsYou).hoverPlate(.capsule, over: true)
+                            HStack(spacing: 0) {
+                                Button("Tasks") {}.buttonStyle(PlateButtonStyle(shape: .capsule)).padding(.horizontal, Space.md).frame(height: Metric.sectionBarItem)
+                                Button("Files") {}.buttonStyle(PlateButtonStyle(shape: .capsule))
+                            }
+                            .padding(Metric.lineGap)
+                            .glassEffect(.regular, in: Capsule())
+                        }
+                        .environment(\.forcedPartState, state)
+                    }
+                }
+            }
             section("Task glyphs, type icons") {
                 HStack(spacing: Space.lg) {
                     ForEach(TaskStatus.allCases) { status in

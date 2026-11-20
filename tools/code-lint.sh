@@ -7,6 +7,8 @@
 #   page scrolls (DESIGN.md §12).
 # - markdown shows and is edited through MarkdownSurface, MarkdownField and MarkdownLine only, so every place looks and edits
 #   alike (T-469 item 8, DESIGN.md §9).
+# - a small control shows the hover plate (`.hoverPlate`, `PlateButtonStyle`, `HoverPlateView`): no hand-made hover fill outside
+#   a row, and the plate's colors only in HoverPlate (DESIGN.md §12, Hover).
 # Usage: tools/code-lint.sh       Silence one line with a reason: // lint: ok <why>
 set -euo pipefail
 src=${0:A:h:h}/Sources/HQ
@@ -25,6 +27,7 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
       push @bad, "markdown outside MarkdownSurface" if /\b(?:MarkdownView|MarkdownEditor)\(/;
       push @bad, "a multi-line field: use MarkdownField" if /axis:\s*\.vertical/;
     }
+    push @bad, "the plate color outside HoverPlate" if /\bInk\.plate(?:Pressed)?NS\b/ && $ARGV !~ m{/(?:HoverPlate|Tokens)\.swift$};
     push @bad, "a notification text: use MarkdownLine" if $ARGV =~ m{/NotificationCenter\.swift$} && /\bText\((?:text|notice\.text)\)/;
     if (!$kit && !$tests) {
       push @bad, "a raw color" if /\b(?:NS)?Color\((?:red|white|hue|srgbRed|calibratedRed):/;
@@ -32,6 +35,7 @@ find $src -name '*.swift' -print0 | xargs -0 perl -ne '
       push @bad, "an SF Symbol by name" if /(?:systemName|systemSymbolName):\s*"/;
       push @bad, "a raw animation" if /\.(?:easeIn|easeOut|easeInOut|linear|spring|smooth)\(duration:/;
       push @bad, "a double-click outside SelectOpen: use opensOnDoubleClick" if /onTapGesture\(count:\s*2/;
+      push @bad, "a hover fill on a control: use .hoverPlate" if /\bInk\.hoverFill\b/ && !/Radius\.row/;
     }
     if (@bad) { $count++; my $l = $_; $l =~ s/^\s+//; print "$ARGV:$.: ", join(", ", @bad), ": $l"; }
   }

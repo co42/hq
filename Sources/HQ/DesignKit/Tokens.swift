@@ -176,6 +176,9 @@ enum Ink {
     /// Hover on custom rows and cards.
     static let hoverFill = Color(nsColor: .quaternarySystemFill)
     static let hoverFillNS = NSColor.quaternarySystemFill
+    /// The plate under the pointer on a small control (`HoverPlate`): a step over a row's hover, deeper while pressed.
+    static let plateNS = NSColor.tertiarySystemFill
+    static let platePressedNS = NSColor.secondarySystemFill
     /// Selection while the list isn't focused or the window is inactive.
     static let selectionInactive = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
     /// Chips and code blocks.
@@ -206,6 +209,9 @@ nonisolated enum Metric {
     static var glyphStroke: CGFloat { 1.5 * Zoom.factor }
     static var unreadDot: CGFloat { 8 * Zoom.factor }
     static var lineGap: CGFloat { 2 * Zoom.factor }
+    /// How far a hover plate reaches outside a face or a glyph; a key's sideways and up and down.
+    static var plateOutset: CGFloat { 3 * Zoom.factor }
+    static var keyPlate: CGSize { CGSize(width: 4 * Zoom.factor, height: 2 * Zoom.factor) }
     static var chipHeight: CGFloat { 18 * Zoom.factor }
     /// The page: at most this wide, centered, with its side margins.
     static var pageMax: CGFloat { 1240 * Zoom.factor }
@@ -437,7 +443,8 @@ enum Motion {
     /// No motion: test and snapshot runs wait on what shows, not on how it moves (HQ_MOTION=1, or a UI group, turns it back on).
     static var still = false
     /// Hover fills and buttons that show on hover: a fade.
-    static var hover: Animation? { still ? nil : .easeOut(duration: 0.08) }
+    static var hover: Animation? { still ? nil : .easeOut(duration: hoverSeconds) }
+    static var hoverSeconds: TimeInterval { still ? 0 : 0.08 }
     /// One sway of a working session's face, left and back, in seconds.
     static let faceSway: TimeInterval = 2
     /// Frames a second of the sway.
