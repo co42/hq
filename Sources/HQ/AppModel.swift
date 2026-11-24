@@ -362,6 +362,8 @@ final class AppModel {
     var outlineKeyboard = OutlineKeyboard.none { didSet { syncMenu() } }
     /// ↓ on a task window's last subtask: that task's new subtask card takes the keyboard.
     var newSubtaskFocus: Int?
+    /// Edit Reason… in a task's window: its Blocked row's reason takes the keyboard.
+    var reasonFocus: Int?
     /// Where the outline puts the keyboard after its next update.
     var outlineFocus: OutlineFocus?
     /// A PR opened from a notification at its review or comment: the PR's URL and the page to load (T-328).

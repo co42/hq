@@ -243,6 +243,15 @@ enum Snapshot {
                 model.zoom = 1.15
                 model.open(.task(13))
             },
+            // What blocks it (T-760): a long reason, several blocking tasks, one of them done.
+            Page(name: "modal-task-blocked", capture: .sheet) { model in
+                reset(model)
+                model.block(13, reason: "Waiting on the storage team's answer about the multipart complete retries, and on the canary in eu-west "
+                            + "staying green for a full day before the budget goes to every region")
+                for other in [16, 22, 7, 33] { model.addLink(13, .blockedBy, other) }
+                if let done = model.tasks.first(where: { $0.status == .done && $0.parent == nil }) { model.addLink(13, .blockedBy, done.id) }
+                model.open(.task(13))
+            },
             // Its relations, then its subtasks as the list's cards (2026-11-10).
             Page(name: "modal-task-subtasks", capture: .sheet) { model in
                 reset(model)

@@ -3523,18 +3523,59 @@ extension UITest {
         }
         model.closeModal()
         await ui.settle(0.5)
-        // The task's window: Blocked, what it's blocked by and comes after, each removable, Blocked By… and After….
+        // The task's window (T-760): what blocks it in one row under its labels, the reason edited in place, each blocking task
+        // with ×; Related tasks keeps After… and what comes after or waits on it.
+        for other in [first.id, second.id] where model.task(third.id)?.blockedBy.contains(other) == false { model.addLink(third.id, .blockedBy, other) }
         model.open(.task(third.id))
         await ui.until(2) { ui.window.attachedSheet != nil }
         await ui.settle(0.8)
-        await check("the task's window shows what it's blocked by, with Block…, Blocked By… and After… on the label line, and no Blocked line",
-              ui.anchor("blocked-property") == nil && ui.anchor("relation:\(first.id)") != nil && ui.anchor("relation-add:Block…") != nil
-              && ui.anchor("relation-add:Blocked By…") != nil && ui.anchor("relation-add:After…") != nil)
+        await check("the task's window has a Blocked row: a chip per blocking task, Block… and Blocked By…, no reason line",
+                    ui.anchor("blocker:\(first.id)") != nil && ui.anchor("blocker:\(second.id)") != nil && ui.anchor("blocked-add:Block…") != nil
+                    && ui.anchor("blocked-add:Blocked By…") != nil && ui.anchor("blocked-reason") == nil)
+        await check("Related tasks lists them no more and keeps After… alone", ui.anchor("relation:\(first.id)") == nil
+                    && ui.anchor("relation-add:Blocked By…") == nil && ui.anchor("relation-add:Block…") == nil && ui.anchor("relation-add:After…") != nil)
         await check("the task's window has More and one main action, Start Session… with no session on it",
                     ui.anchor("task-more") != nil && ui.anchor("task-main-action") != nil)
+        // × on a blocker's chip takes that link off, one Undo.
+        if let chip = ui.anchorFrame("blocker:\(second.id)") {
+            await ui.click(NSPoint(x: chip.maxX - Metric.chipHeight / 2, y: chip.midY), inSheet: true)
+        }
+        await ui.until(2) { model.task(third.id)?.blockedBy.contains(second.id) == false }
+        await check("× on a blocking task's chip takes it off", model.task(third.id)?.blockedBy == [first.id] && model.modal == .task(third.id),
+                    "\(model.task(third.id)?.blockedBy ?? [])")
         model.block(third.id, reason: "Waiting on a decision")
-        await check("a Blocked task's window says why, with Unblock, and no Block…", ui.anchor("blocked-property") != nil && ui.anchor("relation-add:Block…") == nil)
-        model.unblock(third.id)
+        await endUndoGroup(model)
+        await ui.until(2) { ui.anchor("blocked-reason") != nil }
+        await check("Blocked: the reason in its field, × to unblock, and no Block…", ui.anchor("blocked-reason") != nil
+                    && ui.anchor("blocked-unblock") != nil && ui.anchor("blocked-add:Block…") == nil && ui.anchor("blocked-add:Blocked By…") != nil)
+        // Edit Reason… in the window puts the keyboard in the reason; typed and Return, it's saved as one Undo step.
+        model.reasonFocus = third.id
+        await ui.until(2) { (ui.window.attachedSheet?.firstResponder as? NSTextView)?.string == "Waiting on a decision" }
+        let editor = { ui.window.attachedSheet?.firstResponder as? NSTextView }
+        await check("Edit Reason… in the window puts the keyboard in the reason", editor()?.string == "Waiting on a decision", ui.responder)
+        editor()?.insertText("Waiting on Co's answer", replacementRange: NSRange(location: 0, length: editor()?.string.utf16.count ?? 0))
+        await ui.key(.return)
+        await ui.until(2) { model.task(third.id)?.blockedReason == "Waiting on Co's answer" }
+        await check("Return saves the reason, the task still blocked", model.task(third.id)?.blockedReason == "Waiting on Co's answer"
+                    && model.task(third.id)?.blocked == true, model.task(third.id)?.blockedReason ?? "none")
+        await endUndoGroup(model)
+        await check("its Undo is Edit Reason", model.undoManager?.undoActionName == "Edit Reason", model.undoManager?.undoActionName ?? "none")
+        // Escape drops what was typed, and leaves the window open.
+        model.reasonFocus = third.id
+        await ui.until(2) { editor()?.string == "Waiting on Co's answer" }
+        editor()?.insertText("Never mind", replacementRange: NSRange(location: 0, length: editor()?.string.utf16.count ?? 0))
+        await ui.key(.escape)
+        await ui.settle(0.4)
+        await check("Escape in the reason drops the edit and keeps the window", model.task(third.id)?.blockedReason == "Waiting on Co's answer"
+                    && model.modal == .task(third.id), "\(model.task(third.id)?.blockedReason ?? "none") \(String(describing: model.modal))")
+        // Emptied, it stays blocked with no reason; × unblocks.
+        model.setBlockedReason(third.id, "")
+        await ui.settle(0.3)
+        await check("an emptied reason keeps it blocked, with none", model.task(third.id)?.blocked == true && model.task(third.id)?.blockedReason == nil)
+        await ui.click(await ui.steadyAnchor("blocked-unblock"), inSheet: true)
+        await ui.until(2) { model.task(third.id)?.blocked == false }
+        await check("× beside the reason unblocks it, and Block… comes back", model.task(third.id)?.blocked == false
+                    && ui.anchor("blocked-add:Block…") != nil)
         // An icon button takes a click in its middle, not only on its strokes: the status ring, an empty checkbox (T-487).
         let thirdBody = model.task(third.id)?.body ?? ""
         model.setStatus(third.id, .todo)

@@ -200,6 +200,12 @@ struct HQCommands: Commands {
             }
                 .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: []) : nil)
                 .disabled(task == nil || menu.inModal || several)
+            // In the task's window, its Blocked row's reason takes the keyboard.
+            Button("Edit Reason…") {
+                guard let task else { return }
+                if menu.inModal { model.reasonFocus = task } else { model.showHoldPicker(task, .block) }
+            }
+                .disabled(task == nil || !menu.taskBlocked || several)
             Button("Blocked By…") { if let task { model.showHoldPicker(task, .blockedBy) } }
                 .keyboardShortcut(rows ? KeyboardShortcut("b", modifiers: .shift) : nil)
                 .disabled(task == nil || menu.inModal || several)

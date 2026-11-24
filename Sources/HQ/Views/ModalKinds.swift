@@ -55,7 +55,7 @@ struct TaskModal: View {
     var body: some View {
         if let task = model.task(id) {
             // The top as Things and Linear draw it (2026-11-11): the status glyph at the title's left, its project and tags on
-            // one line, Blocked only when it is; then the groups by use, each one's action at the end of its label line.
+            // one line, then what blocks it (T-760); then the groups by use, each one's action at the end of its label line.
             ModalPage {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     placeLine(task)
@@ -80,7 +80,7 @@ struct TaskModal: View {
                     ProjectPicker(project: task.project) { model.setProject(id, $0) }
                     TagList(tags: task.tags) { model.setTags(id, $0) }
                 }
-                BlockedProperty(id: id)
+                TaskBlockers(id: id)
                 ModalGroup(title: "On it") { onIt(task) }
                 ModalGroup(title: "Description") { DescriptionCard(id: id) } actions: { DescriptionAction(id: id) }
                 // Its subtasks as the list shows them: the same cards, chips, fold, drag and keys (2026-11-10).
@@ -245,25 +245,6 @@ private struct NewSubtaskField: NSViewRepresentable {
     }
 }
 
-/// Blocked, in the task's properties: its reason in red with Unblock, or Block… to say it can't be done now.
-private struct BlockedProperty: View {
-    let id: Int
-    @Environment(AppModel.self) private var model
-
-    /// Only a Blocked task has the line: its reason in red, and Unblock. Block… is with the related tasks' actions.
-    var body: some View {
-        if let task = model.task(id), task.blocked, task.status != .done {
-            HStack(spacing: Space.sm) {
-                KitIcon.blocked.image.foregroundStyle(Ink.blockedText)
-                Text(TaskCell.reason(model, id) ?? "Blocked").foregroundStyle(Ink.blockedText).lineLimit(2)
-                Button("Unblock") { model.unblock(id) }.help("It can be done again (B on its card)")
-            }
-            .kitType(.callout)
-            .uiTestAnchor("blocked-property")
-        }
-    }
-}
-
 /// The task window's status: the glyph the list draws, larger; a click moves it on, as on a card; its menu picks one.
 private struct StatusButton: View {
     let id: Int
@@ -313,7 +294,7 @@ private struct DescriptionAction: View {
     }
 }
 
-/// Block…, Blocked By… and After… at the end of the related tasks' label: each opens its picker.
+/// After… at the end of the related tasks' label: its picker. Block… and Blocked By… are in the Blocked row (T-760).
 private struct RelationActions: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -322,14 +303,8 @@ private struct RelationActions: View {
     var body: some View {
         let task = model.task(id)
         let done = task?.status == .done
-        HStack(spacing: Space.md) {
-            if task?.blocked != true {
-                button("Block…", .block, help: "It can't be done now, with a reason or not (B on its card)")
-            }
-            button("Blocked By…", .blockedBy, help: "A task it can't go on without")
-            button("After…", .after, help: "A task it comes after: the order you mean, nothing moves")
-        }
-        .disabled(done)
+        button("After…", .after, help: "A task it comes after: the order you mean, nothing moves")
+            .disabled(done)
         .popover(item: $picking, arrowEdge: .bottom) { kind in HoldPicker(task: id, kind: kind) { picking = nil }.environment(model) }
     }
 
@@ -340,8 +315,8 @@ private struct RelationActions: View {
     }
 }
 
-/// What a task waits on and what waits on it, in its window (2026-11-10): the tasks it's blocked by and comes after, each
-/// removable, with Blocked By… and After… to add one; the tasks it blocks and that come after it; the tasks linked to it.
+/// What a task waits on and what waits on it, in its window (2026-11-10): the tasks it comes after, each removable, with After…
+/// to add one; the tasks it blocks and that come after it; the tasks linked to it. What blocks it is in the Blocked row (T-760).
 /// A click on a row opens that task.
 private struct TaskRelations: View {
     let id: Int
@@ -351,13 +326,12 @@ private struct TaskRelations: View {
         let task = model.task(id)
         let flow = model.taskFlow
         let linked = model.outputs(ofTask: id).compactMap(\.taskID)
-        let none = (task?.blockedBy ?? []).isEmpty && (task?.after ?? []).isEmpty && flow.dependents(of: id, .blockedBy).isEmpty
+        let none = (task?.after ?? []).isEmpty && flow.dependents(of: id, .blockedBy).isEmpty
             && flow.dependents(of: id, .after).isEmpty && linked.isEmpty
         if none {
-            Text("Nothing blocks it or comes before it.").kitType(.callout).foregroundStyle(.secondary)
+            Text("No task comes before it, waits on it or is linked to it.").kitType(.callout).foregroundStyle(.secondary)
         } else {
             ModalBox {
-                section("Blocked by", task?.blockedBy ?? [], help: "It can't go on until these are done") { model.removeLink(id, .blockedBy, $0) }
                 section("Comes after", task?.after ?? [], help: "The order you mean: nothing moves") { model.removeLink(id, .after, $0) }
                 section("Blocks", flow.dependents(of: id, .blockedBy), help: "These can't go on until this one is done", remove: nil)
                 section("Comes before", flow.dependents(of: id, .after), help: "These come after this one", remove: nil)

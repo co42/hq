@@ -130,6 +130,10 @@ struct TaskMenu: View {
             holdMenu("After", task.after, task, .after, context)
             Divider()
             if task.blocked {
+                // In its window, the Blocked row's reason takes the keyboard.
+                Button("Edit Reason…") {
+                    if context.inOwnWindow(.task(id)) { model.reasonFocus = id } else { context.pick(.hold(id, .block)) }
+                }
                 Button("Unblock") { model.unblock(id) }
             } else {
                 Button("Block…") { context.pick(.hold(id, .block)) }.disabled(task.status == .done)

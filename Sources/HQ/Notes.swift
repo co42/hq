@@ -619,6 +619,13 @@ extension AppModel {
         }
     }
 
+    /// A Blocked task's reason, edited: empty, it stays blocked with none.
+    func setBlockedReason(_ id: Int, _ reason: String) {
+        let reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let task = task(id), task.blocked, (task.blockedReason ?? "") != reason else { return }
+        changeTask(id, "Edit Reason") { $0.blockedReason = reason.isEmpty ? nil : reason }
+    }
+
     func unblock(_ id: Int) {
         changeTask(id, "Unblock") { task in
             task.blocked = false
