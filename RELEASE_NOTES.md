@@ -1,6 +1,6 @@
 # Release notes
 
-## v19.1 · 2026-11-24 · Less to wade through (plugin 0.13.4)
+## v19 · 2026-11-24 · Less to wade through (plugin 0.13.4)
 
 - New tasks go first in Tasks, and a story brought back from the Archive too. The New Task card at the end of the list is gone: + in the Tasks header, or N with nothing selected, opens New Task…, whose title now suggests your #tags as you type.
 - A task's window has a Blocked row: Block… and Blocked By… when it's free; once blocked, the reason edits in place, × unblocks, and each blocking task is a chip with ×. Edit Reason… is in the task's menu and the Task menu.
