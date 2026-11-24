@@ -126,7 +126,7 @@ struct TaskModal: View {
 
     @ViewBuilder
     private func onIt(_ task: TaskItem) -> some View {
-        let sessions = task.sessions.compactMap { model.session($0) }
+        let sessions = model.sessions(on: task.id, includeEnded: true)
         FlowLayout(spacing: Space.sm) {
             ForEach(sessions) { session in
                 SessionChip(session: session) { model.unlink(task: id, session: session.id) }

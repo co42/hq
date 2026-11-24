@@ -224,8 +224,11 @@ struct SessionMenu: View {
         Button(session.isRunning ? "Focus" : "Resume") { model.open(session.id) }
         if session.isRunning {
             Button("Restart Session") { model.restartSession(session.id) }
-                .disabled(model.restartBlocked(session) != nil)
-                .help(model.restartBlocked(session) ?? "Quits its Claude and resumes it in the same tab, its conversation kept: it picks up a newly installed Claude Code")
+                .disabled(model.promptBlocked(session) != nil)
+                .help(model.promptBlocked(session) ?? "Quits its Claude and resumes it in the same tab, its conversation kept: it picks up a newly installed Claude Code")
+            Button("Clear Conversation") { model.clearConversation(session.id) }
+                .disabled(model.promptBlocked(session) != nil)
+                .help(model.promptBlocked(session) ?? "Types /clear: it starts afresh on its card; the conversation before goes to Closed Sessions")
         }
         if session.startTrouble == .didntStart {
             Button("Start Again") { model.startAgain(session.id) }

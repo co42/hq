@@ -356,6 +356,13 @@ enum AgentCommands {
                      example: "hq session close 41ccc6", output: sessionOutput + "; note") { args, model in
             try closeSessionCommand(args, model)
         },
+        AgentCommand(name: "session clear", summary: "Clear the conversation of a session you started, or one of theirs, as Clear Conversation does in HQ: "
+                        + "its input emptied and /clear typed at its prompt. It goes on under a new id on the same card, with its name, role, team and "
+                        + "tasks not done; the conversation before goes to Closed Sessions. Only at its prompt: one that works or waits on the user is refused.",
+                     params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a session under this one")],
+                     example: "hq session clear 41ccc6", output: sessionOutput + "; note") { args, model in
+            try clearSessionCommand(args, model)
+        },
         AgentCommand(name: "session resume", summary: "Resume a closed session you started, or one of theirs, as Resume does in HQ: claude --resume in a new tab of "
                         + "its parent's Ghostty window, its place in the team kept. It reports to its parent again.",
                      params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a closed session under this one")],

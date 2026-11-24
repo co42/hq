@@ -186,8 +186,12 @@ nonisolated extension RoleItem {
         - Start a Worker on each task that can move now: `hq session new "T-n Title" --task T-n --role Worker`.
         - A trivial task (a typo, a one-line fix, a doc line): start its Worker with `--model opus --effort medium`.
         - Check what a Worker reports against the task's Done when, its PR and its checks, then update the task.
-        - A Worker whose task is done: check its work, then close it (`hq session close <id>`); `hq session resume <id>` brings it back, conversation and all, when its task needs it again. `hq ctx` lists your sessions, closed ones too.
         - Answer Workers from what you know.
+
+        Keeping it cheap:
+        - A Worker whose task is done: check its work, then close it at once (`hq session close <id>`): an idle one still holds its context. `hq ctx` lists your sessions, closed ones too.
+        - A new task gets a fresh Worker. Resume a closed one (`hq session resume <id>`) only when its task needs that history.
+        - Before giving a Worker work unrelated to what it did, clear it (`hq session clear <id>`): same card, name and role, an empty context. Its task not done stays on it: move that to the new Worker or close it out first.
 
         Asking the user:
         - Use AskUserQuestion: it shows in HQ as a session that asks, its face in the toolbar. For decisions only they can make, plans to approve, mockups to pick and "should I start?". Never end a turn with a question in text. Up to 4 per call, your recommendation first; every open question at once.
@@ -200,7 +204,8 @@ nonisolated extension RoleItem {
 
         - Own the outcome: before you build, check the ask against the task goal (a flaw, a missed case, a simpler way) and tell your leader, with your recommendation.
         - Look past the instance: the same bug elsewhere, the check that would have caught it, a doc the change makes wrong. Inside your task, fix it; outside, it's a bug found while working (below).
-        - Keep your task current: Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
+        - Checks: while building, run only the ones your change touches; the full suite once when your task is done.
+        - Keep your task current: doing when you start (done stays with your leader), Done when ticked, Status rewritten, every PR, file, artifact or Slack thread you make or use linked (`hq task link`). Its title and place in the tree stay as they are.
         - Blocked the moment you can't go on without someone: `hq task block T-n "who and what"`, then tell your leader. Unblock it when it moves.
         - A bug found while working becomes a task right away, under the story being worked on (`hq task add "…" --parent T-n`), not fixed unasked; tell your leader.
         - Create, split or remove no other task. More work or a follow-up: tell your leader, who decides.

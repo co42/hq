@@ -846,7 +846,7 @@ final class MenuState: ObservableObject {
         set(\.sessionClosable, session.map { ($0.isRunning && $0.tty != nil) || $0.startTrouble != nil } ?? false)
         set(\.sessionCanStartAgain, session?.startTrouble == .didntStart)
         set(\.sessionNotReporting, session?.startTrouble == .notReporting)
-        set(\.sessionRestartable, session.map { model.restartBlocked($0) == nil } ?? false)
+        set(\.sessionRestartable, session.map { model.promptBlocked($0) == nil } ?? false)
         set(\.sessionModel, session?.model.map { ClaudeModel.family($0).lowercased() } ?? "")
         set(\.sessionEffort, session?.effort ?? "")
         set(\.sessionRole, session.flatMap { model.role(named: $0.role)?.name } ?? "")

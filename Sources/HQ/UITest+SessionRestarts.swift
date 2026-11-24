@@ -42,8 +42,17 @@ extension UITest {
                     == "Claude Code 2.1.300; 2.1.325 is installed: Restart Session picks it up")
         let idleItem = menu(idle)?.items.first { $0.title == "Restart Session" }, busyItem = menu(busy)?.items.first { $0.title == "Restart Session" }
         await check("Restart Session is on at its prompt, off while it works, saying why", idleItem?.isEnabled == true && busyItem?.isEnabled == false
-                    && model.session(busy).flatMap(model.restartBlocked)?.hasPrefix("At its prompt only") == true,
+                    && model.session(busy).flatMap(model.promptBlocked)?.hasPrefix("At its prompt only") == true,
                     "\(String(describing: idleItem?.isEnabled)) \(String(describing: busyItem?.isEnabled))")
+        let idleClear = menu(idle)?.items.first { $0.title == "Clear Conversation" }, busyClear = menu(busy)?.items.first { $0.title == "Clear Conversation" }
+        await check("so is Clear Conversation, right under it (T-757)", idleClear?.isEnabled == true && busyClear?.isEnabled == false
+                    && menu(idle).map { $0.items.map(\.title) }.map { titles in titles.firstIndex(of: "Clear Conversation") == titles.firstIndex(of: "Restart Session").map { $0 + 1 } } == true,
+                    "\(String(describing: idleClear?.isEnabled)) \(String(describing: busyClear?.isEnabled))")
+        let cleared = model.ghosttyLog.count
+        if let clearMenu = menu(idle), let index = clearMenu.items.firstIndex(where: { $0.title == "Clear Conversation" }) { clearMenu.performActionForItem(at: index) }
+        await ui.until(2) { model.ghosttyLog.count > cleared }
+        await check("and it types /clear in its terminal, its input emptied first, with no alert",
+                    model.ghosttyLog.dropFirst(cleared) == ["clear the input, then type /clear in /dev/ttys901"], "\(model.ghosttyLog.dropFirst(cleared))")
         await ui.until(2) { MenuState.shared.restartIdleCount == 1 }
         await check("the Session menu's Restart Idle Sessions counts the idle one only", MenuState.shared.restartIdleCount == 1)
 

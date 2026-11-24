@@ -24,7 +24,7 @@ extension SelfTest {
             menu("several tasks' menu", TaskMenu(ids: tops), model, ["Status ▸", "Project ▸", "—", "Show ▸", "Copy", "—", "Archive 2", "Delete 2 Tasks"])
         }
         if let session = model.gridRoots.first(where: { $0.isRunning && $0.tty != nil && $0.startTrouble == nil && model.team(of: $0.id).isEmpty }) {
-            menu("a running session's menu", SessionMenu(session: session), model, ["Focus", "Restart Session", "Start ▸", "—", "Model ▸",
+            menu("a running session's menu", SessionMenu(session: session), model, ["Focus", "Restart Session", "Clear Conversation", "Start ▸", "—", "Model ▸",
                  "Effort ▸", "Role ▸", "Team ▸", "—", "Copy ▸", "—", "Close Session"])
             menu("its Copy menu", SessionMenu(session: session), model, ["Copy", "Copy Resume Command", "Copy Session ID"], in: "Copy")
         } else {

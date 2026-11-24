@@ -124,17 +124,39 @@ extension AppModel {
         return item
     }
 
-    /// After /clear: the new id works on the tasks the old one did, those not done, and leads the sessions it started.
+    /// After /clear: the new id takes the old one's place on its tasks not done, and leads the sessions it started.
     private func carryTasks(from old: SessionItem.ID, to new: SessionItem.ID) {
         for var child in sessions where child.parent == old {
             child.parent = new
             put(child)
         }
-        let ids = tasks(of: old).filter { $0.status != .done && !$0.sessions.contains(new) }.map(\.id)
+        let ids = tasks(of: old).filter { $0.status != .done }.map(\.id)
         guard !ids.isEmpty else { return }
         editTasks("Link Session") { tasks in
-            for id in ids { tasks[id]?.sessions.append(new) }
+            for id in ids {
+                guard let linked = tasks[id]?.sessions else { continue }
+                tasks[id]?.sessions = linked.contains(new) ? linked.filter { $0 != old } : linked.map { $0 == old ? new : $0 }
+            }
         }
+    }
+
+    /// Tasks that list a session and the one continuing it after /clear keep the later one only (T-758). After each vault read.
+    func repairContinuedSessions() {
+        let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var repaired: [Int: [String]] = [:]
+        for task in tasks where task.sessions.count > 1 {
+            let kept = Set(Self.oneCardEach(task.sessions.compactMap { byID[$0] }).map(\.id))
+            let sessions = task.sessions.filter { byID[$0] == nil || kept.contains($0) }
+            if sessions != task.sessions { repaired[task.id] = sessions }
+        }
+        guard !repaired.isEmpty else { return }
+        undoManager?.disableUndoRegistration()
+        defer { undoManager?.enableUndoRegistration() }
+        editTasks("Link Session") { tasks in
+            for (id, sessions) in repaired { tasks[id]?.sessions = sessions }
+        }
+        AppLog.write("\(repaired.count) tasks listed a session and the one continuing it after /clear: kept the later one "
+                     + "(\(repaired.keys.sorted().map { "T-\($0)" }.joined(separator: ", ")))", to: "sessions.log")
     }
 
     /// A new session's face, set apart from the open sessions' (`FaceSpec.salt(for:among:)`, T-293).
@@ -501,7 +523,14 @@ extension AppModel {
     static func openFirst(_ sessions: [SessionItem], includeEnded: Bool) -> [SessionItem] {
         let open = sessions.filter { $0.closedAt == nil }
         guard includeEnded else { return open }
-        return open + sessions.filter { $0.closedAt != nil }.sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+        return open + oneCardEach(sessions).filter { $0.closedAt != nil }.sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+    }
+
+    /// One entry per card: an ended session leaves a list that holds a later conversation of its card (after /clear).
+    static func oneCardEach(_ sessions: [SessionItem]) -> [SessionItem] {
+        sessions.filter { item in
+            item.closedAt == nil || !sessions.contains { $0.id != item.id && $0.cardID == item.cardID && $0.started > item.started }
+        }
     }
 
     // MARK: Processes

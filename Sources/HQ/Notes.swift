@@ -95,6 +95,7 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
+            repairContinuedSessions()
             // A session whose tasks are still in iCloud isn't empty.
             if !vaultLoading { forgetEmptySessions() }
             // A note read too early (mid-write) keeps its last read: read it again soon. So does one still coming from iCloud.

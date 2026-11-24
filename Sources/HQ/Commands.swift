@@ -308,6 +308,8 @@ struct HQCommands: Commands {
             Divider()
             Button("Restart Session") { if let session { model.restartSession(session) } }
                 .disabled(!menu.sessionRestartable)
+            Button("Clear Conversation") { if let session { model.clearConversation(session) } }
+                .disabled(!menu.sessionRestartable)
             Button("Start Again") { if let session { model.startAgain(session) } }
                 .disabled(!menu.sessionCanStartAgain)
             Button("Close Session") { if let session { model.closeSession(session) } }
