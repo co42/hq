@@ -16,6 +16,7 @@ struct ModalPage<Content: View>: View {
             VStack(alignment: .leading, spacing: Space.xl) { content }
                 .frame(maxWidth: width, alignment: .leading)
                 .padding(.horizontal, Space.xxl)
+                .gridArea("modal-column", inset: Space.xxl, within: "modal")
                 .padding(.vertical, Space.xl)
                 .frame(maxWidth: .infinity)
         }
@@ -55,7 +56,7 @@ struct TaskModal: View {
     var body: some View {
         if let task = model.task(id) {
             // The top as Things and Linear draw it (2026-11-11): the status glyph at the title's left, its project and tags on
-            // one line, Blocked only when it is; then the groups by use, each one's action at the end of its label line.
+            // one line, then what blocks it (T-760); then the groups by use, each one's action at the end of its label line.
             ModalPage {
                 VStack(alignment: .leading, spacing: Space.xs) {
                     placeLine(task)
@@ -80,7 +81,7 @@ struct TaskModal: View {
                     ProjectPicker(project: task.project) { model.setProject(id, $0) }
                     TagList(tags: task.tags) { model.setTags(id, $0) }
                 }
-                BlockedProperty(id: id)
+                TaskBlockers(id: id)
                 ModalGroup(title: "On it") { onIt(task) }
                 ModalGroup(title: "Description") { DescriptionCard(id: id) } actions: { DescriptionAction(id: id) }
                 // Its subtasks as the list shows them: the same cards, chips, fold, drag and keys (2026-11-10).
@@ -126,7 +127,7 @@ struct TaskModal: View {
 
     @ViewBuilder
     private func onIt(_ task: TaskItem) -> some View {
-        let sessions = task.sessions.compactMap { model.session($0) }
+        let sessions = model.sessions(on: task.id, includeEnded: true)
         FlowLayout(spacing: Space.sm) {
             ForEach(sessions) { session in
                 SessionChip(session: session) { model.unlink(task: id, session: session.id) }
@@ -245,25 +246,6 @@ private struct NewSubtaskField: NSViewRepresentable {
     }
 }
 
-/// Blocked, in the task's properties: its reason in red with Unblock, or Block… to say it can't be done now.
-private struct BlockedProperty: View {
-    let id: Int
-    @Environment(AppModel.self) private var model
-
-    /// Only a Blocked task has the line: its reason in red, and Unblock. Block… is with the related tasks' actions.
-    var body: some View {
-        if let task = model.task(id), task.blocked, task.status != .done {
-            HStack(spacing: Space.sm) {
-                KitIcon.blocked.image.foregroundStyle(Ink.blockedText)
-                Text(TaskCell.reason(model, id) ?? "Blocked").foregroundStyle(Ink.blockedText).lineLimit(2)
-                Button("Unblock") { model.unblock(id) }.help("It can be done again (B on its card)")
-            }
-            .kitType(.callout)
-            .uiTestAnchor("blocked-property")
-        }
-    }
-}
-
 /// The task window's status: the glyph the list draws, larger; a click moves it on, as on a card; its menu picks one.
 private struct StatusButton: View {
     let id: Int
@@ -313,7 +295,7 @@ private struct DescriptionAction: View {
     }
 }
 
-/// Block…, Blocked By… and After… at the end of the related tasks' label: each opens its picker.
+/// After… at the end of the related tasks' label: its picker. Block… and Blocked By… are in the Blocked row (T-760).
 private struct RelationActions: View {
     let id: Int
     @Environment(AppModel.self) private var model
@@ -322,14 +304,8 @@ private struct RelationActions: View {
     var body: some View {
         let task = model.task(id)
         let done = task?.status == .done
-        HStack(spacing: Space.md) {
-            if task?.blocked != true {
-                button("Block…", .block, help: "It can't be done now, with a reason or not (B on its card)")
-            }
-            button("Blocked By…", .blockedBy, help: "A task it can't go on without")
-            button("After…", .after, help: "A task it comes after: the order you mean, nothing moves")
-        }
-        .disabled(done)
+        button("After…", .after, help: "A task it comes after: the order you mean, nothing moves")
+            .disabled(done)
         .popover(item: $picking, arrowEdge: .bottom) { kind in HoldPicker(task: id, kind: kind) { picking = nil }.environment(model) }
     }
 
@@ -340,8 +316,8 @@ private struct RelationActions: View {
     }
 }
 
-/// What a task waits on and what waits on it, in its window (2026-11-10): the tasks it's blocked by and comes after, each
-/// removable, with Blocked By… and After… to add one; the tasks it blocks and that come after it; the tasks linked to it.
+/// What a task waits on and what waits on it, in its window (2026-11-10): the tasks it comes after, each removable, with After…
+/// to add one; the tasks it blocks and that come after it; the tasks linked to it. What blocks it is in the Blocked row (T-760).
 /// A click on a row opens that task.
 private struct TaskRelations: View {
     let id: Int
@@ -351,13 +327,12 @@ private struct TaskRelations: View {
         let task = model.task(id)
         let flow = model.taskFlow
         let linked = model.outputs(ofTask: id).compactMap(\.taskID)
-        let none = (task?.blockedBy ?? []).isEmpty && (task?.after ?? []).isEmpty && flow.dependents(of: id, .blockedBy).isEmpty
+        let none = (task?.after ?? []).isEmpty && flow.dependents(of: id, .blockedBy).isEmpty
             && flow.dependents(of: id, .after).isEmpty && linked.isEmpty
         if none {
-            Text("Nothing blocks it or comes before it.").kitType(.callout).foregroundStyle(.secondary)
+            Text("No task comes before it, waits on it or is linked to it.").kitType(.callout).foregroundStyle(.secondary)
         } else {
             ModalBox {
-                section("Blocked by", task?.blockedBy ?? [], help: "It can't go on until these are done") { model.removeLink(id, .blockedBy, $0) }
                 section("Comes after", task?.after ?? [], help: "The order you mean: nothing moves") { model.removeLink(id, .after, $0) }
                 section("Blocks", flow.dependents(of: id, .blockedBy), help: "These can't go on until this one is done", remove: nil)
                 section("Comes before", flow.dependents(of: id, .after), help: "These come after this one", remove: nil)
@@ -1386,108 +1361,5 @@ extension AppModel {
         guard !draft.modelChosen else { return }
         let role = role(named: draft.role)
         (draft.model, draft.effort) = (role?.model, role?.effort)
-    }
-}
-
-// MARK: Closed Sessions
-
-struct ClosedSessionsModal: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        ModalPage {
-            // Open when HQ quit, gone at launch: all of them back in one click (T-505).
-            let gone = model.reopenable
-            if !gone.isEmpty {
-                ModalGroup(title: "Open when HQ quit") {
-                    ModalBox {
-                        HStack(spacing: Space.sm) {
-                            Text("\(gone.count) session\(gone.count == 1 ? " was" : "s were") open when HQ quit and \(gone.count == 1 ? "isn't" : "aren't") running now.")
-                                .kitType(.title)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Button("Dismiss") { model.dismissReopen() }
-                                .help("Keep them in Closed Sessions")
-                                .uiTestAnchor("reopen-dismiss")
-                            Button("Reopen All") { model.reopenAll() }
-                                .help("Resume each in a new Ghostty tab, in its place: a team's sessions in its leader's window")
-                                .uiTestAnchor("reopen-all")
-                        }
-                        .padding(.horizontal, Space.md)
-                        .frame(height: Metric.boxRow + Space.xs)
-                    }
-                }
-            }
-            ModalGroup(title: "Closed in the last 14 days") { rows(model.closedRows) }
-        }
-    }
-
-    /// A team closed together stays together, its sessions under the one that started them, each with Resume.
-    private func rows(_ rows: [(session: SessionItem, depth: Int)]) -> some View {
-        ModalBox {
-            ForEach(rows, id: \.session.id) { row in
-                let session = row.session
-                let closed = session.closedAt.map { "Closed " + $0.formatted(.relative(presentation: .named)) } ?? session.status.title
-                HStack(spacing: Space.sm) {
-                    SessionFace(session, size: Metric.faceRow + Space.xs)
-                    Button { model.open(.session(session.id), push: true) } label: {
-                        HStack(spacing: Space.sm) {
-                            Text(session.name).lineLimit(1)
-                            if let role = model.role(named: session.role) { RoleChip(role: role) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    Text(closed).kitType(.secondary).foregroundStyle(.secondary).lineLimit(1)
-                    Button("Resume") { model.open(session.id) }
-                        .help("Resume it in a new Ghostty tab")
-                        .accessibilityLabel("Resume \(session.name)")
-                        .uiTestAnchor("resume:\(session.id)")
-                }
-                .kitType(.title)
-                .padding(.leading, Space.md + Metric.subtaskIndent * CGFloat(row.depth))
-                .padding(.trailing, Space.md)
-                .frame(height: Metric.boxRow + Space.xs)
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(model.parentSession(of: session.id).map { "\(session.name), \(closed), started by \($0.name)" } ?? "\(session.name), \(closed)")
-                .uiTestAnchor("closed:\(session.id)")
-            }
-            if rows.isEmpty {
-                Text("None.").kitType(.callout).foregroundStyle(.secondary).padding(.horizontal, Space.md).frame(height: Metric.boxRow)
-            }
-        }
-    }
-}
-
-extension AppModel {
-    /// Closed Sessions as rows: newest first, a team closed together kept together under the closed session it sits under.
-    var closedRows: [(session: SessionItem, depth: Int)] {
-        let closed = closedSessions
-        let ids = Set(closed.map(\.id))
-        let tree = sessionTree
-        // The top of its closed team: its highest ancestor reached through closed ones only.
-        func top(_ id: String) -> String {
-            var top = id
-            for ancestor in tree.ancestors(of: id) {
-                guard ids.contains(ancestor) else { break }
-                top = ancestor
-            }
-            return top
-        }
-        var rows: [(session: SessionItem, depth: Int)] = []
-        func walk(_ parent: String, _ depth: Int) {
-            for child in tree.children(of: parent) where ids.contains(child) {
-                if let item = session(child) { rows.append((item, depth)) }
-                walk(child, depth + 1)
-            }
-        }
-        var placed = Set<String>()
-        for item in closed {
-            let head = top(item.id)
-            guard placed.insert(head).inserted, let first = session(head) else { continue }
-            rows.append((first, 0))
-            walk(head, 1)
-        }
-        return rows
     }
 }

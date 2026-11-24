@@ -49,8 +49,8 @@ extension AppModel {
     /// The outdated ones at their prompt: Restart Idle Sessions restarts these.
     var restartableIdle: [SessionItem] { outdatedSessions.filter(canChangeRun) }
 
-    /// Why Restart Session is off, or nil when it's on.
-    func restartBlocked(_ item: SessionItem) -> String? {
+    /// Why an action at its prompt only (Restart Session, Clear Conversation) is off, or nil when it's on.
+    func promptBlocked(_ item: SessionItem) -> String? {
         if canChangeRun(item) { return nil }
         if !item.isRunning { return "It isn't running: Resume starts it again" }
         if item.tty == nil || !item.inGhostty || backgroundHandles[item.id] != nil { return "It doesn't run in a Ghostty terminal HQ can type into" }
@@ -74,6 +74,19 @@ extension AppModel {
         Task {
             let typed = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
                 do throws(Ghostty.Failure) { return .success(try Ghostty.type("/exit", tty: tty, clearing: true)) } catch { return .failure(error) }
+            }.value
+            ghostty { if case .failure(let failure) = typed { throw failure } }
+        }
+    }
+
+    /// Clear Conversation (T-757): /clear typed at its prompt, its input emptied first. The /clear hooks keep its card.
+    func clearConversation(_ id: String) {
+        guard let item = session(id), canChangeRun(item), let tty = item.tty else { return }
+        AppLog.write("\(id.prefix(8)) \(item.name): clearing its conversation on \(tty)", to: "sessions.log")
+        if Store.isOverridden { return ghosttyLog.append("clear the input, then type /clear in \(tty)") }
+        Task {
+            let typed = await Task.detached { () -> Result<Bool, Ghostty.Failure> in
+                do throws(Ghostty.Failure) { return .success(try Ghostty.type("/clear", tty: tty, clearing: true)) } catch { return .failure(error) }
             }.value
             ghostty { if case .failure(let failure) = typed { throw failure } }
         }

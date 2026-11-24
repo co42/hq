@@ -61,7 +61,6 @@ enum Snapshot {
             model.installedClaude = nil
             model.reopenOffer = nil
             if SeedData.large { SeedData.fillLarge(model, now: seeded) }
-            model.pendingTaskLink = nil
             model.zoom = 1
             model.search = ""
             model.problem = nil
@@ -71,6 +70,7 @@ enum Snapshot {
             model.wideNotes = false
             model.taskSearch = ""
             model.archiveQuery = ""
+            model.closedQuery = ""
             model.archiveShown = nil
             model.archiveSelection = nil
             model.folded = []
@@ -241,6 +241,15 @@ enum Snapshot {
             Page(name: "modal-task-zoom", capture: .sheet) { model in
                 reset(model)
                 model.zoom = 1.15
+                model.open(.task(13))
+            },
+            // What blocks it (T-760): a long reason, several blocking tasks, one of them done.
+            Page(name: "modal-task-blocked", capture: .sheet) { model in
+                reset(model)
+                model.block(13, reason: "Waiting on the storage team's answer about the multipart complete retries, and on the canary in eu-west "
+                            + "staying green for a full day before the budget goes to every region")
+                for other in [16, 22, 7, 33] { model.addLink(13, .blockedBy, other) }
+                if let done = model.tasks.first(where: { $0.status == .done && $0.parent == nil }) { model.addLink(13, .blockedBy, done.id) }
                 model.open(.task(13))
             },
             // Its relations, then its subtasks as the list's cards (2026-11-10).
@@ -473,6 +482,17 @@ enum Snapshot {
                 }
                 model.open(.closedSessions)
             },
+            // T-770: an open leader heads its closed sessions, folded; a search shows the ones it found, open.
+            Page(name: "modal-closed-lead", capture: .sheet) { model in
+                reset(model)
+                closeTeamUnder(model)
+                model.open(.closedSessions)
+            },
+            Page(name: "modal-closed-search", capture: .sheet) { model in
+                reset(model)
+                if let found = closeTeamUnder(model) { model.closedQuery = found }
+                model.open(.closedSessions)
+            },
             Page(name: "modal-back", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(13))
@@ -515,6 +535,23 @@ enum Snapshot {
     /// The seed's biggest team: its top session.
     private static func seedTeam(_ model: AppModel) -> String? {
         model.gridRoots.max { model.team(of: $0.id).count < model.team(of: $1.id).count }.flatMap { model.team(of: $0.id).isEmpty ? nil : $0.id }
+    }
+
+    /// The seed's biggest team's sessions closed under its leader, still open, a minute apart: the name of the last one.
+    @discardableResult
+    private static func closeTeamUnder(_ model: AppModel) -> String? {
+        guard let lead = seedTeam(model) else { return nil }
+        let team = model.team(of: lead).map(\.session.id)
+        for (offset, id) in team.enumerated() {
+            guard var item = model.session(id) else { continue }
+            var live = item.live
+            live.end(.now)
+            item.live = live
+            item.pid = nil
+            item.closedAt = Date.now.addingTimeInterval(-60 * Double(offset + 1))
+            model.put(item)
+        }
+        return team.last.flatMap { model.session($0)?.name }
     }
 
     /// The seed's biggest team open, its card in view, and a session with no team to drag over the grid and its rows.
@@ -756,11 +793,10 @@ enum Snapshot {
         if FileManager.default.fileExists(atPath: path) { print("SNAPSHOT \(path)") } else { fail("\(path): the capture failed") }
     }
 
-    /// The grid's probes, at 100% only: zoomed sizes leave the 4 pt grid on purpose.
+    /// The grid's probes; zoomed sizes leave the 4 pt grid on purpose, so a zoomed file is checked for areas within areas only.
     private static func writeLayout(_ window: NSWindow, _ path: String) {
         let layout = path.replacingOccurrences(of: ".png", with: "-layout.json")
-        guard Zoom.factor == 1 else { try? FileManager.default.removeItem(atPath: layout); return }
-        GridProbes.shared.write(to: layout, window: window.contentView?.bounds.size ?? .zero)
+        GridProbes.shared.write(to: layout, window: window.contentView?.bounds.size ?? .zero, zoom: Zoom.factor)
     }
 
     /// PNGs still being encoded: the run waits for them before it quits.

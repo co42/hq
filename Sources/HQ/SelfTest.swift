@@ -1296,11 +1296,11 @@ enum SelfTest {
         let added = agent("task add", ["title": "Dedup layers on push #perf", "project": "Registry", "body": "Goal.", "status": "backlog", "_session": session])
         let key = added["id"] as? String ?? ""
         let id = TaskItem.key(key) ?? -1
-        check("task add --status backlog makes a backlog task at the end, with project, tags and the session; no type, no list",
-              added["status"] as? String == "backlog" && added["list"] == nil && model.taskTree.top().last == id && added["type"] == nil && model.task(id)?.type == nil
+        check("task add --status backlog makes a backlog task first in the list, with project, tags and the session; no type, no list",
+              added["status"] as? String == "backlog" && added["list"] == nil && model.taskTree.top().first == id && added["type"] == nil && model.task(id)?.type == nil
                 && added["project"] as? String == "Registry" && (added["tags"] as? [String]) == ["perf"] && model.task(id)?.sessions == [session], "\(added)")
         let now = agent("task add", ["title": "Pair on this"])
-        check("task add makes a todo task at the end of the list", now["status"] as? String == "todo" && model.taskTree.top().last == TaskItem.key(now["id"] as? String ?? ""))
+        check("task add makes a todo task first in the list", now["status"] as? String == "todo" && model.taskTree.top().first == TaskItem.key(now["id"] as? String ?? ""))
         if let mine = TaskItem.key(now["id"] as? String ?? "") {
             model.setStatus(mine, .done)
             model.setStatus(mine, .todo)

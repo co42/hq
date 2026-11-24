@@ -130,6 +130,10 @@ struct TaskMenu: View {
             holdMenu("After", task.after, task, .after, context)
             Divider()
             if task.blocked {
+                // In its window, the Blocked row's reason takes the keyboard.
+                Button("Edit Reason…") {
+                    if context.inOwnWindow(.task(id)) { model.reasonFocus = id } else { context.pick(.hold(id, .block)) }
+                }
                 Button("Unblock") { model.unblock(id) }
             } else {
                 Button("Block…") { context.pick(.hold(id, .block)) }.disabled(task.status == .done)
@@ -224,8 +228,11 @@ struct SessionMenu: View {
         Button(session.isRunning ? "Focus" : "Resume") { model.open(session.id) }
         if session.isRunning {
             Button("Restart Session") { model.restartSession(session.id) }
-                .disabled(model.restartBlocked(session) != nil)
-                .help(model.restartBlocked(session) ?? "Quits its Claude and resumes it in the same tab, its conversation kept: it picks up a newly installed Claude Code")
+                .disabled(model.promptBlocked(session) != nil)
+                .help(model.promptBlocked(session) ?? "Quits its Claude and resumes it in the same tab, its conversation kept: it picks up a newly installed Claude Code")
+            Button("Clear Conversation") { model.clearConversation(session.id) }
+                .disabled(model.promptBlocked(session) != nil)
+                .help(model.promptBlocked(session) ?? "Types /clear: it starts afresh on its card; the conversation before goes to Closed Sessions")
         }
         if session.startTrouble == .didntStart {
             Button("Start Again") { model.startAgain(session.id) }

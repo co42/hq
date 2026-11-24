@@ -27,9 +27,9 @@ nonisolated enum Space {
 
 extension View {
     /// Marks an area (a page, a card, a sheet). Probes inside it must sit on
-    /// the 4 pt grid and at least `inset` from its edges.
-    func gridArea(_ name: String, inset: CGFloat = Space.margin) -> some View {
-        modifier(GridProbeModifier(kind: .area, name: name, area: name, edge: nil, inset: inset))
+    /// the 4 pt grid and at least `inset` from its edges; an area `within` another never reaches past its sides.
+    func gridArea(_ name: String, inset: CGFloat = Space.margin, within: String? = nil) -> some View {
+        modifier(GridProbeModifier(kind: .area, name: name, area: name, edge: nil, inset: inset, within: within))
     }
 
     /// Marks a view inside `area`. Views with the same `edge` must share one
@@ -54,6 +54,7 @@ final class GridProbes {
         var area: String
         var edge: String?
         var inset: Double
+        var within: String?
         var x: Double
         var y: Double
         var width: Double
@@ -79,9 +80,9 @@ final class GridProbes {
     }
 
     /// Writes the probes next to a snapshot, for tools/check-layout.swift.
-    func write(to path: String, window: CGSize) {
-        struct File: Codable { var window: [String: Double]; var probes: [Probe] }
-        let file = File(window: ["width": window.width, "height": window.height],
+    func write(to path: String, window: CGSize, zoom: CGFloat) {
+        struct File: Codable { var window: [String: Double]; var zoom: Double; var probes: [Probe] }
+        let file = File(window: ["width": window.width, "height": window.height], zoom: zoom,
                         probes: probes.values.sorted { ($0.area, $0.y, $0.x) < ($1.area, $1.y, $1.x) })
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -95,13 +96,14 @@ private struct GridProbeModifier: ViewModifier {
     let area: String
     let edge: String?
     let inset: CGFloat
+    var within: String?
     @State private var owner = UUID()
 
     func body(content: Content) -> some View {
         if GridProbes.enabled {
             content
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                    GridProbes.shared.update(.init(kind: kind, name: name, area: area, edge: edge, inset: inset,
+                    GridProbes.shared.update(.init(kind: kind, name: name, area: area, edge: edge, inset: inset, within: within,
                                                    x: frame.minX, y: frame.minY,
                                                    width: frame.width, height: frame.height), owner: owner)
                 }

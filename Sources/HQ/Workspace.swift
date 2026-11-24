@@ -78,6 +78,9 @@ nonisolated struct SessionItem: Identifiable, Hashable, Sendable {
 
     var face: FaceSpec { FaceSpec(id: faceID ?? id, salt: faceSalt) }
 
+    /// The first conversation of its card: the same for every one /clear continued.
+    var cardID: String { faceID ?? id }
+
     /// On the grid: open.
     var onGrid: Bool { closedAt == nil }
 

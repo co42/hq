@@ -55,15 +55,16 @@ private struct OutlineHost: NSViewRepresentable {
         // Read what the outline shows, so SwiftUI calls this again when it changes.
         _ = (model.tasks, model.sessions, model.search, model.taskSearch, model.showBacklog, model.showDone, model.shownDescriptions,
              model.folded, model.fold, model.storyFilter, model.editingDescription, model.descriptionEditorHeight, model.seen,
-             model.github, model.files, model.artifacts, model.quickAddFocus, model.outlineFocus, model.now, model.labelColors,
+             model.github, model.files, model.artifacts, model.outlineFocus, model.now, model.labelColors,
              model.sectionFocus, model.selectedSection, model.notices.count, // notices: reminders' marks on rows (T-311)
-             model.pendingTaskLink, model.slackMessages, model.vaultLoading)
+             model.slackMessages, model.vaultLoading)
         context.coordinator.width = width
         context.coordinator.refresh()
     }
 
+    /// The width proposed: a task's window measures it to set `width`, which answered alone would never shrink (T-779).
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: OutlineContainer, context: Context) -> CGSize? {
-        CGSize(width: width, height: max(height, nsView.contentHeight))
+        CGSize(width: proposal.width ?? width, height: max(height, nsView.contentHeight))
     }
 }
 
@@ -98,7 +99,6 @@ final class OutlineNode: NSObject {
     enum Kind: Hashable {
         case header
         case task(Int)
-        case quickAdd
         case empty
         case loading
     }
@@ -115,7 +115,7 @@ final class OutlineNode: NSObject {
     var spans: Bool {
         switch kind {
         case .header, .empty, .loading: true
-        case .task, .quickAdd: false
+        case .task: false
         }
     }
 }
@@ -217,7 +217,6 @@ struct OutlineSnapshot: Equatable {
         var rows = tops.map { OutlineNode.Kind.task($0) }
         if !model.folded.contains(.tasks) {
             if tops.isEmpty { rows.append(model.vaultLoading ? .loading : .empty) }
-            rows.append(.quickAdd)
         }
         snapshot.children[.header] = rows
         return snapshot
@@ -366,8 +365,8 @@ final class OutlineContainer: NSView {
     var contentHeight: CGFloat {
         let rows = outline.numberOfRows
         guard rows > 0 else { return 0 }
-        // A task's window has no new task row to hold the trays that close after its last subtask: they add their padding.
-        let trailing = outline.coordinator.map { $0.root == nil ? 0 : $0.plan.trailing } ?? 0
+        // The trays that close after the last task add their padding.
+        let trailing = outline.coordinator?.plan.trailing ?? 0
         return outline.rect(ofRow: rows - 1).maxY + trailing
     }
 
@@ -412,13 +411,6 @@ final class TaskOutlineView: NSOutlineView {
         let edges = coordinator.plan.card(of: id)
         let top = rect.minY + coordinator.gap(of: id)
         return NSRect(x: edges.left, y: top, width: max(cardsRight - edges.left - edges.right, 0), height: max(rect.maxY - top, 0))
-    }
-
-    /// The new task's card, at the bottom of its line: where a top-level task's card would be, one line tall.
-    func newTaskCard(ofRow row: Int) -> NSRect? {
-        guard let node = item(atRow: row) as? OutlineNode, case .quickAdd = node.kind else { return nil }
-        let rect = rect(ofRow: row)
-        return NSRect(x: 0, y: rect.maxY - Metric.outlineQuick, width: max(cardsRight, 0), height: Metric.outlineQuick)
     }
 
     /// The padding left and right inside a task's card.
@@ -620,13 +612,6 @@ final class TaskOutlineView: NSOutlineView {
         var trays: [CardShape] = []
         var cards: [CardShape] = []
         for row in 0..<numberOfRows {
-            // The new task's line is a card too: dashed until typed in, then a raised card with its ring; never dimmed (2026-11-10).
-            if let node = item(atRow: row) as? OutlineNode, case .quickAdd = node.kind, let card = newTaskCard(ofRow: row) {
-                let typing = ((window?.firstResponder as? NSTextView)?.delegate as? QuickAddField) != nil
-                cards.append(CardShape(rect: card, radius: Radius.row + 4, kind: typing ? .card : .newTask, ring: typing ? .selected : nil,
-                                       key: "new"))
-                continue
-            }
             guard let id = (item(atRow: row) as? OutlineNode)?.task, let card = cardFrame(ofRow: row) else { continue }
             // A Blocked card's red edge, a selected one's accent ring, thinner on the ones the focus isn't on among several
             // (T-708); no yellow edge for doing (2026-11-10).
@@ -674,11 +659,6 @@ final class TaskOutlineView: NSOutlineView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
-        // Anywhere on the new task's card types in it.
-        if row >= 0, newTaskCard(ofRow: row)?.contains(point) == true, let cell = view(atColumn: 1, row: row, makeIfNecessary: false) as? QuickAddCell {
-            window?.makeFirstResponder(cell.field)
-            return takeRelease()
-        }
         // The status glyph, the type icon and the faces take their clicks: the table would only select the row.
         // ⌥ goes through too: ⌥-click on the status picks one.
         if row >= 0, event.modifierFlags.intersection([.shift, .control, .command]).isEmpty {
@@ -1064,11 +1044,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             noteAllHeights()
         } else {
             noteDescriptionHeights()
-        }
-        // The page's requests are the page's outline's, not a task window's.
-        if root == nil, model.quickAddFocus {
-            model.quickAddFocus = false
-            DispatchQueue.main.async { [weak self] in self?.focusQuickAdd() }
         }
         // A row or title to take the keyboard: the task window's outline while it's open and shows that task, else the page's
         // once no window is over it.
@@ -1483,8 +1458,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             dress(cell, id)
         } else if let cell = outline.view(atColumn: node.spans ? 0 : 1, row: row, makeIfNecessary: false) as? HostCell {
             cell.show(hosted(node))
-        } else if let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: false) as? QuickAddCell, case .quickAdd = node.kind {
-            cell.configure(coordinator: self)
         }
         if let faces = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? FacesCell, let id = node.task {
             dress(faces, id)
@@ -1619,8 +1592,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
         switch kind(item) {
         case .header: Metric.outlineHeader
-        // On the page, as far under the last card as the cards are apart.
-        case .quickAdd: plan.trailing + (root == nil ? Metric.storyGap : Metric.taskGap) + Metric.outlineQuick
         case .empty, .loading: Metric.outlineEmpty
         case .task(let id): gap(of: id) + height(of: id)
         case nil: Metric.outlineRow
@@ -1655,10 +1626,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let cell = outlineView.makeView(withIdentifier: TaskCell.id, owner: nil) as? TaskCell ?? TaskCell()
             dress(cell, id)
             return cell
-        case (Self.mainColumn, .quickAdd):
-            let cell = outlineView.makeView(withIdentifier: QuickAddCell.id, owner: nil) as? QuickAddCell ?? QuickAddCell()
-            cell.configure(coordinator: self)
-            return cell
         default:
             return nil
         }
@@ -1667,7 +1634,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     private func hosted(_ node: OutlineNode) -> AnyView {
         switch node.kind {
         case .header: AnyView(Color.clear) // The section draws its header over this row.
-        case .empty: AnyView(Text(OutlineSnapshot.searchWords(model).isEmpty ? "Nothing open. Type a task, or show the backlog."
+        case .empty: AnyView(Text(OutlineSnapshot.searchWords(model).isEmpty ? "Nothing open. Add a task with +, or show the backlog."
                                   : "No task matches “\(OutlineSnapshot.searchWords(model).joined(separator: " "))”.")
             .kitType(.callout).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -1800,7 +1767,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         let newTask = letter == "n" && flags.subtracting(.shift).isEmpty
         guard let first = ids.first, let last = ids.last, let focused = focusedID else {
             guard root == nil else { return false }
-            if newTask { model.focusQuickAdd() }
+            if newTask { model.beginTask(.todo) }
             return newTask
         }
         // B, ⇧B and A on one task only; the one-task keys act on the focus (2026-11-20, T-568).
@@ -1823,10 +1790,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         case (126, []) where focus != nil: moveFocus(by: -1)
         case (125, []) where focus != nil: moveFocus(by: 1)
         case (_, []) where letter == "x": toggleKept()
-        // ↓ on a list's last task: its new task's card; on a task window's last subtask, its new subtask's.
-        case (125, []) where newTaskBelow(last):
+        // ↓ on a task window's last subtask: its new subtask's card.
+        case (125, []) where newSubtaskBelow(last):
             outline?.deselectAll(nil)
-            if let root { model.newSubtaskFocus = root } else if quickAddBelow(last) { focusQuickAdd() }
+            if let root { model.newSubtaskFocus = root }
         case (123, []), (123, .option): foldLeft(ids, deep: flags == .option)
         case (124, []), (124, .option): foldRight(ids, deep: flags == .option)
         case (49, []), (34, .command): model.open(.task(focused), push: root != nil)
@@ -1992,7 +1959,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// Return, Tab, arrows, Escape: an outliner's keys in a title field.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         deleting = selector == #selector(NSResponder.deleteBackward(_:)) || selector == #selector(NSResponder.deleteForward(_:))
-        if let quick = control as? QuickAddField { return quickAdd(quick, selector) }
         guard let field = control as? TitleField, let id = field.task else { return false }
         if chord(field, id) { return true }
         let flags = NSApp.currentEvent?.modifierFlags.intersection([.command, .shift, .option, .control]) ?? []
@@ -2052,19 +2018,9 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     // MARK: Completion
 
-    /// Typing after `#` in a title or the quick-add line lists the statuses, projects and tags that start so. A Slack link
-    /// pasted in the quick-add line becomes the link the task comes with (T-313).
+    /// Typing after `#` in a title lists the statuses, projects and tags that start so.
     func controlTextDidChange(_ notification: Notification) {
-        if notification.object is QuickAddField, let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView,
-           let found = SlackLink.find(in: editor.string) {
-            var rest = editor.string
-            rest.removeSubrange(found.range)
-            editor.string = rest.trimmingCharacters(in: .whitespaces)
-            model.pendingTaskLink = PendingTaskLink(url: found.url)
-            model.resolveSlack(found.url)
-            return
-        }
-        guard !completing, !deleting, let control = notification.object as? NSTextField, control is TitleField || control is QuickAddField,
+        guard !completing, !deleting, let control = notification.object as? NSTextField, control is TitleField,
               let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView, Self.hashWord(in: editor) != nil else {
             deleting = false
             return
@@ -2076,7 +2032,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
 
     func control(_ control: NSControl, textView: NSTextView, completions words: [String], forPartialWordRange charRange: NSRange,
                  indexOfSelectedItem index: UnsafeMutablePointer<Int>) -> [String] {
-        guard control is TitleField || control is QuickAddField, let word = Self.hashWord(in: textView), word.range == charRange else { return [] }
+        guard control is TitleField, let word = Self.hashWord(in: textView), word.range == charRange else { return [] }
         index.pointee = 0
         return model.titleCompletions(word.text)
     }
@@ -2174,54 +2130,10 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
         return nil
     }
 
-    // MARK: Quick add
-
-    private func quickAdd(_ field: QuickAddField, _ selector: Selector) -> Bool {
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-            // ⌥Return: in the backlog; while the backlog is hidden, the Backlog toggle's count rolls.
-            let option = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
-            // A Slack link copied before New Task comes with it, and names it when nothing is typed.
-            let pending = model.pendingTaskLink?.url
-            var text = field.stringValue.trimmingCharacters(in: .whitespaces)
-            if text.isEmpty, let pending { text = model.name(fromSlack: pending) }
-            guard !text.isEmpty else { return true }
-            model.addTask(status: option ? .backlog : .todo, title: text, links: pending.flatMap(URL.init(string:)).map { [$0] } ?? [])
-            if pending != nil { model.pendingTaskLink = nil }
-            field.stringValue = ""
-            return true
-        case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.moveUp(_:)), #selector(NSResponder.insertBacktab(_:)):
-            // Back to the rows: the task above, selected. Escape drops what was typed and the Slack link with it.
-            if selector == #selector(NSResponder.cancelOperation(_:)) {
-                field.stringValue = ""
-                model.pendingTaskLink = nil
-            }
-            guard let outline else { return true }
-            let row = outline.row(forItem: node(.quickAdd))
-            if let previous = (stride(from: row - 1, through: 0, by: -1).lazy.compactMap { self.task(atRow: $0) }).first {
-                select(previous)
-            } else {
-                outline.window?.makeFirstResponder(outline)
-            }
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// The new task's card comes right under a task's row.
-    private func quickAddBelow(_ id: Int) -> Bool {
-        guard let outline else { return false }
-        let row = outline.row(forItem: node(.task(id)))
-        guard row >= 0, row + 1 < outline.numberOfRows, case .quickAdd? = (outline.item(atRow: row + 1) as? OutlineNode)?.kind else { return false }
-        return true
-    }
-
-    /// A new task's card comes under this task's row: its list's, or in a task's window the new subtask's, under the last row.
-    private func newTaskBelow(_ id: Int) -> Bool {
-        guard let outline else { return false }
-        if root != nil { return outline.row(forItem: node(.task(id))) == outline.numberOfRows - 1 }
-        return quickAddBelow(id)
+    /// In a task's window, the new subtask's card comes under its last row.
+    private func newSubtaskBelow(_ id: Int) -> Bool {
+        guard let outline, root != nil else { return false }
+        return outline.row(forItem: node(.task(id))) == outline.numberOfRows - 1
     }
 
     /// ↑ from a task window's new subtask: its last subtask, selected.
@@ -2233,16 +2145,6 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
     /// The task window's outline that shows a task's subtasks.
     static func scoped(_ root: Int) -> OutlineCoordinator? {
         live.compactMap(\.coordinator).first { $0.root == root && $0.outline?.window != nil }
-    }
-
-    func focusQuickAdd() {
-        guard let outline else { return }
-        let row = outline.row(forItem: node(.quickAdd))
-        guard row >= 0 else { return }
-        outline.scrollRowToVisible(row)
-        if let cell = outline.view(atColumn: 1, row: row, makeIfNecessary: true) as? QuickAddCell {
-            outline.window?.makeFirstResponder(cell.field)
-        }
     }
 
     // MARK: Drag and drop
@@ -2604,7 +2506,7 @@ final class OutlineCoordinator: NSObject, NSOutlineViewDataSource, NSOutlineView
             let shown = snapshot.children(of: .task(parent)).compactMap { kind -> Int? in if case .task(let id) = kind { id } else { nil } }
             if index == NSOutlineViewDropOnItemIndex { return (.task(parent), tree.children(of: parent).count) }
             return (.task(parent), treeIndex(before: index, of: shown, in: tree.children(of: parent)))
-        case .quickAdd, .empty, .loading:
+        case .empty, .loading:
             return nil
         }
     }

@@ -150,7 +150,7 @@ extension ModalRoute {
 }
 
 /// New Task… (⌘N, ⌥⌘N for the Backlog, +, the menu bar and Dock menus; T-332): the title, a description, Tasks or the
-/// Backlog, the project, what it links. Return in the title or ⌘Return adds it. The lists' New Task lines still add in place.
+/// Backlog, the project, what it links. Return in the title or ⌘Return adds it, at the top of the list.
 struct NewTaskForm: View {
     @Environment(AppModel.self) private var model
     @State private var title = ""
@@ -159,7 +159,6 @@ struct NewTaskForm: View {
     @State private var project: String?
     @State private var links: [ModalRoute] = []
     @State private var words = DraftWords()
-    @FocusState private var typing: Bool
 
     init(status: TaskStatus) {
         _status = State(initialValue: status)
@@ -170,10 +169,7 @@ struct NewTaskForm: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.lg, verticalSpacing: Space.md) {
                 GridRow {
                     FormLabel("Task")
-                    TextField("Retry budget for blob uploads", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($typing)
-                        .onSubmit(add)
+                    HashtagTitleField(text: $title, placeholder: "Retry budget for blob uploads", model: model, submit: add, cancel: { model.back() })
                         .uiTestAnchor("new-task-title")
                 }
                 GridRow {
@@ -212,7 +208,6 @@ struct NewTaskForm: View {
         } buttons: {
             FormButtons(title: "Add Task", ready: !DraftWords.words(title, links: links, in: model).isEmpty, anchor: "new-task-add", add: add)
         }
-        .onAppear { DispatchQueue.main.async { typing = true } }
         .onChange(of: title) { DraftWords.takeLink(from: &title, into: &links) }
         .onChange(of: links) { words.name(&title, after: links, in: model) }
         .onChange(of: links.lazy.compactMap(\.slackURL).first.flatMap { model.slackMessages[$0] }) { words.name(&title, after: links, in: model) }

@@ -15,6 +15,15 @@ extension SelfTest {
         } else {
             check("the seed has an open story with subtasks", false)
         }
+        // T-760: a Blocked task's reason is edited from its menu too.
+        if let task = open.first {
+            model.block(task.id, reason: "Menus")
+            menu("a Blocked task's Links menu", TaskMenu(ids: [task.id]), model, ["Link…", "—", "Blocked By ▸", "After ▸", "—", "Edit Reason…", "Unblock"],
+                 in: "Links")
+            model.unblock(task.id)
+        } else {
+            check("the seed has an open task", false)
+        }
         if let subtask = open.first(where: { tree.parent(of: $0.id) != nil }) {
             menu("a subtask's menu: no Archive", TaskMenu(ids: [subtask.id]), model, ["Open", "Open in Obsidian", "Start Session…", "Add Subtask", "—", "Status ▸",
                  "Project ▸", "Links ▸", "—", "Show ▸", "Remind Me…", "Copy", "—", "Delete"])
@@ -24,7 +33,7 @@ extension SelfTest {
             menu("several tasks' menu", TaskMenu(ids: tops), model, ["Status ▸", "Project ▸", "—", "Show ▸", "Copy", "—", "Archive 2", "Delete 2 Tasks"])
         }
         if let session = model.gridRoots.first(where: { $0.isRunning && $0.tty != nil && $0.startTrouble == nil && model.team(of: $0.id).isEmpty }) {
-            menu("a running session's menu", SessionMenu(session: session), model, ["Focus", "Restart Session", "Start ▸", "—", "Model ▸",
+            menu("a running session's menu", SessionMenu(session: session), model, ["Focus", "Restart Session", "Clear Conversation", "Start ▸", "—", "Model ▸",
                  "Effort ▸", "Role ▸", "Team ▸", "—", "Copy ▸", "—", "Close Session"])
             menu("its Copy menu", SessionMenu(session: session), model, ["Copy", "Copy Resume Command", "Copy Session ID"], in: "Copy")
         } else {

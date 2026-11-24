@@ -2,7 +2,8 @@ import AppKit
 import HQKit
 import SwiftUI
 
-/// Block… takes an optional reason; Blocked By… and After… a task, by key or words, the story's own tasks first.
+/// Block… takes an optional reason, Edit Reason… changes it; Blocked By… and After… a task, by key or words, the story's own tasks
+/// first.
 struct HoldPicker: View {
     enum Kind: Identifiable {
         case block, blockedBy, after
@@ -29,7 +30,7 @@ struct HoldPicker: View {
                 HStack {
                     Text("It holds until you or a session unblocks it.").kitType(.meta).foregroundStyle(.secondary)
                     Spacer(minLength: Space.sm)
-                    Button("Block", action: block).keyboardShortcut(.defaultAction)
+                    Button(editing ? "Save" : "Block", action: block).keyboardShortcut(.defaultAction)
                 }
             } else {
                 let matches = Array(Self.matches(model, task: task, kind: kind, query: query).prefix(LinkPicker.shown))
@@ -74,12 +75,16 @@ struct HoldPicker: View {
         .padding(Space.md)
         .frame(width: Metric.sheetWidth)
         .onInWindow { focused = true }
+        .onAppear { if editing { query = model.task(task)?.blockedReason ?? "" } }
     }
+
+    /// Block… on a Blocked task: Edit Reason….
+    private var editing: Bool { kind == .block && model.task(task)?.blocked == true }
 
     private var heading: String {
         let key = "T-\(task)"
         switch kind {
-        case .block: return "Block \(key)"
+        case .block: return editing ? "Why \(key) is blocked" : "Block \(key)"
         case .blockedBy: return "\(key) is blocked by…"
         case .after: return "\(key) comes after…"
         }
@@ -108,7 +113,7 @@ struct HoldPicker: View {
     }
 
     private func block() {
-        model.block(task, reason: query)
+        if editing { model.setBlockedReason(task, query) } else { model.block(task, reason: query) }
         done()
     }
 

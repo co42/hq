@@ -74,7 +74,7 @@ extension AgentCommands {
         model.unarchive(id)
         var result: JSONObject = ["id": "T-\(id)", "title": note.title, "status": note.status.rawValue, "tags": note.tags]
         if let project = note.project { result["project"] = project }
-        result["note"] = "Back at the end of the list, with its tasks"
+        result["note"] = "Back first in the list, with its tasks"
         return result
     }
 

@@ -100,6 +100,7 @@ hq file new "Retry budget plan" --task T-12 --body -
 hq session new "T-12 Retry budget" --task T-12 --role Worker   # from a session: under it, in its Ghostty window
 hq session new "T-12 Retry budget" --task T-12 --beside        # a handoff: at this session's level
 hq session close 41ccc6                   # a session you started, its task done; hq session resume 41ccc6 brings it back
+hq session clear 41ccc6                   # /clear at its prompt before other work: a fresh conversation on the same card
 hq role show Leader                       # a role's line and text; role new | edit | delete
 ```
 

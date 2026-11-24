@@ -14,6 +14,8 @@
 //   5. Stacked probes on one edge are a multiple of the unit apart. Text heights
 //      have fractions and SwiftUI rounds positions, so gaps get 0.5 pt of room.
 //   6. Probes in one area never overlap.
+//   7. An area marked within another (a window's column in its window) never reaches past its sides,
+//      at any zoom (a zoomed file is checked for this rule only).
 // Prints PASS or FAIL per file and exits with 1 on any failure.
 
 import Foundation
@@ -24,6 +26,7 @@ struct Probe: Decodable {
     var area: String
     var edge: String?
     var inset: Double
+    var within: String?
     var x: Double
     var y: Double
     var width: Double
@@ -33,6 +36,7 @@ struct Probe: Decodable {
 }
 
 struct LayoutFile: Decodable {
+    var zoom: Double?
     var probes: [Probe]
 }
 
@@ -65,9 +69,11 @@ for path in paths {
     var problems: [String] = []
     let areas = Dictionary(file.probes.filter { $0.kind == "area" }.map { ($0.area, $0) },
                            uniquingKeysWith: { first, _ in first })
-    let probes = file.probes.filter { $0.kind == "probe" }
+    // Zoomed sizes leave the grid on purpose: only rule 7 holds there.
+    let grid = (file.zoom ?? 1) == 1
+    let probes = grid ? file.probes.filter { $0.kind == "probe" } : []
 
-    for probe in file.probes where probe.width > 0 {
+    for probe in file.probes where grid && probe.width > 0 {
         if !onGrid(probe.x, step: 0.5, within: pixelTolerance) {
             problems.append("\(probe.name): x \(fmt(probe.x)) is between pixels")
         }
@@ -104,6 +110,17 @@ for path in paths {
             if !onGrid(gap, step: unit, within: min(gapTolerance, unit / 2 - 0.01)) {
                 problems.append("\(above.name) to \(below.name): gap \(fmt(gap)) pt, not a multiple of \(fmt(unit))")
             }
+        }
+    }
+
+    for area in areas.values.sorted(by: { $0.name < $1.name }) {
+        guard let name = area.within else { continue }
+        guard let outer = areas[name] else {
+            problems.append("\(area.name): area \"\(name)\" it sits within has no .gridArea")
+            continue
+        }
+        if area.x < outer.x - tolerance || area.maxX > outer.maxX + tolerance {
+            problems.append("\(area.name): \(fmt(area.x))...\(fmt(area.maxX)) reaches past \(outer.name) \(fmt(outer.x))...\(fmt(outer.maxX))")
         }
     }
 

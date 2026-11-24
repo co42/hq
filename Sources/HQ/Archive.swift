@@ -119,7 +119,7 @@ extension AppModel {
     }
 
     /// Unarchive: a story and its tasks come back from the Archive's folder, read in the background. In its old place
-    /// from Undo, else at the end of the list, selected, the toggle that would hide it turned on (T-471). One Undo step.
+    /// from Undo, else first in the list, selected, the toggle that would hide it turned on (T-471). One Undo step.
     func unarchive(_ story: Int, inPlace: Bool = false, select: Bool = true) {
         guard let vault else { return }
         registerUndo("Unarchive") { $0.archive([story]) }
@@ -137,7 +137,7 @@ extension AppModel {
                 AppLog.write("archive: T-\(story) isn't in the Archive's folder; nothing came back", to: "vault.log")
                 return
             }
-            if !inPlace, let place = taskTree.placeNew(in: .top)?.0 { top.order = place.order }
+            if !inPlace, let place = taskTree.placeNew(in: .top, at: 0)?.0 { top.order = place.order }
             let placed = top
             let restored = items.map { $0.id == story ? placed : $0 }
             writeNotes(restored.compactMap(\.path)) {
@@ -286,7 +286,7 @@ extension AppModel {
     }
 
     /// Unarchive in the Archive (its card, Task › Unarchive, an archived task's window): the story leaves the results, the
-    /// next one found takes the selection, its windows close; it comes back at the end of Tasks, selected once the Archive closes.
+    /// next one found takes the selection, its windows close; it comes back first in Tasks, selected once the Archive closes.
     func unarchiveFromWindow(_ story: Int) {
         let ids = Set(archiveShown?.index.entries.filter { $0.root == story }.map(\.id) ?? [story])
         if archiveSelection == story, let shown = archiveShown {

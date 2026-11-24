@@ -59,8 +59,8 @@ enum AgentCommands {
             model.unblock(task.id)
             return model.task(task.id)?.agentJSON(model) ?? [:]
         },
-        AgentCommand(name: "task add", summary: "Create a task, at the end of the list; in the backlog with --status backlog, only when the user asks for the Backlog or later; "
-                        + "under a task with --parent, in its project. Its line starts with its key; -q prints the key alone.",
+        AgentCommand(name: "task add", summary: "Create a task, first in the list; in the backlog with --status backlog, only when the user asks for the Backlog or later; "
+                        + "under a task with --parent, its last subtask, in its project. Its line starts with its key; -q prints the key alone.",
                      params: [.init(name: "title", required: true, positional: true, help: "what to do, short; #words set a status or a project they name, else become tags; a title starting with -- goes after a bare --"),
                               .init(name: "project", help: "the project it belongs to (default: the parent's, for a subtask)"),
                               .init(name: "tag", list: true, help: "tags, comma separated"),
@@ -74,7 +74,7 @@ enum AgentCommands {
                         + "hq task unarchive brings it back. Only when the user asks.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12, a top-level task"), notMine],
                      example: "hq task archive T-12", output: "{id, title, status, project, tags, archived, note}") { args, model in try archiveCommand(args, model) },
-        AgentCommand(name: "task unarchive", summary: "Bring an archived story back, with its tasks, at the end of the list, as Unarchive does in HQ.",
+        AgentCommand(name: "task unarchive", summary: "Bring an archived story back, with its tasks, first in the list, as Unarchive does in HQ.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12, an archived story"), notMine],
                      example: "hq task unarchive T-12", output: "{id, title, status, project, tags, note}") { args, model in try unarchiveCommand(args, model) },
         AgentCommand(name: "task move", summary: "Set a task's status: backlog, todo, doing or done, at any level; nothing moves in the list. "
@@ -355,6 +355,13 @@ enum AgentCommands {
                      params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a session under this one")],
                      example: "hq session close 41ccc6", output: sessionOutput + "; note") { args, model in
             try closeSessionCommand(args, model)
+        },
+        AgentCommand(name: "session clear", summary: "Clear the conversation of a session you started, or one of theirs, as Clear Conversation does in HQ: "
+                        + "its input emptied and /clear typed at its prompt. It goes on under a new id on the same card, with its name, role, team and "
+                        + "tasks not done; the conversation before goes to Closed Sessions. Only at its prompt: one that works or waits on the user is refused.",
+                     params: [.init(name: "session", required: true, positional: true, help: "its id (6 characters or more) or name: a session under this one")],
+                     example: "hq session clear 41ccc6", output: sessionOutput + "; note") { args, model in
+            try clearSessionCommand(args, model)
         },
         AgentCommand(name: "session resume", summary: "Resume a closed session you started, or one of theirs, as Resume does in HQ: claude --resume in a new tab of "
                         + "its parent's Ghostty window, its place in the team kept. It reports to its parent again.",
@@ -1057,7 +1064,7 @@ extension AgentCommands {
             // As in HQ: a subtask is written in the project in effect there.
             project = project ?? model.project(ofTask: parent.id)
         } else {
-            placed = tree.placeNew(in: .top)
+            placed = tree.placeNew(in: .top, at: 0)
         }
         guard let (placement, renumber) = placed,
               let task = model.addTask(title: try args.required("title"), placement: placement, status: status,

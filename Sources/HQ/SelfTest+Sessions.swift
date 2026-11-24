@@ -325,9 +325,11 @@ extension SelfTest {
         event("SessionStart", old, #","source":"startup""#)
         event("UserPromptSubmit", old, #","prompt":"Harden the push path""#)
         model.renameSession(old, to: "Push path")
+        let pr = model.ownPullRequests.first
         if var item = model.session(old) {
             item.pid = pid
             item.tty = "/dev/ttys0c1"
+            if let pr { item.links.append(pr.url) }
             model.put(item)
         }
         let done = model.tasks.first { $0.status == .done }
@@ -343,6 +345,17 @@ extension SelfTest {
         check("the conversation before /clear goes to Closed Sessions", model.closedSessions.contains { $0.id == old })
         check("and its tasks not done come along", model.tasks(of: new).map(\.id).contains(45)
               && (done.map { !model.tasks(of: new).map(\.id).contains($0.id) } ?? true), "\(model.tasks(of: new).map(\.key))")
+        // T-758: one entry per card on a task and a PR, never the conversation before /clear beside the one after it.
+        check("the conversation before /clear leaves its tasks not done, keeps the done ones",
+              model.task(45)?.sessions.contains(old) == false && (done.map { model.task($0.id)?.sessions.contains(old) == true } ?? true),
+              "\(model.task(45)?.sessions ?? [])")
+        model.changeTask(45, "Link Session") { $0.sessions = [old, new] }
+        check("a task that lists both shows one face, the later one",
+              model.sessions(on: 45, includeEnded: true).map(\.id) == [new], "\(model.sessions(on: 45, includeEnded: true).map(\.id))")
+        let onPR = pr.map { model.sessions(onPullRequest: $0, includeEnded: true).map(\.id) } ?? []
+        check("so does its PR", onPR.contains(new) && !onPR.contains(old), "\(pr?.url ?? "no PR in the seed"): \(onPR)")
+        model.repairContinuedSessions()
+        check("and the repair at launch keeps the later one on it", model.task(45)?.sessions == [new], "\(model.task(45)?.sessions ?? [])")
         let linked = agent("task link", ["task": "T-45", "item": "https://example.com/clear-check", "_session": new])
         check("its hq task commands keep working on them", linked["error"] == nil, "\(linked)")
         model.unlink(task: 45, session: old)

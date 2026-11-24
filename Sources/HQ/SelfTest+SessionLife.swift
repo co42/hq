@@ -115,10 +115,26 @@ extension SelfTest {
         check("and without a calling session", failure(resume(helper, from: nil))?.code == "usage")
         check("and nothing opened for any of them", model.ghosttyLog.count == log && model.session(stranger)?.closedAt != nil)
 
-        // hq help: both commands, with the shape of their JSON.
-        let commands = ["session close", "session resume"].compactMap { name in AgentCommands.all.first { $0.name == name } }
-        check("hq help has session close and session resume, each with its JSON", commands.count == 2 && commands.allSatisfy { AgentCLI.usage($0).contains("\nJSON: {") })
+        // session clear (T-757): /clear at its prompt, its input emptied first; refused anywhere else, nothing typed.
+        let idle = "c1a00007-0000-4000-8000-000000000007"
+        model.put(SessionItem(id: idle, customName: "Life idle", status: SessionStatus(state: .idle, since: .now), cwd: folder, repo: "life", branch: "main",
+                              started: .now, pid: 999_807, tty: "/dev/ttys087", order: model.nextGridOrder, parent: lead, role: "Worker"))
+        log = model.ghosttyLog.count
+        let cleared = agent("session clear", ["session": String(idle.prefix(8)), "_session": lead])
+        check("session clear types /clear at its prompt, its input emptied first, and says it goes on under a new id on its card",
+              model.ghosttyLog.count == log + 1 && model.ghosttyLog.last == "clear the input, then type /clear in /dev/ttys087"
+              && (cleared["note"] as? String)?.hasPrefix("Clearing “Life idle”: its input emptied and /clear typed") == true, "\(model.ghosttyLog.suffix(1)) \(cleared)")
+        log = model.ghosttyLog.count
+        let asks = failure(agent("session clear", ["session": String(asking.prefix(8)), "_session": lead]))
+        check("one that waits on the user is refused, saying why", asks?.code == "invalid" && asks?.message.contains("At its prompt only") == true, asks?.message ?? "-")
+        check("as is one not under the caller, and nothing was typed",
+              failure(agent("session clear", ["session": String(stranger.prefix(8)), "_session": lead]))?.code == "not_mine" && model.ghosttyLog.count == log)
 
-        model.sessions.removeAll { [lead, worker, helper, asking, stranger, ghost].contains($0.id) }
+        // hq help: the commands, with the shape of their JSON.
+        let commands = ["session close", "session resume", "session clear"].compactMap { name in AgentCommands.all.first { $0.name == name } }
+        check("hq help has session close, session resume and session clear, each with its JSON",
+              commands.count == 3 && commands.allSatisfy { AgentCLI.usage($0).contains("\nJSON: {") })
+
+        model.sessions.removeAll { [lead, worker, helper, asking, stranger, ghost, idle].contains($0.id) }
     }
 }

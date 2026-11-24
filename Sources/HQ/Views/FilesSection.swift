@@ -11,10 +11,11 @@ struct FilesSection: View {
         @Bindable var model = model
         let files = model.listedFiles
         let artifacts = model.listedArtifacts
+        // At rest the cards count what they show, the put away left out (T-776); a filter counts against them all.
         let total = model.files.count + model.artifacts.count
         let filtered = model.filesFiltered
         VStack(alignment: .leading, spacing: Space.md) {
-            SectionHeader(title: PageSection.files.title, count: filtered ? "\(files.count + artifacts.count) of \(total)" : "\(total)",
+            SectionHeader(title: PageSection.files.title, count: filtered ? "\(files.count + artifacts.count) of \(total)" : "\(files.count + artifacts.count)",
                           open: model.sectionOpen(.files), tile: (PageSection.files.icon, Ink.section(.files))) {
                 HeaderSearch(prompt: "Search Files and Artifacts", text: $model.filesSearch)
                     .help("Show the files and artifacts whose title has this (Escape clears)")
@@ -36,9 +37,11 @@ struct FilesSection: View {
                     ? AnyLayout(HStackLayout(alignment: .top, spacing: Metric.cardGap))
                     : AnyLayout(VStackLayout(alignment: .leading, spacing: Metric.cardGap))
                 layout {
-                    ItemGroup(title: "Files", card: .files, routes: files.map { .file($0.id) }, total: model.files.count, filtered: filtered,
+                    ItemGroup(title: "Files", card: .files, routes: files.map { .file($0.id) }, total: filtered ? model.files.count : files.count,
+                              filtered: filtered,
                               empty: emptyText(kind: "files"))
-                    ItemGroup(title: "Artifacts", card: .artifacts, routes: artifacts.map { .artifact($0.id) }, total: model.artifacts.count,
+                    ItemGroup(title: "Artifacts", card: .artifacts, routes: artifacts.map { .artifact($0.id) },
+                              total: filtered ? model.artifacts.count : artifacts.count,
                               filtered: filtered, empty: emptyText(kind: "artifacts"))
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -49,7 +52,9 @@ struct FilesSection: View {
     private func emptyText(kind: String) -> String {
         let words = [model.search, model.filesSearch].filter { !$0.isEmpty }.joined(separator: " ")
         if !words.isEmpty { return "No match for “\(words)”." }
-        return model.pinnedOnly ? "No pinned \(kind)." : "No \(kind) yet."
+        if model.pinnedOnly { return "No pinned \(kind)." }
+        let away = kind == "files" ? model.putAwayCount.files : model.putAwayCount.artifacts
+        return away > 0 ? "Their tasks are archived: a search finds them." : "No \(kind) yet."
     }
 }
 
@@ -271,17 +276,33 @@ extension AppModel {
         }
     }
 
-    /// Files for the section: pinned first, then the newest; the searches and Pinned Only apply.
+    /// Files for the section: pinned first, then the newest; the searches and Pinned Only apply, and the put away leave.
     var listedFiles: [FileItem] {
-        files.filter { (!pinnedOnly || $0.pinned) && (search.isEmpty || $0.searchText.localizedStandardContains(search))
-            && (filesSearch.isEmpty || $0.title.localizedStandardContains(filesSearch)) }
+        let away = putAway
+        return files.filter { (!pinnedOnly || $0.pinned) && (search.isEmpty || $0.searchText.localizedStandardContains(search))
+            && (filesSearch.isEmpty || $0.title.localizedStandardContains(filesSearch)) && !away($0.tasks, $0.pinned) }
             .sorted { ($0.pinned ? 1 : 0, $0.modified) > ($1.pinned ? 1 : 0, $1.modified) }
     }
 
     var listedArtifacts: [ArtifactItem] {
-        artifacts.filter { (!pinnedOnly || $0.pinned) && (search.isEmpty || $0.searchText.localizedStandardContains(search))
-            && (filesSearch.isEmpty || $0.title.localizedStandardContains(filesSearch)) }
+        let away = putAway
+        return artifacts.filter { (!pinnedOnly || $0.pinned) && (search.isEmpty || $0.searchText.localizedStandardContains(search))
+            && (filesSearch.isEmpty || $0.title.localizedStandardContains(filesSearch)) && !away($0.tasks, $0.pinned) }
             .sorted { ($0.pinned ? 1 : 0, $0.published) > ($1.pinned ? 1 : 0, $1.published) }
+    }
+
+    /// Put away (T-776): a file or an artifact whose tasks have all left the list, archived or deleted, leaves the cards.
+    /// Pinned ones and ones with no task stay; a search finds every one; nothing leaves before the vault's first read.
+    var putAway: (_ tasks: [Int], _ pinned: Bool) -> Bool {
+        guard search.isEmpty, filesSearch.isEmpty, !vaultLoading else { return { _, _ in false } }
+        let listed = Set(tasks.map(\.id))
+        return { ids, pinned in !pinned && !ids.isEmpty && !ids.contains(where: listed.contains) }
+    }
+
+    /// How many of a kind are put away, for the cards' empty lines.
+    var putAwayCount: (files: Int, artifacts: Int) {
+        let away = putAway
+        return (files.count { away($0.tasks, $0.pinned) }, artifacts.count { away($0.tasks, $0.pinned) })
     }
 
     func setProject(of route: ModalRoute, _ project: String?) {

@@ -171,6 +171,7 @@ enum Ink {
     }
     /// The capsule of the tasks a task is blocked by.
     static let blockedChipNS = NSColor.systemRed.withAlphaComponent(0.11)
+    static let blockedChip = Color(nsColor: blockedChipNS)
     /// `==highlighted==` words in markdown: a soft marker behind them (T-368).
     static let highlightNS = NSColor.systemYellow.withAlphaComponent(0.32)
     /// A row a dragged task would drop onto.

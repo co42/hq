@@ -31,6 +31,18 @@ extension AgentCommands {
         return json
     }
 
+    static func clearSessionCommand(_ args: Args, _ model: AppModel) throws -> Any {
+        let session = try sessionUnderCaller(args, model, "clear")
+        if let blocked = model.promptBlocked(session) {
+            throw AgentError.invalid("“\(session.name)” (\(session.id.prefix(8))) can't be cleared now: \(blocked)")
+        }
+        model.clearConversation(session.id)
+        var json = session.agentJSON(model)
+        json["note"] = "Clearing “\(session.name)”: its input emptied and /clear typed. It goes on under a new id on the same card, with its name, "
+            + "role, team and tasks not done: message it by its name as before, and give it its next task"
+        return json
+    }
+
     static func resumeSessionCommand(_ args: Args, _ model: AppModel) throws -> Any {
         let session = try sessionUnderCaller(args, model, "resume")
         let short = session.id.prefix(8)

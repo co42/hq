@@ -326,8 +326,7 @@ struct SectionTile: View {
 
 /// One shape behind the outline's rows: a raised card, a done task's flat card, or a block's tray.
 struct CardShape: Equatable {
-    /// `newTask`: the card a new task is typed in, its edge dashed until it is one (2026-11-10).
-    enum Kind: Equatable { case card, flat, tray, newTask }
+    enum Kind: Equatable { case card, flat, tray }
     /// A Blocked card's red edge; a selected card's accent ring, as a session card's, thinner and lighter among several
     /// when the focus is elsewhere (`kept`, 2026-11-20, T-708); the card a dragged task would drop onto (2026-11-10).
     enum Ring: Equatable { case blocked, selected, kept, drop }
@@ -403,8 +402,7 @@ final class CardsView: NSView {
             card.far.shadowOffset = CGSize(width: 0, height: Metric.shadowFarY)
             card.body.shadowRadius = Metric.shadowNearRadius
             card.body.shadowOffset = CGSize(width: 0, height: Metric.shadowNearY)
-            card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .kept ? Metric.keptRing : shape.ring == .blocked ? 1.5 : shape.kind == .newTask ? 0 : 1
-            dash(card.body, shape, key)
+            card.body.borderWidth = shape.ring == .selected || shape.ring == .drop ? Metric.selectionRing : shape.ring == .kept ? Metric.keptRing : shape.ring == .blocked ? 1.5 : 1
             CATransaction.commit()
             let opacity: Float = shape.dimmed ? Float(Motion.dimmedOpacity) : 1
             if card.body.opacity != opacity || fresh {
@@ -419,36 +417,12 @@ final class CardsView: NSView {
             }
         }
         for (key, card) in cards where !keyed.contains(key) {
-            dashes[key]?.removeFromSuperlayer()
-            dashes[key] = nil
             card.body.removeFromSuperlayer()
             card.far.removeFromSuperlayer()
             cards[key] = nil
         }
         CATransaction.commit()
         paint()
-    }
-
-    /// The dashed edges of new-task cards, by key.
-    private var dashes: [String: CAShapeLayer] = [:]
-
-    /// A new-task card's dashed edge, inside its body; gone once it has a ring or is another kind.
-    private func dash(_ body: CALayer, _ shape: CardShape, _ key: String) {
-        guard shape.kind == .newTask, shape.ring == nil else {
-            dashes[key]?.removeFromSuperlayer()
-            dashes[key] = nil
-            return
-        }
-        let line = dashes[key] ?? CAShapeLayer()
-        if dashes[key] == nil {
-            dashes[key] = line
-            body.addSublayer(line)
-        }
-        line.frame = CGRect(origin: .zero, size: shape.rect.size)
-        line.path = CGPath(roundedRect: line.frame.insetBy(dx: 0.5, dy: 0.5), cornerWidth: shape.radius, cornerHeight: shape.radius, transform: nil)
-        line.lineWidth = 1
-        line.lineDashPattern = Metric.newCardDash.map { NSNumber(value: Double($0)) }
-        line.fillColor = nil
     }
 
     /// Where a dragged task would land between cards: an accent line with a ring at its start, over the cards
@@ -481,8 +455,7 @@ final class CardsView: NSView {
                 let raised = shape.kind == .card
                 card.far.shadowColor = Ink.shadowFarNS.cgColor
                 card.far.shadowOpacity = raised ? 1 : 0
-                card.body.backgroundColor = (shape.ring == .drop ? Ink.dropCardNS : shape.kind == .tray ? Ink.trayNS : shape.kind == .flat ? Ink.doneCardNS : shape.kind == .newTask && shape.ring == nil ? .clear : Ink.surfaceNS).cgColor
-                dashes[shape.key.isEmpty ? "#\(index)" : shape.key]?.strokeColor = Ink.newCardLineNS.cgColor
+                card.body.backgroundColor = (shape.ring == .drop ? Ink.dropCardNS : shape.kind == .tray ? Ink.trayNS : shape.kind == .flat ? Ink.doneCardNS : Ink.surfaceNS).cgColor
                 card.body.borderColor = (shape.ring == .selected || shape.ring == .drop ? Ink.accentNS : shape.ring == .kept ? Ink.keptRingNS : shape.ring == .blocked ? Ink.blockedRingNS : Ink.cardHairlineNS).cgColor
                 card.body.shadowColor = Ink.shadowNearNS.cgColor
                 card.body.shadowOpacity = raised ? 1 : 0

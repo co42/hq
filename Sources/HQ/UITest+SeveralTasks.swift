@@ -132,7 +132,7 @@ extension UITest {
         await check("A and B kept, the focus on A2", model.selectedTasks == [a, b] && coordinator.focus == a2, state())
         await endUndoGroup(model)
         let changes: [(String, () -> Void)] = [
-            ("a task added at the end", { _ = model.addTask(status: .todo, title: "F") }),
+            ("a task added first", { _ = model.addTask(status: .todo, title: "F") }),
             ("a task renamed", { model.setTitle(c, "C again") }),
             ("a task added between kept ones", { _ = model.addTask(after: a, title: "A after") }),
             ("the focus gets a subtask", { _ = model.addSubtask(to: a2, title: "A21") }),

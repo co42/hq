@@ -92,6 +92,7 @@ enum UITest {
                 ("hoverPlates", hoverPlates),
                 ("pointerPlates", pointerPlates),
                 ("severalTasks", severalTasks),
+                ("textInView", textInView),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still
@@ -130,7 +131,6 @@ enum UITest {
         model.closeModal()
         model.editingDescription = nil
         model.showSetup = false
-        model.pendingTaskLink = nil
         model.search = ""
         model.taskSearch = ""
         model.filesSearch = ""

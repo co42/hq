@@ -95,6 +95,7 @@ extension AppModel {
             vaultWrites = vaultWrites.filter { $0.value >= started }
             vaultScanning = false
             migrateReviews()
+            repairContinuedSessions()
             // A session whose tasks are still in iCloud isn't empty.
             if !vaultLoading { forgetEmptySessions() }
             // A note read too early (mid-write) keeps its last read: read it again soon. So does one still coming from iCloud.
@@ -328,12 +329,12 @@ extension AppModel {
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
-    /// The quick-add line and New Task…: a top-level task at the end of the list, todo or in the backlog.
+    /// New Task…: a top-level task first in the list, todo or in the backlog.
     @discardableResult
     func addTask(status: TaskStatus, title: String, body: String = "", session: String? = nil, project: String? = nil,
                  links: [URL] = []) -> TaskItem? {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
-              let (placement, renumber) = taskTree.placeNew(in: .top) else { return nil }
+              let (placement, renumber) = taskTree.placeNew(in: .top, at: 0) else { return nil }
         return addTask(title: title, placement: placement, status: status, project: project, body: body, session: session, links: links,
                        renumber: renumber)
     }
@@ -616,6 +617,13 @@ extension AppModel {
             task.blocked = true
             task.blockedReason = reason?.isEmpty == false ? reason : nil
         }
+    }
+
+    /// A Blocked task's reason, edited: empty, it stays blocked with none.
+    func setBlockedReason(_ id: Int, _ reason: String) {
+        let reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let task = task(id), task.blocked, (task.blockedReason ?? "") != reason else { return }
+        changeTask(id, "Edit Reason") { $0.blockedReason = reason.isEmpty ? nil : reason }
     }
 
     func unblock(_ id: Int) {

@@ -57,7 +57,7 @@ extension SelfTest {
               rows.map { "\($0.session.name) \($0.depth)" }.joined(separator: ", "))
         check("an indented face is wider by its depth", MenuBarMenu.face(model.session(worker)!, depth: 1).size.width == Metric.faceMenu + Metric.menuIndent)
 
-        // Closed Sessions: a team closed together stays together, the one that started it first.
+        // Closed Sessions (T-770): a team under the session that started it, closed or open, the latest to close first.
         let closedAt = Date.now
         for id in [lead, worker, helper] {
             guard var item = model.session(id) else { continue }
@@ -67,12 +67,32 @@ extension SelfTest {
             item.closedAt = closedAt.addingTimeInterval(id == worker ? -1 : 0)
             model.put(item)
         }
-        let closed = model.closedRows
-        let top = closed.firstIndex { $0.session.id == lead }
-        check("Closed Sessions keeps a team closed together together, its sessions under it",
-              top.map { closed.count > $0 + 2 && Set(closed[($0 + 1)...($0 + 2)].map(\.session.id)) == [worker, helper]
-                  && closed[$0].depth == 0 && closed[$0 + 1].depth == 1 && closed[$0 + 2].depth == 1 } ?? false,
-              closed.map { "\($0.session.name) \($0.depth)" }.joined(separator: ", "))
+        var groups = model.closedGroups
+        var team = groups.first { $0.id == lead }
+        check("Closed Sessions keeps a team closed together under the one that started it, the latest to close first",
+              team?.rows.map(\.session.id) == [helper, worker] && team?.rows.allSatisfy { $0.depth == 1 } == true
+              && !groups.contains { [worker, helper].contains($0.id) }, groups.map { "\($0.head.name): \($0.rows.map(\.session.name))" }.joined(separator: "; "))
+        if var item = model.session(lead) {
+            item.closedAt = nil
+            item.status = SessionStatus(state: .idle, since: .now)
+            model.put(item)
+        }
+        team = model.closedGroups.first { $0.id == lead }
+        check("an open session heads its closed ones too", team?.head.isRunning == true && team?.rows.count == 2, "\(String(describing: team?.rows.map(\.session.name)))")
+        // Its search (T-744): every word, in a name, a task's key or title, a role or a folder; a match keeps the rows above it.
+        groups = model.closedGroups
+        func search(_ query: String) -> [String] {
+            model.closedGroups(groups, matching: query).groups.flatMap { [$0.head.id] + ($0.searched ? $0.rows.map(\.session.id) : []) }
+        }
+        model.link(task: 45, session: helper)
+        let byTask = model.closedGroups(groups, matching: "t-45 forms")
+        check("Closed Sessions' search finds a session by its task's key, open under its team's top session, counting the match only",
+              search("t-45 forms") == [lead, helper] && byTask.found == 1, "\(search("t-45 forms")) \(byTask.found)")
+        model.unlink(task: 45, session: helper)
+        check("by its role and its folder, every word; a top session found alone stays folded", search("leader forms-lead") == [lead]
+              && model.closedGroups(groups, matching: "worker forms").found == 2, "\(search("leader forms-lead")) \(search("worker forms"))")
+        check("and nothing for words no session has, every team folded when empty",
+              search("zzzz qqqq").isEmpty && search(" ") == groups.map(\.head.id) && model.closedGroups(groups, matching: " ").found == model.closedSessions.count)
 
         await UITest.endUndoGroup(model)
         // Roles edited in place: a rename follows to the sessions that have it; Cancel writes nothing.
