@@ -11,11 +11,17 @@ extension UITest {
         model.setStatus(step.id, .done)
         model.setStatus(story.id, .done)
         model.setDescription(story.id, "What it was for.")
+        // T-776: its file leaves the Files card with it, and comes back with it.
+        let notes = model.addFile(title: "How the knob turns", task: step.id)
+        let row = { notes.flatMap { ui.anchorFrame("item:\(ModalRoute.file($0.id).selectionKey)") } }
         await endUndoGroup(model)
         await ui.settle(0.4)
+        await check("a file linked to an open task is on the Files card", row() != nil)
         model.archive([story.id])
         await endUndoGroup(model)
         model.flushNoteWrites()
+        await ui.until(2) { row() == nil }
+        await check("its story archived, the file leaves the Files card", row() == nil)
 
         model.openArchive()
         await ui.until(3) { model.archiveShown != nil && ui.anchor("archived:\(story.id)") != nil }
@@ -48,6 +54,9 @@ extension UITest {
                     model.task(story.id) != nil && model.task(step.id) != nil && model.taskTree.top().first == story.id
                     && ui.anchor("archived:\(story.id)") == nil, "\(model.taskTree.top())")
         model.closeModal()
+        await ui.until(2) { row() != nil }
+        await check("unarchived, its file is back on the Files card", row() != nil)
+        if let notes { model.deleteFile(notes.id) }
         await ui.until(2) { model.modal == nil }
         await ui.settle(0.6)
         await check("closed, the page selects the story it brought back, Done turned on to show it",

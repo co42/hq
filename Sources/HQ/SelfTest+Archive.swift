@@ -21,9 +21,25 @@ extension SelfTest {
         model.setDescription(story.id, "Kept **as written**.")
         await settle()
 
+        // T-776: a file whose tasks are all archived leaves the cards; pinned, or with no task, it stays; a search finds it.
+        let linked = model.addFile(title: "Notes on the archived step", task: step.id)
+        let kept = model.addFile(title: "Pinned notes on the story", task: story.id)
+        let free = model.addFile(title: "Notes on no task")
+        if let kept { model.setPinned(.file(kept.id), true) }
+        let onCards = { Set(model.listedFiles.map(\.id)) }
+
         // Archive: out of the list at once, the notes moved by the writer.
         model.archive([story.id])
         check("Archive takes a story and its tasks out of the list at once", model.task(story.id) == nil && model.task(step.id) == nil)
+        if let linked, let kept, let free {
+            check("a file whose tasks are all archived leaves the cards; pinned or with no task, it stays",
+                  !onCards().contains(linked.id) && onCards().contains(kept.id) && onCards().contains(free.id), "\(onCards())")
+            model.filesSearch = "archived step"
+            check("a search still finds it", onCards().contains(linked.id))
+            model.filesSearch = ""
+        } else {
+            check("files linked to a story", false)
+        }
         await settle()
         check("their notes move to the Archive's folder, the story's with the time it went",
               !exists(vault.liveURL(story.id)) && exists(vault.archivedURL(story.id)) && exists(vault.archivedURL(step.id))
@@ -70,6 +86,8 @@ extension SelfTest {
               exists(vault.liveURL(story.id)) && !exists(vault.archivedURL(story.id)) && !note(vault.liveURL(story.id)).has("archived")
                 && note(vault.liveURL(story.id)).body == "Kept **as written**.\n" && model.taskTree.parent(of: step.id) == story.id)
         check("the index lets it go", store.index().entry(story.id) == nil)
+        check("unarchived, its file is back on the cards", linked.map { onCards().contains($0.id) } == true)
+        for file in [linked, kept, free].compactMap(\.self) { model.deleteFile(file.id) }
         store.release()
 
         // Undo of Archive puts it back in its place.
