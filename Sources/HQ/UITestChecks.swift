@@ -1444,8 +1444,24 @@ extension UITest {
         func pinged() -> TaskItem? { model.tasks.first { !beforeBacklog.contains($0.id) } }
         await check("New Backlog Task… adds a backlog task, first in the list", pinged()?.title == "Ping Julien" && pinged()?.status == .backlog
               && pinged()?.links == [URL(string: url)!] && model.taskTree.top().first == pinged()?.id, "\(pinged()?.title ?? "none")")
+        // T-772: `#` in its title lists what starts so, as a title in the list does; Return takes the first, Return again adds.
+        await open(.newTask(.todo))
+        let beforeTagged = Set(model.tasks.map(\.id))
+        editor()?.insertText("Tagged ", replacementRange: NSRange(location: 0, length: editor()?.string.utf16.count ?? 0))
+        await ui.type("#do")
+        func listing() -> Bool { NSApp.windows.contains { $0.isVisible && String(describing: type(of: $0)).contains("Completion") } }
+        await ui.until(2) { listing() }
+        await check("# in New Task…'s title lists the statuses, projects and tags that start so", listing(),
+                    NSApp.windows.filter(\.isVisible).map { String(describing: type(of: $0)) }.joined(separator: ", "))
+        await ui.key(.return)
+        await ui.until(2) { editor()?.string == "Tagged #doing" }
+        await ui.key(.return)
+        await ui.until(2) { model.modal == nil }
+        func tagged() -> TaskItem? { model.tasks.first { !beforeTagged.contains($0.id) } }
+        await check("Return takes the first, Return again adds the task with it", tagged()?.title == "Tagged" && tagged()?.status == .doing,
+                    "\(tagged()?.title ?? "none") \(String(describing: tagged()?.status))")
         model.closeModal()
-        model.deleteTasks([added?.id, pinged()?.id, target.id, second.id].compactMap(\.self))
+        model.deleteTasks([added?.id, pinged()?.id, tagged()?.id, target.id, second.id].compactMap(\.self))
         await endUndoGroup(model)
         await ui.settle(0.3)
     }

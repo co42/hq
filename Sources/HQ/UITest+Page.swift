@@ -379,6 +379,27 @@ extension UITest {
         await ui.until(2) { model.modal == .newFile && ui.sheetIsTyping }
         await sheetKey(ui, "\u{1b}", code: 53)
         await check("Escape in New File… over a task goes back to the task", model.modal == .task(task.id), "\(String(describing: model.modal))")
+        // New Task…'s title is an AppKit field (T-772): Escape in it goes back too.
+        model.beginTask(.todo)
+        await ui.until(2) { model.modal == .newTask(.todo) && ui.sheetIsTyping }
+        await sheetKey(ui, "\u{1b}", code: 53)
+        await check("Escape in New Task… over a task goes back to the task", model.modal == .task(task.id), "\(String(describing: model.modal))")
+        // Its title takes the keyboard as the sheet shows, unless a click put it in another field first (T-772).
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let other = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 40))
+        window.contentView?.addSubview(other)
+        window.makeFirstResponder(other)
+        window.contentView?.addSubview(FirstField(frame: NSRect(x: 0, y: 60, width: 300, height: 24)))
+        await ui.settle(0.2)
+        let late = FirstField(frame: NSRect(x: 0, y: 90, width: 300, height: 24))
+        let empty = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 60), styleMask: [.titled], backing: .buffered, defer: false)
+        empty.isReleasedWhenClosed = false
+        empty.contentView?.addSubview(late)
+        await ui.settle(0.2)
+        await check("New Task…'s title takes the keyboard as it shows, never from a field typed in first", window.firstResponder === other
+                    && (empty.firstResponder as? NSText)?.delegate as? FirstField === late,
+                    "\(String(describing: window.firstResponder)) \(String(describing: empty.firstResponder))")
     }
 
     private static func textFields(_ view: NSView?) -> [NSTextField] {
