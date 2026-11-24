@@ -313,11 +313,14 @@ struct MarkdownEditor: NSViewRepresentable {
             inputWatch = nil
         }
 
-        /// Grown to its text in a page that scrolls, the page follows the caret: once the box has its new height, so the box
-        /// never scrolls inside before it grows and the page never scrolls to where the caret was (T-378).
+        /// In a page that scrolls, the page follows the caret too. Grown to its text: once the box has its new height, so the
+        /// box never scrolls inside before it grows and the page never scrolls to where the caret was (T-378). A box of its own
+        /// height: after it scrolls inside, so its caret's line never sits in a part the page cuts off (T-778).
         override func scrollRangeToVisible(_ range: NSRange) {
             guard let box = enclosingScrollView as? EditorScrollView, box.grows, box.enclosingScrollView != nil, let coordinator else {
-                return super.scrollRangeToVisible(range)
+                super.scrollRangeToVisible(range)
+                showInPage(range)
+                return
             }
             if coordinator.reported > box.maxHeight + 0.5 {
                 super.scrollRangeToVisible(range)

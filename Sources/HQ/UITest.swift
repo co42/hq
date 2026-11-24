@@ -92,6 +92,7 @@ enum UITest {
                 ("hoverPlates", hoverPlates),
                 ("pointerPlates", pointerPlates),
                 ("severalTasks", severalTasks),
+                ("textInView", textInView),
             ]
             // One group runs with motion, as the user sees it: cards slide and rows fade only then.
             let still = Motion.still
