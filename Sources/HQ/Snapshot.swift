@@ -482,6 +482,17 @@ enum Snapshot {
                 }
                 model.open(.closedSessions)
             },
+            // T-770: an open leader heads its closed sessions, folded; a search shows the ones it found, open.
+            Page(name: "modal-closed-lead", capture: .sheet) { model in
+                reset(model)
+                closeTeamUnder(model)
+                model.open(.closedSessions)
+            },
+            Page(name: "modal-closed-search", capture: .sheet) { model in
+                reset(model)
+                if let found = closeTeamUnder(model) { model.closedQuery = found }
+                model.open(.closedSessions)
+            },
             Page(name: "modal-back", capture: .sheet) { model in
                 reset(model)
                 model.open(.task(13))
@@ -524,6 +535,23 @@ enum Snapshot {
     /// The seed's biggest team: its top session.
     private static func seedTeam(_ model: AppModel) -> String? {
         model.gridRoots.max { model.team(of: $0.id).count < model.team(of: $1.id).count }.flatMap { model.team(of: $0.id).isEmpty ? nil : $0.id }
+    }
+
+    /// The seed's biggest team's sessions closed under its leader, still open, a minute apart: the name of the last one.
+    @discardableResult
+    private static func closeTeamUnder(_ model: AppModel) -> String? {
+        guard let lead = seedTeam(model) else { return nil }
+        let team = model.team(of: lead).map(\.session.id)
+        for (offset, id) in team.enumerated() {
+            guard var item = model.session(id) else { continue }
+            var live = item.live
+            live.end(.now)
+            item.live = live
+            item.pid = nil
+            item.closedAt = Date.now.addingTimeInterval(-60 * Double(offset + 1))
+            model.put(item)
+        }
+        return team.last.flatMap { model.session($0)?.name }
     }
 
     /// The seed's biggest team open, its card in view, and a session with no team to drag over the grid and its rows.

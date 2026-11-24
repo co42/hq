@@ -305,14 +305,32 @@ extension UITest {
             model.put(item)
         }
         model.open(.closedSessions)
+        await ui.until { ui.anchorFrame("closed:\(team.lead.id)") != nil }
+        await check("Closed Sessions folds a team's closed sessions under the one that started it (T-770)",
+                    ui.anchorFrame("closed-fold:\(team.lead.id)") != nil && ui.anchorFrame("closed:\(team.worker.id)") == nil)
+        await ui.click(await ui.steadyAnchor("closed-fold:\(team.lead.id)"), inSheet: true)
         await ui.until { ui.anchorFrame("closed:\(team.helper.id)") != nil }
-        func rows() -> [NSRect] { [team.lead.id, team.worker.id, team.helper.id].compactMap { ui.anchorFrame("closed:\($0)") } }
+        // The one that started it, its fold, then its sessions right under, the latest to close first.
+        func rows() -> [NSRect] {
+            ["closed:\(team.lead.id)", "closed-fold:\(team.lead.id)", "closed:\(team.worker.id)", "closed:\(team.helper.id)"].compactMap { ui.anchorFrame($0) }
+        }
         func together() -> Bool {
             let frames = rows()
-            return frames.count == 3 && abs(frames[0].minY - frames[1].maxY) < 2 && abs(frames[1].minY - frames[2].maxY) < 2
+            return frames.count == 4 && (1..<4).allSatisfy { abs(frames[$0 - 1].minY - frames[$0].maxY) < 2 }
         }
-        await check("Closed Sessions keeps a team closed together together: the one that started it, then its sessions right under",
+        await check("a click on it shows them right under it, the latest to close first",
                     together(), rows().map { "\(Int($0.minY))–\(Int($0.maxY))" }.joined(separator: ", "))
+        await ui.click(await ui.steadyAnchor("closed-search"), inSheet: true)
+        await typeInSheet(ui, "\(team.helper.name)")
+        await ui.until { ui.anchorFrame("closed:\(team.worker.id)") == nil }
+        await check("its search shows the team with the sessions found only", ui.anchorFrame("closed:\(team.helper.id)") != nil
+                    && ui.anchorFrame("closed:\(team.lead.id)") != nil && ui.anchorFrame("closed:\(team.worker.id)") == nil)
+        await sheetKey(ui, .escape)
+        await ui.until { ui.anchorFrame("closed:\(team.helper.id)") == nil }
+        await check("Escape clears it, the team folded again, the window still open", model.modal == .closedSessions
+                    && ui.anchorFrame("closed-fold:\(team.lead.id)") != nil && ui.anchorFrame("closed:\(team.worker.id)") == nil)
+        await ui.click(await ui.steadyAnchor("closed-fold:\(team.lead.id)"), inSheet: true)
+        await ui.until { ui.anchorFrame("closed:\(team.worker.id)") != nil }
         await check("each has Resume", [team.lead.id, team.worker.id, team.helper.id].allSatisfy { ui.anchorFrame("resume:\($0)") != nil })
         let log = model.ghosttyLog.count
         await ui.click(await ui.steadyAnchor("resume:\(team.worker.id)"), inSheet: true)
