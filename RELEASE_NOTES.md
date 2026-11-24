@@ -1,5 +1,15 @@
 # Release notes
 
+## v19.1 · 2026-11-24 · Less to wade through (plugin 0.13.4)
+
+- New tasks go first in Tasks, and a story brought back from the Archive too. The New Task card at the end of the list is gone: + in the Tasks header, or N with nothing selected, opens New Task…, whose title now suggests your #tags as you type.
+- A task's window has a Blocked row: Block… and Blocked By… when it's free; once blocked, the reason edits in place, × unblocks, and each blocking task is a chip with ×. Edit Reason… is in the task's menu and the Task menu.
+- Closed Sessions has a search field (names, tasks, roles, folders) and folds each team under its top session, "29 closed sessions", open or closed; an open one offers Focus.
+- Clear Conversation in a session's menu and the Session menu types /clear at its prompt: same card, empty context. Leaders get `hq session clear` (plugin 0.13.4), and the shipped Leader and Worker roles keep Workers cheap: closed once done, a fresh one per task.
+- Pull request cards show five rows at rest, a long stack cut at the fifth with its line running on to Show N More.
+- Files and artifacts whose tasks are all archived or deleted leave their cards; search, their tasks and Unarchive still find them. Pinned ones stay.
+- Fixes: a task worked on before and after a /clear lists its session once, and the tasks that listed it twice are repaired; the last line of First message, or any text box in a form, is never cut under the buttons; a task's window no longer grows wider than itself on a half screen.
+
 ## v18.6 · 2026-11-20 · The focus stays put
 
 - With several tasks selected, the focus no longer jumps: leaving Tasks and coming back, or a session or the vault moving one of the selected tasks, keeps it on the task you were on, so X acts on that one.
