@@ -96,6 +96,7 @@ enum KitIcon: String, CaseIterable {
     case plugin = "puzzlepiece.extension"
     case vault = "books.vertical"
     case general = "gearshape"
+    case appearance = "paintpalette"
     case keyboard = "keyboard"
     case ghostty = "terminal"
     case checked = "checkmark.square.fill"

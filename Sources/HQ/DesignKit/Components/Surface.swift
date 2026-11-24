@@ -16,12 +16,14 @@ struct SurfaceModifier: ViewModifier {
     var lifted = false
     /// A tint over the surface: selection, a drop target.
     var tint: Color?
+    /// A faint light from its leading side while state light is on (Settings › Appearance): a working session.
+    var wash: Color?
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         content
             .background {
-                SurfaceBody(shape: shape, glow: glow, breathing: breathing, lifted: lifted, tint: tint)
+                SurfaceBody(shape: shape, glow: glow, breathing: breathing, lifted: lifted, tint: tint, wash: wash)
             }
             .overlay {
                 shape.strokeBorder(glow.map { AnyShapeStyle($0.opacity(0.55)) } ?? AnyShapeStyle(Ink.cardHairline), lineWidth: 1)
@@ -36,36 +38,58 @@ private struct SurfaceBody: View {
     let breathing: Bool
     let lifted: Bool
     let tint: Color?
+    let wash: Color?
 
     /// The glow held once the user looked, and its peak while it breathes.
     private static let hold = 0.2
     private static let peak = 0.5
 
     var body: some View {
+        let light = Look.shared.stateLight ? Look.shared.stateStrength : nil
         if let glow, breathing {
             // The breath crossfades on the render server from the glow held to the glow at its peak.
             ZStack {
-                base(glow).shadow(color: glow.opacity(Self.hold), radius: Metric.glowRadius)
-                BreathingGlow(peak: AnyView(base(glow).shadow(color: glow.opacity(Self.peak), radius: Metric.glowRadius)))
+                halo(base(glow, light), glow, Self.hold, light)
+                BreathingGlow(peak: AnyView(halo(base(glow, light), glow, Self.peak, light)))
             }
         } else if let glow {
-            base(glow).shadow(color: glow.opacity(Self.hold), radius: Metric.glowRadius)
+            halo(base(glow, light), glow, Self.hold, light)
         } else {
-            base(nil)
+            base(nil, light)
         }
     }
 
-    private func base(_ glow: Color?) -> some View {
+    /// The glow around the card; with state light, stronger and fallen a little below it, as light on the page.
+    private func halo(_ card: some View, _ glow: Color, _ strength: Double, _ light: Double?) -> some View {
+        card.shadow(color: glow.opacity(min(1, strength * (light.map { 1.4 * $0 } ?? 1))),
+                    radius: light == nil ? Metric.glowRadius : Metric.glowRadius * 1.4,
+                    y: light == nil ? 0 : Metric.glowFall)
+    }
+
+    private func base(_ glow: Color?, _ light: Double?) -> some View {
         ZStack {
             shape.fill(Ink.card)
                 .shadow(color: Ink.shadowNear, radius: Metric.shadowNearRadius, y: Metric.shadowNearY)
                 .shadow(color: lifted ? Ink.shadowLifted : Ink.shadowFar,
                         radius: lifted ? Metric.shadowLiftRadius : Metric.shadowFarRadius,
                         y: lifted ? Metric.shadowLiftY : Metric.shadowFarY)
-            if let glow { shape.fill(glow.opacity(0.07)) }
+            if let glow {
+                if let light { shape.fill(Self.lit(glow, light, reach: 0.8)) } else { shape.fill(glow.opacity(0.07)) }
+            } else if let wash, let light {
+                shape.fill(Self.lit(wash, light * 0.5, reach: 0.55))
+            }
             if let tint { shape.fill(tint) }
         }
         .animation(Motion.lift, value: lifted)
+    }
+
+    /// Light from the card's leading side, where its face is, fading across it.
+    private static func lit(_ color: Color, _ strength: Double, reach: Double) -> LinearGradient {
+        LinearGradient(stops: [
+            .init(color: color.opacity(min(1, 0.22 * strength)), location: 0),
+            .init(color: color.opacity(min(1, 0.07 * strength)), location: reach * 0.55),
+            .init(color: color.opacity(0), location: reach),
+        ], startPoint: .leading, endPoint: .trailing)
     }
 }
 
@@ -135,8 +159,8 @@ final class BreathingView: NSView {
 
 extension View {
     /// Sits the view on a raised card.
-    func surface(radius: CGFloat = Radius.card, glow: Color? = nil, breathing: Bool = false, lifted: Bool = false, tint: Color? = nil) -> some View {
-        modifier(SurfaceModifier(radius: radius, glow: glow, breathing: breathing, lifted: lifted, tint: tint))
+    func surface(radius: CGFloat = Radius.card, glow: Color? = nil, breathing: Bool = false, lifted: Bool = false, tint: Color? = nil, wash: Color? = nil) -> some View {
+        modifier(SurfaceModifier(radius: radius, glow: glow, breathing: breathing, lifted: lifted, tint: tint, wash: wash))
     }
 
     /// A card in a list, selected as a task's card: a 2 pt accent ring and a faint accent tint while its list has the
@@ -178,34 +202,52 @@ struct CardToggle: View {
 /// of a mesh wakes its GPU renderer, which holds a lot of memory for seconds.
 struct SkyView: View {
     let mood: SkyMood
+    /// The band at the top of the page, or the glow at the window's foot (Settings › Appearance).
+    var part: SkyPart = .top
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        SkyImage(sky: SkyLayerView.Sky(mood: mood, scheme: scheme, contrast: contrast))
-            .frame(height: Metric.skyHeight)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        let look = Look.shared
+        if look.sky == .topAndBottom || look.sky == .top && part == .top {
+            // Strength in steps of a twentieth: one drawing per step, not per slider position.
+            let strength = (look.skyStrength * 20).rounded() / 20
+            SkyImage(sky: SkyLayerView.Sky(mood: mood, scheme: scheme, contrast: contrast, part: part, strength: strength))
+                .frame(height: part == .top ? Metric.skyHeight : Metric.groundHeight)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     /// The mesh, filling whatever frame it gets: its points are fractions of it.
-    static func mesh(_ mood: SkyMood, _ scheme: ColorScheme) -> some View {
-        let colors = Ink.sky(mood)
-        let top = Ink.skyOpacity(scheme)
-        return MeshGradient( // perf: ok drawn once per mood on the CPU (SkyLayerView)
-            width: 3, height: 3, // grid: ok mesh points, not points on screen
-            points: [
-                [0, 0], [0.5, 0], [1, 0],
-                [0, 0.5], [0.6, 0.45], [1, 0.55],
-                [0, 1], [0.5, 1], [1, 1],
-            ],
-            colors: [
-                colors[0].opacity(top), colors[1].opacity(top * 0.75), colors[2].opacity(top),
-                colors[1].opacity(top * 0.4), colors[2].opacity(top * 0.3), colors[0].opacity(top * 0.4),
-                colors[2].opacity(0), colors[0].opacity(0), colors[1].opacity(0),
-            ]
-        )
+    static func mesh(_ sky: SkyLayerView.Sky) -> some View {
+        let colors = Ink.sky(sky.mood)
+        let top = Ink.skyOpacity(sky.scheme) * sky.strength
+        let points: [SIMD2<Float>] = [
+            [0, 0], [0.5, 0], [1, 0],
+            [0, 0.5], [0.6, 0.45], [1, 0.55],
+            [0, 1], [0.5, 1], [1, 1],
+        ]
+        // The glow at the foot mirrors the top, fainter, its colors the other way round.
+        let tints: [Color] = switch sky.part {
+        case .top: [
+            colors[0].opacity(top), colors[1].opacity(top * 0.75), colors[2].opacity(top),
+            colors[1].opacity(top * 0.4), colors[2].opacity(top * 0.3), colors[0].opacity(top * 0.4),
+            colors[2].opacity(0), colors[0].opacity(0), colors[1].opacity(0),
+        ]
+        case .ground: [
+            colors[1].opacity(0), colors[0].opacity(0), colors[2].opacity(0),
+            colors[2].opacity(top * 0.2), colors[1].opacity(top * 0.12), colors[0].opacity(top * 0.2),
+            colors[2].opacity(top * 0.6), colors[1].opacity(top * 0.35), colors[0].opacity(top * 0.55),
+        ]
+        }
+        return MeshGradient(width: 3, height: 3, points: points, colors: tints) // perf: ok drawn once per mood on the CPU (SkyLayerView) // grid: ok mesh points, not points on screen
     }
+}
+
+/// Where a sky sits: the band at the top of the page, or the glow at the window's foot.
+enum SkyPart: Hashable {
+    case top, ground
 }
 
 private struct SkyImage: NSViewRepresentable {
@@ -223,10 +265,13 @@ final class SkyLayerView: NSView {
         var mood: SkyMood
         var scheme: ColorScheme
         var contrast: ColorSchemeContrast
+        var part: SkyPart = .top
+        var strength: Double = 1
     }
 
     private var sky: Sky?
-    private var shown: Sky?
+    /// What it shows now: the UI test reads it.
+    private(set) var shown: Sky?
     /// One drawing per mood and appearance, at one pixel per point of a wide page: smooth enough to stretch.
     private static var drawings: [Sky: CGImage] = [:]
     private static let drawn = CGSize(width: 1504, height: 420)
@@ -234,7 +279,8 @@ final class SkyLayerView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layerContentsRedrawPolicy = .never
+        // Redrawn when its sky changes (show, a new accent), stretched when it resizes.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         setAccessibilityElement(false)
         NotificationCenter.default.addObserver(self, selector: #selector(colorsChanged), name: NSColor.systemColorsDidChangeNotification, object: nil)
     }
@@ -277,7 +323,7 @@ final class SkyLayerView: NSView {
         if let image = drawings[sky] { return image }
         var image: CGImage?
         appearance.performAsCurrentDrawingAppearance {
-            let renderer = ImageRenderer(content: SkyView.mesh(sky.mood, sky.scheme).frame(width: drawn.width, height: drawn.height) // perf: ok into a CGContext
+            let renderer = ImageRenderer(content: SkyView.mesh(sky).frame(width: drawn.width, height: drawn.height) // perf: ok into a CGContext
                 .environment(\.colorScheme, sky.scheme))
             // Drawn into a bitmap: Core Graphics draws the mesh as SwiftUI does on screen, without the GPU.
             renderer.render { size, draw in
@@ -288,6 +334,8 @@ final class SkyLayerView: NSView {
                 image = ctx.makeImage()
             }
         }
+        // A slider's drag draws a step each: keep a few drawings, not every strength tried.
+        if drawings.count >= 12 { drawings = [:] }
         if let image { drawings[sky] = image }
         return image
     }

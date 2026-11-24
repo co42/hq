@@ -112,6 +112,8 @@ struct CockpitView: View {
             ZStack(alignment: .top) {
                 Ink.content
                 SkyView(mood: model.skyMood)
+                SkyView(mood: model.skyMood, part: .ground)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
             .id(zoom)
             .ignoresSafeArea()

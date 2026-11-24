@@ -5,13 +5,14 @@ import SwiftUI
 
 /// The Settings tabs. Snapshot mode walks through every case.
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, projects, claude, ghostty, github, slack, keys
+    case general, appearance, projects, claude, ghostty, github, slack, keys
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "General"
+        case .appearance: "Appearance"
         case .projects: "Projects"
         case .claude: "Claude"
         case .ghostty: "Ghostty"
@@ -24,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: KitIcon {
         switch self {
         case .general: .general
+        case .appearance: .appearance
         case .projects: .project
         case .claude: .sessions
         case .ghostty: .ghostty
@@ -59,6 +61,7 @@ struct SettingsView: View {
         Form {
             switch tab {
             case .general: GeneralSettings()
+            case .appearance: AppearanceSettings()
             case .projects: ProjectsSettings()
             case .claude: ClaudeSettings()
             case .ghostty: GhosttySettings()
@@ -104,6 +107,45 @@ struct GeneralSettings: View {
             Text("Tasks live in hq/tasks/ and files in hq/files/. HQ writes only the properties it owns.")
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// How the page looks (DESIGN.md §12, Look): each light on or off, and how strong.
+struct AppearanceSettings: View {
+    @Bindable private var look = Look.shared
+
+    var body: some View {
+        Section {
+            Picker("Sky", selection: $look.sky) {
+                ForEach(Look.Sky.allCases) { Text($0.title).tag($0) }
+            }
+            strength($look.skyStrength, on: look.sky != .none)
+        } header: {
+            Text("Sky")
+        } footer: {
+            Text("The day’s colors behind the page: calm when nothing waits, warm while something needs you. Top and Bottom also lights the window’s foot.")
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("Light from the face", isOn: $look.stateLight)
+            strength($look.stateStrength, on: look.stateLight)
+        } header: {
+            Text("Cards")
+        } footer: {
+            Text("A card that needs you lights up orange from its face’s side and glows, red when it failed; a working session’s card takes a faint wash of the accent.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func strength(_ value: Binding<Double>, on: Bool) -> some View {
+        Slider(value: value, in: Look.strengths) {
+            Text("Strength")
+        } minimumValueLabel: {
+            Text("Faint")
+        } maximumValueLabel: {
+            Text("Strong")
+        }
+        .disabled(!on)
     }
 }
 

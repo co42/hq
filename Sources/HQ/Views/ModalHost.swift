@@ -66,6 +66,9 @@ struct ModalHost: View {
                 Ink.content
                 SkyView(mood: model.mood(of: route))
                     .opacity(0.7)
+                SkyView(mood: model.mood(of: route), part: .ground)
+                    .opacity(0.7)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
         .environment(\.inModal, true)

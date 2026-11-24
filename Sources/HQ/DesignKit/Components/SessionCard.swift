@@ -119,7 +119,7 @@ struct SessionCard: View {
             if content.open { rows }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .surface(glow: glow, breathing: content.blinking, lifted: content.open || (hovered && !dropTarget), tint: tint)
+        .surface(glow: glow, breathing: content.blinking, lifted: content.open || (hovered && !dropTarget), tint: tint, wash: wash)
         .overlay {
             if selected || dropTarget {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
@@ -275,6 +275,12 @@ struct SessionCard: View {
         let running = content.everyone.filter(\.isRunning)
         if running.contains(where: { $0.status.state == .failed }) { return Ink.failed }
         return running.contains(where: \.status.needsYou) ? Ink.needsYou : nil
+    }
+
+    /// One of its sessions works: a faint accent light while state light is on.
+    private var wash: Color? {
+        guard !dropTarget, !alone else { return nil }
+        return content.everyone.contains { $0.isRunning && [.working, .compacting].contains($0.status.state) } ? Ink.accent : nil
     }
 
     private var tint: Color? {

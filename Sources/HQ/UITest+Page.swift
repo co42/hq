@@ -583,4 +583,19 @@ extension UITest {
         model.closeModal()
         await ui.until(2) { ui.window.attachedSheet == nil }
     }
+
+    /// Settings › Appearance reaches the page's sky at once: where it shows, its strength, the day's mood (T-642, T-790).
+    static func look(_ model: AppModel, _ ui: Driver) async {
+        let look = Look.shared
+        defer { look.sky = .topAndBottom; look.skyStrength = 1 }
+        func shown() -> [SkyLayerView.Sky?] { ui.findAll(SkyLayerView.self).map(\.shown) }
+        func says() -> String { shown().map { $0.map { "\($0.part) \($0.mood) \($0.strength)" } ?? "nothing" }.joined(separator: ", ") }
+        await check("the page shows the sky at its top and foot", shown().count == 2 && shown().allSatisfy { $0?.mood == model.skyMood }, says())
+        look.skyStrength = 2
+        await check("a stronger sky redraws the page's sky", shown().count == 2 && shown().allSatisfy { $0?.strength == 2 }, says())
+        look.sky = .top
+        await check("Top shows the sky at the top only", shown().count == 1 && shown().first??.part == .top, says())
+        look.sky = .none
+        await check("None shows no sky", shown().isEmpty, says())
+    }
 }

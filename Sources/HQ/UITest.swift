@@ -79,6 +79,7 @@ enum UITest {
                 ("foldedParentOpens", foldedParentOpens), ("outlineHeight", outlineHeight), ("disclosures", disclosures), ("singleSessionFace", singleSessionFace), ("prFaces", prFaces), ("notificationCenter", notificationCenter), ("waitingFaces", waitingFaces), ("rowControls", rowControls), ("typingKeepsRows", typingKeepsRows), ("menuBar", menuBar), ("copyAndRemind", copyAndRemind), ("markdownEditing", markdownEditing), ("markdownWide", markdownWide), ("storyFlow", storyFlow),
                 ("slackLinks", slackLinks),
                 ("pageFixes", pageFixes),
+                ("look", look),
                 ("rolesAndForms", rolesAndForms),
                 ("teams", teams),
                 ("sessionDrags", sessionDrags),

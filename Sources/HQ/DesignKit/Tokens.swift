@@ -248,10 +248,14 @@ nonisolated enum Metric {
     static var shadowLiftY: CGFloat { 8 * Zoom.factor }
     /// The glow of a card that needs the user.
     static var glowRadius: CGFloat { 14 * Zoom.factor }
+    /// How far below its card the glow falls while state light is on.
+    static var glowFall: CGFloat { 4 * Zoom.factor }
     /// The page's title, and the sky behind the top of the page.
     static var pageTitleTop: CGFloat { 8 * Zoom.factor }
     static var pageTitle: CGFloat { 52 * Zoom.factor }
     static var skyHeight: CGFloat { 420 * Zoom.factor }
+    /// The sky's glow at the window's foot (Settings › Appearance).
+    static var groundHeight: CGFloat { 360 * Zoom.factor }
     /// A section's symbol tile beside its title.
     static var sectionTile: CGFloat { 24 * Zoom.factor }
     /// A pinned header, slimmer under the toolbar (T-644): its tile and its controls.
