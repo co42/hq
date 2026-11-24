@@ -62,8 +62,9 @@ private struct OutlineHost: NSViewRepresentable {
         context.coordinator.refresh()
     }
 
+    /// The width proposed: a task's window measures it to set `width`, which answered alone would never shrink (T-779).
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: OutlineContainer, context: Context) -> CGSize? {
-        CGSize(width: width, height: max(height, nsView.contentHeight))
+        CGSize(width: proposal.width ?? width, height: max(height, nsView.contentHeight))
     }
 }
 

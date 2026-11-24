@@ -793,11 +793,10 @@ enum Snapshot {
         if FileManager.default.fileExists(atPath: path) { print("SNAPSHOT \(path)") } else { fail("\(path): the capture failed") }
     }
 
-    /// The grid's probes, at 100% only: zoomed sizes leave the 4 pt grid on purpose.
+    /// The grid's probes; zoomed sizes leave the 4 pt grid on purpose, so a zoomed file is checked for areas within areas only.
     private static func writeLayout(_ window: NSWindow, _ path: String) {
         let layout = path.replacingOccurrences(of: ".png", with: "-layout.json")
-        guard Zoom.factor == 1 else { try? FileManager.default.removeItem(atPath: layout); return }
-        GridProbes.shared.write(to: layout, window: window.contentView?.bounds.size ?? .zero)
+        GridProbes.shared.write(to: layout, window: window.contentView?.bounds.size ?? .zero, zoom: Zoom.factor)
     }
 
     /// PNGs still being encoded: the run waits for them before it quits.

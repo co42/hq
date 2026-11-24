@@ -16,6 +16,7 @@ struct ModalPage<Content: View>: View {
             VStack(alignment: .leading, spacing: Space.xl) { content }
                 .frame(maxWidth: width, alignment: .leading)
                 .padding(.horizontal, Space.xxl)
+                .gridArea("modal-column", inset: Space.xxl, within: "modal")
                 .padding(.vertical, Space.xl)
                 .frame(maxWidth: .infinity)
         }
