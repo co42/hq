@@ -826,7 +826,7 @@ enum Snapshot {
     }
 
     /// The window and its sheet as the window server draws them, at the screen's pixel scale.
-    private static func grab(_ window: NSWindow) async -> CGImage? {
+    static func grab(_ window: NSWindow) async -> CGImage? {
         guard let content = try? await SCShareableContent.currentProcess,
               let shared = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else { return nil }
         let filter = SCContentFilter(desktopIndependentWindow: shared)

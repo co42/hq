@@ -5,13 +5,14 @@ import SwiftUI
 
 /// The Settings tabs. Snapshot mode walks through every case.
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, projects, claude, ghostty, github, slack, keys
+    case general, appearance, projects, claude, ghostty, github, slack, keys
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "General"
+        case .appearance: "Appearance"
         case .projects: "Projects"
         case .claude: "Claude"
         case .ghostty: "Ghostty"
@@ -24,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: KitIcon {
         switch self {
         case .general: .general
+        case .appearance: .appearance
         case .projects: .project
         case .claude: .sessions
         case .ghostty: .ghostty
@@ -59,6 +61,7 @@ struct SettingsView: View {
         Form {
             switch tab {
             case .general: GeneralSettings()
+            case .appearance: AppearanceSettings()
             case .projects: ProjectsSettings()
             case .claude: ClaudeSettings()
             case .ghostty: GhosttySettings()
@@ -104,6 +107,64 @@ struct GeneralSettings: View {
             Text("Tasks live in hq/tasks/ and files in hq/files/. HQ writes only the properties it owns.")
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// How the page looks (DESIGN.md §12, Look): each light on or off, and how strong.
+struct AppearanceSettings: View {
+    @Bindable private var look = Look.shared
+
+    var body: some View {
+        Section {
+            Picker("Sky", selection: $look.sky) {
+                ForEach(Look.Sky.allCases) { Text($0.title).tag($0) }
+            }
+            strength($look.skyStrength, on: look.sky != .none)
+        } header: {
+            Text("Sky")
+        } footer: {
+            Text("The day’s colors behind the page: calm when nothing waits, warm while something needs you. Top and Bottom also lights the window’s foot.")
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("Light when it needs you", isOn: $look.stateLight)
+            strength($look.stateStrength, on: look.stateLight)
+            Toggle("Light while it works", isOn: $look.workingLight)
+            strength($look.workingStrength, on: look.workingLight)
+            Toggle("Lit cards", isOn: $look.litCards)
+            strength($look.litStrength, on: look.litCards)
+            Toggle("Frosted cards", isOn: $look.frosted)
+            strength($look.frostStrength, on: look.frosted)
+        } header: {
+            Text("Cards")
+        } footer: {
+            Text("A card that needs you lights up orange from its face’s side and glows, red when it failed; while it or its team works, it takes the accent the same way, without the glow. Lit cards catch the light along their top edge and cast a softer, deeper shadow. Frosted cards and the task list’s blocks let the sky show through.")
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("Richer marks", isOn: $look.richMarks)
+        } footer: {
+            Text("Section tiles with a gloss, progress bars lit from above, and the faces on session cards raised a little.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A strength in steps of 5%, its value beside it.
+    private func strength(_ value: Binding<Double>, on: Bool) -> some View {
+        HStack(spacing: Space.sm) {
+            Slider(value: value, in: Look.strengths, step: Look.step) {
+                Text("Strength")
+            } minimumValueLabel: {
+                Text("Faint")
+            } maximumValueLabel: {
+                Text("Strong")
+            }
+            Text(value.wrappedValue, format: .percent.precision(.fractionLength(0)))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: Metric.settingsValue, alignment: .trailing)
+        }
+        .disabled(!on)
     }
 }
 

@@ -252,7 +252,7 @@ private struct ArchiveCard: View {
         .kitType(.meta)
         .foregroundStyle(.secondary)
         .padding(.horizontal, Space.xs)
-        .surface(radius: Radius.control, lifted: true)
+        .surface(radius: Radius.control, lifted: true, solid: true)
     }
 
 }

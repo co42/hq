@@ -172,6 +172,15 @@ final class BlockProgressView: NSView {
     private(set) var tally = TaskFlow.Tally()
     var started: Bool { tally.total > 0 }
 
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        NotificationCenter.default.addObserver(self, selector: #selector(lookChanged), name: Look.changed, object: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func lookChanged() { needsDisplay = true }
+
     nonisolated override var isFlipped: Bool { true }
 
     func show(_ tally: TaskFlow.Tally) {
@@ -211,10 +220,17 @@ final class BlockProgressView: NSView {
         bar.fill()
         let total = CGFloat(max(tally.total, 1))
         var segment = bar.minX
+        let rich = Look.shared.richMarks
         for (count, color) in [(tally.done, Ink.doneNS), (tally.doing, Ink.doingNS), (tally.blocked, Ink.blockedNS)] where count > 0 {
             let width = bar.width * CGFloat(count) / total
-            color.setFill()
-            NSRect(x: segment, y: bar.minY, width: width, height: bar.height).fill()
+            let part = NSRect(x: segment, y: bar.minY, width: width, height: bar.height)
+            // Richer marks (Settings › Appearance): lit from above, as the SwiftUI bar.
+            if rich, let gradient = NSGradient(starting: color.markTop, ending: color) {
+                gradient.draw(in: part, angle: 90)
+            } else {
+                color.setFill()
+                part.fill()
+            }
             segment += width
         }
         NSGraphicsContext.restoreGraphicsState()

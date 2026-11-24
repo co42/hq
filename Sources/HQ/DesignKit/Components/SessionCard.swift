@@ -119,7 +119,7 @@ struct SessionCard: View {
             if content.open { rows }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .surface(glow: glow, breathing: content.blinking, lifted: content.open || (hovered && !dropTarget), tint: tint)
+        .surface(glow: glow, breathing: content.blinking, lifted: content.open || (hovered && !dropTarget), tint: tint, wash: wash)
         .overlay {
             if selected || dropTarget {
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
@@ -164,6 +164,14 @@ struct SessionCard: View {
     private var top: some View {
         HStack(spacing: Space.md) {
             SessionFace(session, size: Metric.faceCard, badged: false)
+                .background {
+                    // Richer marks (Settings › Appearance): the face sits a little above its card.
+                    if Look.shared.richMarks {
+                        RoundedRectangle(cornerRadius: Metric.faceCard * FaceArt.corner, style: .continuous)
+                            .fill(Ink.card)
+                            .shadow(color: Ink.shadowLit, radius: Metric.shadowNearRadius * 4, y: Metric.shadowNearY * 2)
+                    }
+                }
                 .uiTestAnchor("card-face:\(session.id)")
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text(session.name)
@@ -275,6 +283,12 @@ struct SessionCard: View {
         let running = content.everyone.filter(\.isRunning)
         if running.contains(where: { $0.status.state == .failed }) { return Ink.failed }
         return running.contains(where: \.status.needsYou) ? Ink.needsYou : nil
+    }
+
+    /// One of its sessions works: a faint accent light while state light is on.
+    private var wash: Color? {
+        guard !dropTarget, !alone else { return nil }
+        return content.everyone.contains { $0.isRunning && [.working, .compacting].contains($0.status.state) } ? Ink.accent : nil
     }
 
     private var tint: Color? {

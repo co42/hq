@@ -38,6 +38,7 @@ retired=(
   'second accent ring' 'nothing: the focus has the hover fill (T-708)'
   '--reason' 'hq notify'
   'Open in Ghostty' 'Focus'
+  'Glass background' 'nothing: removed after trying it (T-642)'
   'Start in Ghostty' 'Start'
   'Hidden and Closed' 'Closed Sessions'
   'Mark All Read' 'nothing: each notification on its own (T-310)'

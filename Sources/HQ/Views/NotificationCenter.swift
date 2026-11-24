@@ -423,7 +423,7 @@ private struct NoticeRow: View {
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
         .padding(.horizontal, Space.xs)
-        .surface(radius: Radius.control, lifted: true)
+        .surface(radius: Radius.control, lifted: true, solid: true)
         .uiTestAnchor("actions:\(notice.id.uuidString)")
     }
 

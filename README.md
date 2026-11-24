@@ -17,7 +17,7 @@ HQ indexes and links; other apps do the work. Ghostty runs the sessions, an Obsi
 
 Attention is earned: only what needs you is orange (a session that asks, a ping, a due reminder), and the page shows state, never "new". Who waits shows by face in the toolbar, after the bell, wherever the page is scrolled: a click on a face brings that session's terminal forward. What happened goes to the **notification center** (⌘J, the toolbar's bell, or the menu bar), read once: Needs You, Updates, Later. Sessions tell you there when work is ready (`hq notify`), GitHub reviews and comments on your PRs land there, and reminders, yours or a session's, come back there at their time: Remind Me… on a task, a PR, a file or an artifact sets one about it. ⌘K opens Quick Open. While you scroll through a section, its header and its buttons stay at the top of the page until the next section's header takes their place.
 
-The look is native macOS 27: raised cards on a calm canvas, a soft sky at the top that follows the day, and Liquid Glass for everything that floats (the toolbar, the section bar, the modal's header). [DESIGN.md](DESIGN.md) has every rule.
+The look is native macOS 27: raised cards that catch the light on a calm canvas, a soft sky at the top and foot of the window that follows the day, cards that light up while they need you or work, and Liquid Glass for everything that floats (the toolbar, the section bar, the modal's header). Settings › Appearance tunes each light. [DESIGN.md](DESIGN.md) has every rule.
 
 ## How it works
 
