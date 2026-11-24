@@ -62,14 +62,7 @@ struct ModalHost: View {
         .frame(width: min(size.width, room.width), height: min(size.height, room.height))
         .background(alignment: .top) {
             // The item's own sky: warm while it needs the user.
-            ZStack(alignment: .top) {
-                Ink.content
-                SkyView(mood: model.mood(of: route))
-                    .opacity(0.7)
-                SkyView(mood: model.mood(of: route), part: .ground)
-                    .opacity(0.7)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-            }
+            CanvasView(mood: model.mood(of: route), sky: 0.7)
         }
         .environment(\.inModal, true)
         .environment(\.modalRoute, route)

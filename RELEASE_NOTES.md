@@ -1,5 +1,11 @@
 # Release notes
 
+## v19.1 · 2026-11-24 · Light and sky
+
+- Settings › Appearance, a new tab: the sky (None, Top, or Top and Bottom, which also lights the window's foot), the light of a card that needs you, the light of one that works, lit cards (a rim along their top edge, a softer, deeper shadow), frosted cards and richer marks (glossy tiles, progress bars lit from above). Each is a switch with a strength in 5% steps; the defaults are the ones picked while trying them.
+- A card that needs you lights up from its face's side and glows, red when it failed; a card whose session or team works takes the accent the same way.
+- Fixes: the page's sky follows the day again: it kept the mood it first drew, warm while only a pinned header turned calm; the toolbar no longer shows a lighter band over the sky at the top of the page.
+
 ## v19 · 2026-11-24 · Less to wade through (plugin 0.13.4)
 
 - New tasks go first in Tasks, and a story brought back from the Archive too. The New Task card at the end of the list is gone: + in the Tasks header, or N with nothing selected, opens New Task…, whose title now suggests your #tags as you type.

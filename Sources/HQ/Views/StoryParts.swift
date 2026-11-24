@@ -171,9 +171,9 @@ struct StoryBar: View {
         GeometryReader { geometry in
             let total = max(CGFloat(tally.total), 1)
             HStack(spacing: 0) {
-                Rectangle().fill(Ink.done).frame(width: geometry.size.width * CGFloat(tally.done) / total)
-                Rectangle().fill(Ink.doing).frame(width: geometry.size.width * CGFloat(tally.doing) / total)
-                Rectangle().fill(Ink.blocked).frame(width: geometry.size.width * CGFloat(tally.blocked) / total)
+                Rectangle().fill(Ink.done.markFill).frame(width: geometry.size.width * CGFloat(tally.done) / total)
+                Rectangle().fill(Ink.doing.markFill).frame(width: geometry.size.width * CGFloat(tally.doing) / total)
+                Rectangle().fill(Ink.blocked.markFill).frame(width: geometry.size.width * CGFloat(tally.blocked) / total)
                 Spacer(minLength: 0)
             }
         }

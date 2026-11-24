@@ -20,12 +20,6 @@ extension EnvironmentValues {
     @Entry var headerPinned = false
 }
 
-/// Some section's header is pinned: the page hides the toolbar's own background, the band's hairline is the one line (T-644).
-struct HeaderPinnedKey: PreferenceKey {
-    static let defaultValue = false
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
-}
-
 extension View {
     /// A section whose header pins: tells the header how far it may follow.
     func pinsItsHeader() -> some View { modifier(PinnedSection()) }
@@ -54,7 +48,6 @@ private struct PinnedHeader: ViewModifier {
         if let line {
             content
                 .environment(\.headerPinned, pinned)
-                .preference(key: HeaderPinnedKey.self, value: pinned)
                 .background(alignment: .top) {
                     if pinned {
                         GeometryReader { header in PinBand(line: line, height: header.size.height) }
@@ -82,10 +75,7 @@ private struct PinBand: View {
     let height: CGFloat
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Ink.content
-            SkyView(mood: line.mood)
-        }
+        CanvasView(mood: line.mood, band: true)
         .frame(width: line.width, height: line.bar + height + Space.xs, alignment: .top)
         .clipped()
         .overlay(alignment: .bottom) { Ink.cardHairline.frame(height: Metric.tableRule) }

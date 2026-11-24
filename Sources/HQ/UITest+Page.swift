@@ -587,7 +587,8 @@ extension UITest {
     /// Settings › Appearance reaches the page's sky at once: where it shows, its strength, the day's mood (T-642, T-790).
     static func look(_ model: AppModel, _ ui: Driver) async {
         let look = Look.shared
-        defer { look.sky = .topAndBottom; look.skyStrength = 1 }
+        let (sky, strength) = (look.sky, look.skyStrength)
+        defer { look.sky = sky; look.skyStrength = strength }
         func shown() -> [SkyLayerView.Sky?] { ui.findAll(SkyLayerView.self).map(\.shown) }
         func says() -> String { shown().map { $0.map { "\($0.part) \($0.mood) \($0.strength)" } ?? "nothing" }.joined(separator: ", ") }
         await check("the page shows the sky at its top and foot", shown().count == 2 && shown().allSatisfy { $0?.mood == model.skyMood }, says())
@@ -597,5 +598,43 @@ extension UITest {
         await check("Top shows the sky at the top only", shown().count == 1 && shown().first??.part == .top, says())
         look.sky = .none
         await check("None shows no sky", shown().isEmpty, says())
+
+        /// One pixel of the window as the window server draws it, at a point from its top left.
+        func pixel(_ image: CGImage, x: CGFloat, y: CGFloat) -> [Int] {
+            let scale = CGFloat(image.width) / ui.window.frame.width
+            guard let crop = image.cropping(to: CGRect(x: Int(x * scale), y: Int(y * scale), width: 1, height: 1)),
+                  let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            guard let data = context.data?.assumingMemoryBound(to: UInt8.self) else { return [] }
+            return (0..<3).map { Int(data[$0]) }
+        }
+
+        // At rest the toolbar draws nothing of its own: just above and below its foot, the same sky (T-800).
+        look.sky = .topAndBottom
+        await ui.settle(0.5)
+        let foot = ui.window.frame.height - ui.window.contentLayoutRect.maxY
+        if let image = await Snapshot.grab(ui.window) {
+            let above = pixel(image, x: 4, y: foot - 4), below = pixel(image, x: 4, y: foot + 4)
+            await check("at rest the toolbar's foot shows no edge over the sky", above.count == 3 && below.count == 3
+                        && zip(above, below).allSatisfy { abs($0 - $1) <= 4 }, "above \(above), below \(below)")
+        } else {
+            await check("the window captures for the toolbar's foot", false, "no capture")
+        }
+
+        // AppKit cards (the task list's) follow the switches without a reload.
+        let (frosted, lit) = (look.frosted, look.litCards)
+        defer { look.frosted = frosted; look.litCards = lit }
+        look.frosted = true
+        let cardsView = CardsView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        ui.window.contentView?.addSubview(cardsView, positioned: .below, relativeTo: nil)
+        defer { cardsView.removeFromSuperview() }
+        cardsView.show([CGRect(x: 20, y: 20, width: 300, height: 80)])
+        func cards() -> [(alpha: CGFloat, rim: Bool)] { cardsView.raised }
+        func tells() -> String { cards().map { "\(String(format: "%.2f", $0.alpha))\($0.rim ? " rim" : "")" }.joined(separator: ", ") }
+        await check("AppKit cards are frosted and lit", !cards().isEmpty && cards().allSatisfy { $0.alpha < 1 && $0.rim }, tells())
+        look.frosted = false
+        look.litCards = false
+        await check("switched off, they are solid and unlit at once", !cards().isEmpty && cards().allSatisfy { $0.alpha == 1 && !$0.rim }, tells())
     }
 }

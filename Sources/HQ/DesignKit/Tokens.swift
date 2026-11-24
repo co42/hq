@@ -107,6 +107,17 @@ enum Ink {
     static let shadowFar = Color(nsColor: shadowFarNS)
     /// A card lifted under the pointer: the far shadow, deeper.
     static let shadowLifted = Color(nsColor: dynamic("shadowLifted", light: gray(0, 0.12), dark: gray(0, 0.5)))
+    /// Lit cards (Settings › Appearance): the rim along a card's top edge, the light down its fill, a deeper far shadow.
+    static let rimNS = dynamic("rim", light: gray(1, 0.95), dark: gray(1, 0.14))
+    static let rim = Color(nsColor: rimNS)
+    static let fallTopNS = dynamic("fallTop", light: gray(1, 0), dark: gray(1, 0.05))
+    static let fallTop = Color(nsColor: fallTopNS)
+    static let fallBottomNS = dynamic("fallBottom", light: gray(0, 0.035), dark: gray(1, 0))
+    static let fallBottom = Color(nsColor: fallBottomNS)
+    static let shadowLitNS = dynamic("shadowLit", light: NSColor(srgbRed: 0.16, green: 0.08, blue: 0.32, alpha: 0.14), dark: gray(0, 0.55))
+    static let shadowLit = Color(nsColor: shadowLitNS)
+    /// A frosted block's tray: a thin sheet over the sky.
+    static let trayFrostedNS = dynamic("trayFrosted", light: gray(1, 0.36), dark: gray(1, 0.05))
 
     /// The tile behind a section's symbol, and the symbol's tint.
     static func section(_ section: PageSection) -> Color {
@@ -246,6 +257,9 @@ nonisolated enum Metric {
     static var shadowFarY: CGFloat { 4 * Zoom.factor }
     static var shadowLiftRadius: CGFloat { 20 * Zoom.factor }
     static var shadowLiftY: CGFloat { 8 * Zoom.factor }
+    /// A lit card's far shadow (Settings › Appearance): wider and lower.
+    static var shadowLitRadius: CGFloat { 22 * Zoom.factor }
+    static var shadowLitY: CGFloat { 8 * Zoom.factor }
     /// The glow of a card that needs the user.
     static var glowRadius: CGFloat { 14 * Zoom.factor }
     /// How far below its card the glow falls while state light is on.
@@ -366,6 +380,8 @@ nonisolated enum Metric {
     static var tagField: CGFloat { 140 * Zoom.factor }
     // Sheets and Settings grow with the zoom, as what they hold does (T-446, T-448).
     static var settingsWidth: CGFloat { 520 * Zoom.factor }
+    /// A slider's value beside it in Settings: "200%".
+    static var settingsValue: CGFloat { 40 * Zoom.factor }
     /// A secret pasted in Settings, the Slack token.
     static var settingsField: CGFloat { 240 * Zoom.factor }
     static var sheetWidth: CGFloat { 480 * Zoom.factor }

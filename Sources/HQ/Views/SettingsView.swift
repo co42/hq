@@ -127,23 +127,42 @@ struct AppearanceSettings: View {
                 .foregroundStyle(.secondary)
         }
         Section {
-            Toggle("Light from the face", isOn: $look.stateLight)
+            Toggle("Light when it needs you", isOn: $look.stateLight)
             strength($look.stateStrength, on: look.stateLight)
+            Toggle("Light while it works", isOn: $look.workingLight)
+            strength($look.workingStrength, on: look.workingLight)
+            Toggle("Lit cards", isOn: $look.litCards)
+            strength($look.litStrength, on: look.litCards)
+            Toggle("Frosted cards", isOn: $look.frosted)
+            strength($look.frostStrength, on: look.frosted)
         } header: {
             Text("Cards")
         } footer: {
-            Text("A card that needs you lights up orange from its face’s side and glows, red when it failed; a working session’s card takes a faint wash of the accent.")
+            Text("A card that needs you lights up orange from its face’s side and glows, red when it failed; while it or its team works, it takes the accent the same way, without the glow. Lit cards catch the light along their top edge and cast a softer, deeper shadow. Frosted cards and the task list’s blocks let the sky show through.")
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("Richer marks", isOn: $look.richMarks)
+        } footer: {
+            Text("Section tiles with a gloss, progress bars lit from above, and the faces on session cards raised a little.")
                 .foregroundStyle(.secondary)
         }
     }
 
+    /// A strength in steps of 5%, its value beside it.
     private func strength(_ value: Binding<Double>, on: Bool) -> some View {
-        Slider(value: value, in: Look.strengths) {
-            Text("Strength")
-        } minimumValueLabel: {
-            Text("Faint")
-        } maximumValueLabel: {
-            Text("Strong")
+        HStack(spacing: Space.sm) {
+            Slider(value: value, in: Look.strengths, step: Look.step) {
+                Text("Strength")
+            } minimumValueLabel: {
+                Text("Faint")
+            } maximumValueLabel: {
+                Text("Strong")
+            }
+            Text(value.wrappedValue, format: .percent.precision(.fractionLength(0)))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: Metric.settingsValue, alignment: .trailing)
         }
         .disabled(!on)
     }

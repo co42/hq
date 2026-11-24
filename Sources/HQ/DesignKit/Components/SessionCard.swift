@@ -164,6 +164,14 @@ struct SessionCard: View {
     private var top: some View {
         HStack(spacing: Space.md) {
             SessionFace(session, size: Metric.faceCard, badged: false)
+                .background {
+                    // Richer marks (Settings › Appearance): the face sits a little above its card.
+                    if Look.shared.richMarks {
+                        RoundedRectangle(cornerRadius: Metric.faceCard * FaceArt.corner, style: .continuous)
+                            .fill(Ink.card)
+                            .shadow(color: Ink.shadowLit, radius: Metric.shadowNearRadius * 4, y: Metric.shadowNearY * 2)
+                    }
+                }
                 .uiTestAnchor("card-face:\(session.id)")
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text(session.name)
