@@ -130,7 +130,6 @@ enum UITest {
         model.closeModal()
         model.editingDescription = nil
         model.showSetup = false
-        model.pendingTaskLink = nil
         model.search = ""
         model.taskSearch = ""
         model.filesSearch = ""

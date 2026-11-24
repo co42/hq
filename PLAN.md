@@ -197,10 +197,10 @@ hq ls sessions [--here] [--tree] [--all]       # --here: the sessions whose fold
 hq ls prs | files | artifacts | projects | reminders | roles
 hq ls notifications [--all]                    # Needs You (waiting sessions, review requests, rows), Updates, Later; --all adds Earlier
 hq project edit Name [--folder dir] [--repo owner/name,…]
-hq task add "Title" [--project p] [--tag t] [--parent T-n] [--status s] [--link item,…] [--body -]   # end of the list; a subtask takes the parent's project
+hq task add "Title" [--project p] [--tag t] [--parent T-n] [--status s] [--link item,…] [--body -]   # first in the list; a subtask goes last under its parent, in its project
 hq task move T-n backlog|todo|doing|done      # any level; doing takes backlog parents to todo; review is refused, pointing to hq notify
 hq task archive T-n                           # a top-level task with its tree, to the Archive (only when the user asks)
-hq task unarchive T-n                         # an archived story back, at the end of the list; task show reads an archived task, read only
+hq task unarchive T-n                         # an archived story back, first in the list; task show reads an archived task, read only
 hq task edit T-n [--title …] [--body - [--force]] [--section S --body -] [--replace old --with new] [--project p] [--add-tag t] [--remove-tag t] [--parent T-m|none]
 hq task tick T-n "start of the item" [--untick]   # one checklist item; prints "2 of 4 ticked"
 hq task show T-n [T-m …] [--deep|--brief|--body]  # parents, reminders, description, subtasks (--deep: their descriptions), links; no paths

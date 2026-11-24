@@ -439,14 +439,6 @@ extension AppModel {
         return gridSessions.filter { $0.searchText.localizedStandardContains(search) }
     }
 
-    /// The list's quick-add line takes the keyboard (Tasks unfolds first).
-    func focusQuickAdd() {
-        closeModal()
-        showWindow()
-        folded.remove(.tasks)
-        quickAddFocus = true
-    }
-
     /// File › New Task… (⌘N, ⌥⌘N for a backlog task): its own small sheet, over what's open (T-332).
     func beginTask(_ status: TaskStatus) {
         if case .newTask = modal { return }

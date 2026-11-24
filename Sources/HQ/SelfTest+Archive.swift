@@ -61,10 +61,10 @@ extension SelfTest {
               && (found.first?["found"] as? [JSONObject])?.first?["id"] as? String == step.key, "\(found)")
         check("a subtask can't be archived alone", (agent("task archive", ["task": step.key])["error"] as? JSONObject) != nil)
 
-        // Unarchive: back at the end of the list, the archived key gone, the description as written.
+        // Unarchive: back first in the list, the archived key gone, the description as written.
         model.unarchive(story.id)
-        await expect("Unarchive brings a story and its task back at the end of the list",
-                     model.task(story.id) != nil && model.task(step.id) != nil && model.taskTree.top().last == story.id, "\(model.taskTree.top())")
+        await expect("Unarchive brings a story and its task back first in the list",
+                     model.task(story.id) != nil && model.task(step.id) != nil && model.taskTree.top().first == story.id, "\(model.taskTree.top())")
         await settle()
         check("their notes come back, the archived key gone, the description as written",
               exists(vault.liveURL(story.id)) && !exists(vault.archivedURL(story.id)) && !note(vault.liveURL(story.id)).has("archived")

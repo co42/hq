@@ -198,8 +198,6 @@ final class AppModel {
     var slackAccount: SlackAccount?
     /// What Slack said when it refused the token or a link.
     var slackError: String?
-    /// A Slack link copied before New Task: the next task from its quick-add line links it (T-313).
-    var pendingTaskLink: PendingTaskLink?
 
     /// When the user acknowledged a card (`blink:<id>`) or marked a PR reviewed (`review:<url>`).
     var seen: [String: Date] = [:] { didSet { saveAttentionSoon() } }
@@ -362,8 +360,6 @@ final class AppModel {
     }
     /// The outline's rows or a title have the keyboard: the Task menu's keys follow.
     var outlineKeyboard = OutlineKeyboard.none { didSet { syncMenu() } }
-    /// New Task: the list's quick-add line takes the keyboard.
-    var quickAddFocus = false
     /// ↓ on a task window's last subtask: that task's new subtask card takes the keyboard.
     var newSubtaskFocus: Int?
     /// Where the outline puts the keyboard after its next update.
@@ -420,6 +416,8 @@ final class AppModel {
     @ObservationIgnored var restoreScroll: ModalRoute?
     /// The Archive's window (T-471): its search, the index it shows, read when it opens, and whether HQ holds it.
     var archiveQuery = ""
+    /// Closed Sessions' search (T-744).
+    var closedQuery = ""
     /// The story selected in the Archive: kept while an archived task's window is over it.
     var archiveSelection: Int? { didSet { syncMenu() } }
     var archiveShown: ArchiveShown?

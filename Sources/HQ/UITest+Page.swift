@@ -7,6 +7,8 @@ import SwiftUI
 /// ⇧⌘B on a subtask in its task's window.
 extension UITest {
     static func pageFixes(_ model: AppModel, _ ui: Driver) async {
+        await stackPastFive(model, ui)
+        await scenario(model, ui)
         await keysPastFive(model, ui)
         await scenario(model, ui)
         await capsAtTwenty(model, ui)
@@ -165,6 +167,35 @@ extension UITest {
     private static func typeInSheet(_ ui: Driver, _ text: String) async {
         (ui.window.attachedSheet?.firstResponder as? NSTextView)?.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
         await ui.settle(0.2)
+    }
+
+    /// Five rows per PR card at rest (T-767): the seed's six-PR stack in Yours is cut after its fourth, Show 4 More shows the rest.
+    private static func stackPastFive(_ model: AppModel, _ ui: Driver) async {
+        model.search = ""
+        model.expandedCards = []
+        await ui.until(3) { ui.anchorFrame("pr:83") != nil }
+        let drawn = { (numbers: [Int]) in numbers.filter { ui.anchorFrame("pr:\($0)") != nil } }
+        let yours = model.ownPullRequests.map(\.number)
+        await check("Yours draws its first five rows, the stack cut after #83", drawn(yours).count == PRCards.shown
+                    && drawn([80, 81, 82, 83, 84, 85]) == [80, 81, 82, 83], "\(drawn(yours)) of \(yours)")
+        await check("Reviews draws five rows at most", drawn(model.reviewRequests.map(\.number)).count <= PRCards.shown)
+        let rail = { ui.anchorFrame("stack-rail:80") }
+        await check("the cut stack's rail runs on to the bottom of its last row shown", {
+            guard let rail = rail(), let last = ui.anchorFrame("pr:83") else { return false }
+            // Window coordinates: the bottom edge is minY.
+            return abs(rail.minY - last.minY) < 1
+        }(), "rail \(String(describing: rail())), #83 \(String(describing: ui.anchorFrame("pr:83")))")
+        await ui.click(await ui.steadyAnchor("show-more:yours"))
+        await ui.until(2) { ui.anchorFrame("pr:85") != nil }
+        await check("Show 4 More shows the rest of the stack and the rows after it", drawn(yours).count == yours.count,
+                    "\(drawn(yours)) of \(yours)")
+        await check("the whole stack's rail ends at its last tile's middle", {
+            guard let rail = rail(), let last = ui.anchorFrame("pr:85") else { return false }
+            return abs(rail.minY - last.midY) < 1
+        }(), "rail \(String(describing: rail())), #85 \(String(describing: ui.anchorFrame("pr:85")))")
+        await ui.click(await ui.steadyAnchor("show-more:yours"))
+        await ui.until(2) { ui.anchorFrame("pr:84") == nil }
+        await check("Show Fewer cuts it at the fifth row again", drawn(yours).count == PRCards.shown, "\(drawn(yours))")
     }
 
     /// Show N More: the arrows reach every row it shows, Return opens one past the fifth; a filter that shows every row

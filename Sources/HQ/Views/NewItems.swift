@@ -150,7 +150,7 @@ extension ModalRoute {
 }
 
 /// New Task… (⌘N, ⌥⌘N for the Backlog, +, the menu bar and Dock menus; T-332): the title, a description, Tasks or the
-/// Backlog, the project, what it links. Return in the title or ⌘Return adds it. The lists' New Task lines still add in place.
+/// Backlog, the project, what it links. Return in the title or ⌘Return adds it, at the top of the list.
 struct NewTaskForm: View {
     @Environment(AppModel.self) private var model
     @State private var title = ""

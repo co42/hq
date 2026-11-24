@@ -44,8 +44,8 @@ extension UITest {
         await ui.click(await ui.steadyAnchor("unarchive:\(story.id)"), inSheet: true)
         await ui.until(3) { model.task(story.id) != nil }
         await ui.settle(0.4)
-        await check("Unarchive on its card brings it back to Tasks at the end, and its card leaves the results",
-                    model.task(story.id) != nil && model.task(step.id) != nil && model.taskTree.top().last == story.id
+        await check("Unarchive on its card brings it back first in Tasks, and its card leaves the results",
+                    model.task(story.id) != nil && model.task(step.id) != nil && model.taskTree.top().first == story.id
                     && ui.anchor("archived:\(story.id)") == nil, "\(model.taskTree.top())")
         model.closeModal()
         await ui.until(2) { model.modal == nil }

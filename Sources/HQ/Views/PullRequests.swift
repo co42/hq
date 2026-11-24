@@ -140,13 +140,16 @@ struct PRGroup<Accessory: View>: View {
                     .padding(.horizontal, Space.md)
                     .frame(height: Metric.boxRow, alignment: .top)
             } else {
-                let stacks = model.shownEntries(GitHubItem.stacks(items), in: card)
+                let all = GitHubItem.stacks(items)
+                let stacks = model.shownStacks(all, in: card)
+                // The last stack shown, cut at the fifth row: its rail runs on toward Show N More.
+                let cut = stacks.last.flatMap { last in all.first { $0[0].id == last[0].id }.map { $0.count > last.count } } ?? false
                 VStack(spacing: 0) {
                     CardRows(count: stacks.joined().count, limit: PRCards.scrollsPast, rowHeight: Metric.prRow, inset: PRCards.inset,
                              name: card.rawValue) {
                         VStack(spacing: 0) {
                             ForEach(stacks, id: \.[0].id) { stack in
-                                PRStack(stack: stack)
+                                PRStack(stack: stack, continues: cut && stack[0].id == stacks.last?[0].id)
                                     .overlay(alignment: .bottom) { if stack[0].id != stacks.last?[0].id { RowRule() } }
                             }
                         }
@@ -166,6 +169,8 @@ struct PRGroup<Accessory: View>: View {
 /// A stack's PRs (T-570), its base on top, a rail joining their kind tiles; a PR on no other is a stack of one.
 private struct PRStack: View {
     let stack: [GitHubItem]
+    /// Cut at the card's fifth row: the rest shows behind Show N More.
+    var continues = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -175,9 +180,10 @@ private struct PRStack: View {
             }
         }
         .background(alignment: .topLeading) {
-            if stack.count > 1 {
-                StackRail(rows: stack.count, rowHeight: Metric.prRow)
+            if stack.count > 1 || continues {
+                StackRail(rows: stack.count, rowHeight: Metric.prRow, continues: continues)
                     .padding(.leading, RowLead<EmptyView, EmptyView>.tileCenter)
+                    .uiTestAnchor("stack-rail:\(stack[0].number)")
             }
         }
     }
@@ -221,7 +227,7 @@ struct ShowMoreButton: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let folded = model.foldedRows(card)
+        let folded = PRCards.shown
         if count > folded, !model.cardFiltered(card) {
             let open = model.expandedCards.contains(card)
             Button(open ? "Show Fewer" : "Show \(count - folded) More") { model.toggleExpanded(card) }
@@ -268,22 +274,22 @@ extension AppModel {
         }
     }
 
-    /// The rows a folded card shows: its first five entries, a stack counting as one.
-    func foldedRows(_ card: RowCard) -> Int {
-        switch card {
-        case .reviews, .yours: prStacks(card).prefix(PRCards.shown).reduce(0) { $0 + $1.count }
-        case .files, .artifacts: PRCards.shown
+    /// The stacks a PR card shows: all of them while a filter narrows it or Show More opened it, else its first five rows,
+    /// a stack cut at the fifth (T-767).
+    func shownStacks(_ stacks: [[GitHubItem]], in card: RowCard) -> [[GitHubItem]] {
+        guard !cardFiltered(card), !expandedCards.contains(card) else { return stacks }
+        var left = PRCards.shown
+        var shown: [[GitHubItem]] = []
+        for stack in stacks where left > 0 {
+            shown.append(Array(stack.prefix(left)))
+            left -= min(stack.count, left)
         }
-    }
-
-    /// The entries a card shows: all of them while a filter narrows it or Show More opened it, else the first five.
-    func shownEntries<Entry>(_ entries: [Entry], in card: RowCard) -> [Entry] {
-        cardFiltered(card) || expandedCards.contains(card) ? entries : Array(entries.prefix(PRCards.shown))
+        return shown
     }
 
     /// The rows a card shows, which the keys walk too, in the order of `cardRoutes`.
     func shown<Row>(_ rows: [Row], in card: RowCard) -> [Row] {
-        cardFiltered(card) || expandedCards.contains(card) ? rows : Array(rows.prefix(foldedRows(card)))
+        cardFiltered(card) || expandedCards.contains(card) ? rows : Array(rows.prefix(PRCards.shown))
     }
 
     /// Show N More or Show Fewer; a selected row Show Fewer hides gives the selection to the last row still shown.
@@ -293,7 +299,7 @@ extension AppModel {
             return
         }
         let rows = cardRoutes(card)
-        let folded = foldedRows(card)
+        let folded = PRCards.shown
         if let index = rows.firstIndex(where: { $0.selectionKey == selectedItem }), index >= folded, folded > 0 {
             selectedItem = rows[folded - 1].selectionKey
         }

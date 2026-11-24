@@ -1278,7 +1278,7 @@ final class FacesCell: NSTableCellView {
     @objc private func startSession() { start() }
 }
 
-// MARK: Quick add
+// MARK: Fields
 
 /// A field that says when it takes the keyboard: its delegate hears of an edit only from the first key typed.
 class FocusField: NSTextField {
@@ -1289,121 +1289,6 @@ class FocusField: NSTextField {
         // Once its field editor has the keyboard.
         if taken { DispatchQueue.main.async { [weak self] in self?.onFocus() } }
         return taken
-    }
-}
-
-/// The list's quick-add field.
-final class QuickAddField: FocusField {}
-
-/// "New Task" under the list: Return adds it and keeps the field for the next. A Slack link copied before New Task shows at
-/// its end and names it after the message (T-313).
-final class QuickAddCell: NSTableCellView {
-    static let id = NSUserInterfaceItemIdentifier("quick-cell")
-    let field = QuickAddField()
-    private let plus = NSImageView()
-    /// Made only while a link waits: the line comes into view on a scroll, and stays cheap there.
-    private var chip: NSHostingView<AnyView>?
-    private var chipURL: String?
-    /// The title the linked message gave the field: replaced when the message arrives, kept once the user types.
-    private var named: String?
-
-    nonisolated override var isFlipped: Bool { true }
-
-    init() {
-        super.init(frame: .zero)
-        identifier = Self.id
-        // In the status column, where the new task's glyph will be: an accent plus that invites the next one.
-        plus.image = KitIcon.addTask.nsImage?.withSymbolConfiguration(.init(pointSize: Metric.glyph, weight: .medium))
-        plus.contentTintColor = Ink.accentNS
-        plus.setAccessibilityElement(false)
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.font = KitType.title.nsFont
-        field.usesSingleLineMode = true
-        field.cell?.isScrollable = true
-        addSubview(plus)
-        addSubview(field)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(coordinator: OutlineCoordinator) {
-        field.delegate = coordinator
-        // Its card turns solid with the keyboard.
-        field.onFocus = { [weak coordinator] in coordinator?.keyboardChanged() }
-        let placeholder = "New Task"
-        field.toolTip = "Return adds a task; Option-Return adds it to the backlog"
-        field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .font: KitType.title.nsFont, .foregroundColor: Ink.secondaryTextNS,
-        ])
-        field.setAccessibilityLabel(placeholder)
-        let model = coordinator.model
-        let pending = model.pendingTaskLink?.url
-        if pending != chipURL {
-            chipURL = pending
-            chip?.removeFromSuperview()
-            chip = pending.map { url in
-                let view = NSHostingView(rootView: AnyView(PendingLinkChip(url: url).environment(model)))
-                addSubview(view)
-                return view
-            }
-            needsLayout = true
-        }
-        guard let pending else { return named = nil }
-        name(after: model.slackMessages[pending])
-    }
-
-    /// The field takes the message's first line while it's empty or still holds the last one it took.
-    private func name(after message: SlackMessage?) {
-        guard let line = message?.firstLine, !line.isEmpty, line != named else { return }
-        let editor = field.currentEditor()
-        let typed = editor?.string ?? field.stringValue
-        guard typed.isEmpty || typed == named else { return }
-        named = line
-        if let editor {
-            editor.string = line
-            editor.selectAll(nil)
-        } else {
-            field.stringValue = line
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        let slot = Metric.glyphSlot
-        // After the list's last card and the trays that close: the row's last line.
-        let line = Metric.outlineQuick
-        let top = bounds.height - line
-        plus.frame = NSRect(x: TaskCell.faceSlot, y: top + (line - slot) / 2, width: slot, height: slot)
-        let height = ceil(field.intrinsicContentSize.height)
-        let x = TaskCell.titleX
-        var end = bounds.width - Space.xs
-        if let chip {
-            let size = chip.fittingSize
-            let width = min(size.width, (bounds.width - x) / 2)
-            chip.frame = NSRect(x: end - width, y: top + (line - size.height) / 2, width: width, height: size.height)
-            end = chip.frame.minX - Space.sm
-        }
-        field.frame = NSRect(x: x, y: top + (line - height) / 2, width: end - x, height: height)
-    }
-}
-
-/// The Slack link the next task from a quick-add line links, and a button to drop it (T-313).
-struct PendingLinkChip: View {
-    let url: String
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            OutputChip(route: .slack(url), short: true, plain: true)
-            Button { model.pendingTaskLink = nil } label: { Label("Don’t Link It", icon: .close).labelStyle(.iconOnly) }
-                .buttonStyle(.borderless)
-                .help("Don’t link this Slack message")
-                .uiTestAnchor("quick-add-unlink")
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .uiTestAnchor("quick-add-link")
     }
 }
 
@@ -1453,8 +1338,8 @@ struct OutlineHeader: View {
     }
 }
 
-/// Tasks' toggles, as icons (2026-11-16, T-471): Backlog and Done show those tasks where they sit, each with its count at
-/// every level.
+/// Tasks' header icons (2026-11-16, T-471): Backlog and Done show those tasks where they sit, each with its count at
+/// every level; the Archive; New Task (T-772).
 private struct TaskToggles: View {
     @Environment(AppModel.self) private var model
 
@@ -1478,6 +1363,10 @@ private struct TaskToggles: View {
             .help("Archive: show the stories done and put away (⇧⌘A), or archive every done one")
             .accessibilityLabel("Archive")
             .uiTestAnchor("archive-button")
+        Button { model.beginTask(.todo) } label: { HeaderIcon(icon: .new) }
+            .help("New Task: add a task at the top of the list (⌘N)")
+            .accessibilityLabel("New Task")
+            .uiTestAnchor("new-task-button")
     }
 }
 

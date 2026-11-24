@@ -61,7 +61,6 @@ enum Snapshot {
             model.installedClaude = nil
             model.reopenOffer = nil
             if SeedData.large { SeedData.fillLarge(model, now: seeded) }
-            model.pendingTaskLink = nil
             model.zoom = 1
             model.search = ""
             model.problem = nil
@@ -71,6 +70,7 @@ enum Snapshot {
             model.wideNotes = false
             model.taskSearch = ""
             model.archiveQuery = ""
+            model.closedQuery = ""
             model.archiveShown = nil
             model.archiveSelection = nil
             model.folded = []

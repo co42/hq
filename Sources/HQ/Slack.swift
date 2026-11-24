@@ -282,8 +282,3 @@ extension AppModel {
         return line.isEmpty ? title(of: .slack(url)) : line
     }
 }
-
-/// A Slack link pasted in the list's New Task line: the task added there next links it.
-struct PendingTaskLink: Equatable {
-    var url: String
-}

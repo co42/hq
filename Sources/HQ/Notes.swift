@@ -329,12 +329,12 @@ extension AppModel {
         return addTask(title: title, placement: placement, project: project(ofTask: id), renumber: renumber)
     }
 
-    /// The quick-add line and New Task…: a top-level task at the end of the list, todo or in the backlog.
+    /// New Task…: a top-level task first in the list, todo or in the backlog.
     @discardableResult
     func addTask(status: TaskStatus, title: String, body: String = "", session: String? = nil, project: String? = nil,
                  links: [URL] = []) -> TaskItem? {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
-              let (placement, renumber) = taskTree.placeNew(in: .top) else { return nil }
+              let (placement, renumber) = taskTree.placeNew(in: .top, at: 0) else { return nil }
         return addTask(title: title, placement: placement, status: status, project: project, body: body, session: session, links: links,
                        renumber: renumber)
     }

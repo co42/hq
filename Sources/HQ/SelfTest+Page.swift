@@ -49,21 +49,22 @@ extension SelfTest {
         model.expandedCards = Set(cards)
         let open = cards.map { model.shown(model.cardRoutes($0), in: $0).count }
         check("Show N More opens a card to all its rows, and the keys walk them",
-              open == cards.map { model.cardRoutes($0).count } && folded == cards.map { min(model.foldedRows($0), model.cardRoutes($0).count) }
+              open == cards.map { model.cardRoutes($0).count } && folded == cards.map { min(PRCards.shown, model.cardRoutes($0).count) }
               && model.sectionRoutes(.pullRequests).count == open[0] + open[1] && model.sectionRoutes(.files).count == open[2] + open[3],
               "folded \(folded), open \(open)")
         model.expandedCards = []
 
-        // Stacked PRs (T-570): image-sync #82 on #81 on #80, together where #82 sat, base first, one entry before Show N More.
+        // Stacked PRs (T-570): image-sync #80 to #85, each on the one before, together where #82 sat, base first.
         let pr = { (n: Int) in ModalRoute.github("https://github.com/acme/image-sync/pull/\(n)").selectionKey }
         let yours = model.cardRoutes(.yours).map(\.selectionKey)
         check("a stack's PRs sit together in Yours, its base first, where its newest PR was",
-              Array(yours.dropFirst().prefix(3)) == [80, 81, 82].map(pr), "\(yours)")
-        let entries = model.prStacks(.yours).count
-        check("a stack counts as one entry: a folded card shows its first five entries, every row of them",
-              entries < yours.count && model.shown(yours, in: .yours).count == model.prStacks(.yours).prefix(PRCards.shown).joined().count
-              && model.shown(yours, in: .yours).count > min(entries, PRCards.shown),
-              "\(entries) entries, \(model.shown(yours, in: .yours).count) of \(yours.count) rows shown")
+              Array(yours.dropFirst().prefix(6)) == (80...85).map(pr), "\(yours)")
+        // T-767: five rows at rest, whatever the stacks; one cut at the fifth goes on behind Show N More.
+        let drawn = { (card: RowCard) in model.shownStacks(model.prStacks(card), in: card) }
+        check("a folded PR card shows its first five rows, a stack cut at the fifth",
+              drawn(.yours).joined().count == PRCards.shown && drawn(.yours).last?.map(\.number) == [80, 81, 82, 83]
+              && model.shown(yours, in: .yours).count == PRCards.shown && drawn(.reviews).joined().count <= PRCards.shown,
+              "\(drawn(.yours).map { $0.map(\.number) }), \(model.shown(yours, in: .yours).count) of \(yours.count) rows walked")
         model.search = search
     }
 }
