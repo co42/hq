@@ -922,16 +922,35 @@ extension AppModel {
         // A queued save would write the note back after it went.
         if pendingWrites[path] != nil { flushNoteWrites() }
         wrote(path)
+        let url = URL(fileURLWithPath: path)
         var result: NSURL?
         var failure: Error?
         do {
-            try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: &result)
+            try Self.trashItem(url, &result)
+        } catch CocoaError.fileWriteNoPermission {
+            // A note HQ didn't write (iCloud downloaded it, another app made it) has no grant from macOS for HQ to move
+            // it out of Obsidian's container: written again as HQ's own file, it gets one.
+            do {
+                try Data(contentsOf: url).write(to: url, options: .atomic) // io: ok one note, only after a refused Delete
+                try Self.trashItem(url, &result)
+                AppLog.write("trash: \(path) refused, written again and trashed", to: "vault.log")
+            } catch {
+                failure = error
+            }
         } catch {
             failure = error
         }
         guard FileManager.default.fileExists(atPath: path) else { return result as URL? }
         AppLog.write("trash: \(path) stayed: \(failure.map { "\($0)" } ?? "the Trash took it, yet it's still there")", to: "vault.log")
         throw NoteStayed(path: path, reason: failure?.localizedDescription ?? "it's still in its folder")
+    }
+
+    /// Paths whose next move to the Trash is refused for permission, as macOS does for a note HQ didn't write (self-test).
+    static var refuseTrashOnce: Set<String> = []
+
+    private static func trashItem(_ url: URL, _ result: inout NSURL?) throws {
+        if refuseTrashOnce.remove(url.path) != nil { throw CocoaError(.fileWriteNoPermission) }
+        try FileManager.default.trashItem(at: url, resultingItemURL: &result)
     }
 
     /// Each note to the Trash, or none: the first that stays brings back those that went.

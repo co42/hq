@@ -1,5 +1,10 @@
 # Release notes
 
+## v19.2 · 2026-11-25 · Deleted stays deleted
+
+- Fixes: a deleted task no longer comes back. macOS lets HQ move a note to the Trash only once HQ has written it, and notes iCloud downloaded again or another app created had never been: their delete failed without a word, and the task reappeared at the next read. HQ now writes such a note again and deletes it. Tasks, files, roles and archived stories alike.
+- A delete that still fails keeps its item and says why in an alert, and `hq task|file|role delete` fail with the reason instead of reporting a delete that didn't happen.
+
 ## v19.1 · 2026-11-24 · Light and sky
 
 - Settings › Appearance, a new tab: the sky (None, Top, or Top and Bottom, which also lights the window's foot), the light of a card that needs you, the light of one that works, lit cards (a rim along their top edge, a softer, deeper shadow), frosted cards and richer marks (glossy tiles, progress bars lit from above). Each is a switch with a strength in 5% steps; the defaults are the ones picked while trying them.

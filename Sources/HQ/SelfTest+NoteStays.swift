@@ -49,6 +49,25 @@ extension SelfTest {
               && model.ghosttyLog.dropFirst(alertsBefore).contains { $0.hasPrefix("note stayed Role \(role.name)") })
         lock(role.path, false)
         model.deleteRole(role.name)
+
+        // A note macOS won't let HQ move until HQ has written it: HQ writes it again and it goes.
+        if let task = model.addTask(status: .todo, title: "Refused once"), let path = task.path {
+            AppModel.refuseTrashOnce.insert(path)
+            let deleted = agent("task delete", ["task": task.key, "yes": "true"])
+            check("a task whose note the Trash refuses for permission is written again and deleted",
+                  deleted["deleted"] as? [String] == [task.key] && model.task(task.id) == nil && !onDisk(path), "\(deleted)")
+        }
+        if let file = model.addFile(title: "Refused file"), let path = file.path {
+            AppModel.refuseTrashOnce.insert(path)
+            check("a file the same", model.deleteFile(file.id) == nil && model.file(file.id) == nil && !onDisk(path))
+        }
+        let refusedRole = model.newRole(named: "Refused Role")
+        if let path = refusedRole.path {
+            AppModel.refuseTrashOnce.insert(path)
+            check("a role the same", model.deleteRole(refusedRole.name) == nil && model.role(named: refusedRole.name) == nil && !onDisk(path))
+        }
+        AppModel.refuseTrashOnce = []
+
         check("a note already gone deletes as asked", { () -> Bool in
             guard let gone = model.addTask(status: .todo, title: "Gone already"), let path = gone.path else { return false }
             try? FileManager.default.removeItem(atPath: path)
