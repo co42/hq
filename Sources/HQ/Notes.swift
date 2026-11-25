@@ -138,12 +138,13 @@ extension AppModel {
         if let path { vaultWrites[path] = .now }
     }
 
+    /// A write that failed: a beep, and the error in vault.log.
     func report(_ write: () throws -> Void) {
         do {
             try write()
         } catch {
             NSSound.beep()
-            FileHandle.standardError.write(Data("HQ: could not write a note: \(error)\n".utf8))
+            AppLog.write("couldn't write a note: \(error)", to: "vault.log")
         }
     }
 
@@ -490,20 +491,29 @@ extension AppModel {
     }
 
     /// Delete, ⌘⌫, Backspace on an empty title: the task and its subtasks go to the Trash; Undo brings them back.
-    func deleteTasks(_ ids: [Int], action: String = "Delete Task") {
+    /// A note that stays keeps them all, and an alert says so (`tell`); the error comes back either way.
+    @discardableResult
+    func deleteTasks(_ ids: [Int], action: String = "Delete Task", tell: Bool = true) -> NoteStayed? {
         let tree = taskTree
         // Each once: a task and its own subtask both asked for are one subtree.
         var seen = Set<Int>()
         let all = ids.flatMap { tree.subtree(of: $0) }.filter { seen.insert($0).inserted }
         let items = all.compactMap { task($0) }
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty else { return nil }
+        let trashed: [Int: URL]
+        do {
+            trashed = try trashAll(items.map { ($0.id, $0.path) })
+        } catch {
+            let named = items.count == 1 ? items[0].key : "\(items[0].key) and \(items.count - 1) more"
+            if tell { tellNoteStayed(named, error, stays: "Tasks", several: items.count > 1) }
+            return error
+        }
         givenHighestKey = items.map(\.id).max() ?? 0
-        var trashed: [Int: URL] = [:]
-        for item in items { trashed[item.id] = trash(item.path) }
         let gone = Set(all)
         tasks.removeAll { gone.contains($0.id) }
         leaveModal { if case .task(let id) = $0 { gone.contains(id) } else { false } }
         registerUndo(action) { model in model.restoreTasks(items, from: trashed, action: action) }
+        return nil
     }
 
     private func restoreTasks(_ items: [TaskItem], from trashed: [Int: URL], action: String) {
@@ -772,10 +782,17 @@ extension AppModel {
         registerUndo(action) { model in model.changeFile(id, action) { ItemField.undo(fields, from: old, into: &$0) } }
     }
 
-    /// Delete on a file: its note goes to the Trash; Undo brings it back.
-    func deleteFile(_ id: FileItem.ID) {
-        guard let file = file(id) else { return }
-        let trashed = trash(file.path)
+    /// Delete on a file: its note goes to the Trash; Undo brings it back. A note that stays keeps its row (`tell`: an alert).
+    @discardableResult
+    func deleteFile(_ id: FileItem.ID, tell: Bool = true) -> NoteStayed? {
+        guard let file = file(id) else { return nil }
+        let trashed: URL?
+        do {
+            trashed = try trash(file.path)
+        } catch {
+            if tell { tellNoteStayed("“\(file.title)”", error, stays: "Files") }
+            return error
+        }
         files.removeAll { $0.id == id }
         leaveModal { $0 == .file(id) }
         registerUndo("Delete File") { model in
@@ -783,6 +800,7 @@ extension AppModel {
             if !model.files.contains(where: { $0.id == id }) { model.files.append(file) }
             model.registerUndo("Delete File") { $0.deleteFile(id) }
         }
+        return nil
     }
 
     func file(_ id: FileItem.ID?) -> FileItem? {
@@ -898,18 +916,34 @@ extension AppModel {
         return url.url
     }
 
-    func trash(_ path: String?) -> URL? {
+    /// Moves a note to the Trash; one already gone is fine. Throws, the reason in vault.log, when it's still there.
+    func trash(_ path: String?) throws(NoteStayed) -> URL? {
         guard let path else { return nil }
         // A queued save would write the note back after it went.
         if pendingWrites[path] != nil { flushNoteWrites() }
         wrote(path)
         var result: NSURL?
+        var failure: Error?
         do {
             try FileManager.default.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: &result)
         } catch {
-            report { throw error }
+            failure = error
         }
-        return result as URL?
+        guard FileManager.default.fileExists(atPath: path) else { return result as URL? }
+        AppLog.write("trash: \(path) stayed: \(failure.map { "\($0)" } ?? "the Trash took it, yet it's still there")", to: "vault.log")
+        throw NoteStayed(path: path, reason: failure?.localizedDescription ?? "it's still in its folder")
+    }
+
+    /// Each note to the Trash, or none: the first that stays brings back those that went.
+    func trashAll(_ notes: [(id: Int, path: String?)]) throws(NoteStayed) -> [Int: URL] {
+        var trashed: [Int: URL] = [:]
+        do {
+            for note in notes { trashed[note.id] = try trash(note.path) }
+        } catch {
+            for note in notes { untrash(trashed[note.id], to: note.path) }
+            throw error
+        }
+        return trashed
     }
 
     func untrash(_ trashed: URL?, to path: String?) {
@@ -918,10 +952,35 @@ extension AppModel {
         report { try FileManager.default.moveItem(at: trashed, to: URL(fileURLWithPath: path)) }
     }
 
+    /// Delete that left its note: the item stays, and an alert says why. `place` is where it stays: "Tasks".
+    func tellNoteStayed(_ name: String, _ stayed: NoteStayed, stays place: String, several: Bool = false) {
+        NSSound.beep()
+        if Store.isOverridden { return ghosttyLog.append("note stayed \(name): \(stayed.reason)") }
+        let alert = NSAlert()
+        alert.messageText = "\(name) \(several ? "weren't" : "wasn't") deleted"
+        alert.informativeText = several
+            ? "A note couldn't go to the Trash: \(stayed.reason) They all stay in \(place)."
+            : "Its note couldn't go to the Trash: \(stayed.reason) It stays in \(place)."
+        if let window = window.map({ $0.attachedSheet ?? $0 }) { alert.beginSheetModal(for: window) } else { alert.runModal() }
+    }
+
     /// One Undo step, named after the action.
     func registerUndo(_ name: String, _ action: @escaping (AppModel) -> Void) {
         guard let undo = undoManager else { return }
         undo.registerUndo(withTarget: self) { model in MainActor.assumeIsolated { action(model) } }
         if !undo.isUndoing && !undo.isRedoing { undo.setActionName(name) }
     }
+}
+
+/// A note Delete couldn't move to the Trash: its item stays. `reason` is one sentence.
+struct NoteStayed: LocalizedError {
+    let path: String
+    let reason: String
+
+    init(path: String, reason: String) {
+        self.path = path
+        self.reason = reason.hasSuffix(".") ? reason : reason + "."
+    }
+
+    var errorDescription: String? { reason }
 }

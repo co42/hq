@@ -85,6 +85,8 @@ nonisolated struct AgentError: Error {
     static func unavailable(_ message: String) -> AgentError { AgentError(code: "app_unavailable", message: message, exit: 4) }
     /// A description changed since the session last read it.
     static func stale(_ message: String) -> AgentError { AgentError(code: "stale", message: message, exit: 1) }
+    /// The app tried and the disk said no: a note that wouldn't go to the Trash.
+    static func failed(_ message: String) -> AgentError { AgentError(code: "failed", message: message, exit: 1) }
 
     var json: JSONObject { ["ok": false, "error": ["code": code, "message": message]] }
 }

@@ -306,8 +306,12 @@ extension AppModel {
         guard let vault, let index = archiveShown?.index ?? ArchiveStore.shared.current else { return }
         let entries = index.entries.filter { $0.root == story }
         guard !entries.isEmpty else { return }
-        var trashed: [Int: URL] = [:]
-        for entry in entries { trashed[entry.id] = trash(vault.archivedURL(entry.id).path) }
+        let trashed: [Int: URL]
+        do {
+            trashed = try trashAll(entries.map { ($0.id, vault.archivedURL($0.id).path) })
+        } catch {
+            return tellNoteStayed("T-\(story)", error, stays: "the Archive")
+        }
         writeNotes([]) { ArchiveStore.shared.update { $0.remove(story: story) } }
         archiveShown?.index.remove(story: story)
         archiveShown?.searcher.remove(story: story)

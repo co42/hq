@@ -1154,7 +1154,8 @@ extension AppModel {
             try Data(text.utf8).write(to: file, options: .atomic)
             return file
         } catch {
-            report { throw error }
+            NSSound.beep()
+            AppLog.write("couldn't write \(file.path): \(error)", to: "sessions.log")
             return nil
         }
     }
