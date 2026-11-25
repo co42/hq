@@ -206,13 +206,13 @@ hq task tick T-n "start of the item" [--untick]   # one checklist item; prints "
 hq task show T-n [T-m …] [--deep|--brief|--body]  # parents, reminders, description, subtasks (--deep: their descriptions), links; no paths
 hq task link T-n <url | T-m | session id | note name>
 hq task unlink T-n <the same item>
-hq task delete T-n [--yes]                     # with its subtasks, to the Trash; without --yes: what it would delete
+hq task delete T-n [--yes]                     # with its subtasks, to the Trash; without --yes: what it would delete; a note that won't go fails it, nothing deleted
 hq task history T-n                            # what sessions changed in it through hq, the last 7 days
 hq task undo T-n [--yes]                       # put back every task its latest hq change touched
 hq file new "Title" [--task T-n] [--body -]    # "<date> - Title"; a dated title keeps one date
 hq file write <name> [--body - [--append]] [--section S --body -] [--replace old --with new]
 hq file show <name>                            # its name, path or title
-hq file delete <name> [--yes]                  # to the Trash; without --yes: what it would delete
+hq file delete <name> [--yes]                  # to the Trash; without --yes: what it would delete; fails when the note won't go
 hq artifact add <url> --title t [--date d] [--task T-n]     # one HQ didn't capture; a ?sk= share key is dropped
 hq session new "Name" [--task T-n] [--role R] [--parent <session> | --parent none | --beside] [--history <session>] [--cwd dir] [--model m] [--effort e] [--message -]
                                                # from a session: under it, in its Ghostty window, its tab opened behind (Ghostty keeps the front, the window its tab); --beside: at its level (a handoff)

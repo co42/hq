@@ -164,7 +164,9 @@ extension AgentCommands {
         let users = model.sessions(withRole: role.name).count
         let kept = users == 0 ? "" : " \(users) open session\(users == 1 ? " has" : "s have") it: \(users == 1 ? "it keeps" : "they keep") the text \(users == 1 ? "it" : "they") started with."
         guard args.confirmed else { return ["wouldDelete": role.name, "text": "Would delete role \(role.name): its note goes to the Trash.\(kept) Again with --yes to delete."] }
-        model.deleteRole(role.name)
+        if let stayed = model.deleteRole(role.name, tell: false) {
+            throw AgentError.failed("Didn't delete role \(role.name): its note couldn't go to the Trash: \(stayed.reason)")
+        }
         return ["deleted": role.name, "text": "Deleted role \(role.name): its note is in the Trash.\(kept)"]
     }
 

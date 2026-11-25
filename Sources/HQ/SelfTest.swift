@@ -1443,6 +1443,7 @@ enum SelfTest {
             check("task delete --yes deletes the task and its subtasks", deleted["deleted"] as? [String] == [parent, child]
                   && model.task(TaskItem.key(parent)) == nil && model.task(TaskItem.key(child)) == nil)
         }
+        await noteStaysChecks(model)
 
         // A session started with a first message: a prompt file any shell reads whole.
         let message = "Work on \(key): it's \"quoted\", costs $5, runs `ls`,\nhas lines\nand 🦀."

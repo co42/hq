@@ -71,9 +71,17 @@ extension AppModel {
     }
 
     /// Delete: the note goes to the Trash, with Undo. Sessions that had it keep the text they started with, not the chip.
-    func deleteRole(_ name: String) {
-        guard let role = role(named: name) else { return }
-        let trashed = trash(role.path)
+    /// A note that stays keeps the role (`tell`: an alert).
+    @discardableResult
+    func deleteRole(_ name: String, tell: Bool = true) -> NoteStayed? {
+        guard let role = role(named: name) else { return nil }
+        let trashed: URL?
+        do {
+            trashed = try trash(role.path)
+        } catch {
+            if tell { tellNoteStayed("Role \(role.name)", error, stays: "Roles") }
+            return error
+        }
         roles.removeAll { $0.name == role.name }
         registerUndo("Delete Role") { model in
             model.untrash(trashed, to: role.path)
@@ -83,6 +91,7 @@ extension AppModel {
             }
             model.registerUndo("Delete Role") { $0.deleteRole(role.name) }
         }
+        return nil
     }
 
     /// Restore Default: a role that ships with HQ gets its text, line and color back.

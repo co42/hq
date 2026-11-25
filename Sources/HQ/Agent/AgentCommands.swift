@@ -103,14 +103,16 @@ enum AgentCommands {
                               .init(name: "item", required: true, positional: true, help: "the start of the item's text, enough to name one"),
                               .init(name: "untick", kind: .boolean, help: "clear its box instead"), notMine],
                      example: "hq task tick T-12 \"At most 3 attempts\"", output: taskOutput + "; ticked: the item, done, total, text") { args, model in try tickCommand(args, model) },
-        AgentCommand(name: "task delete", summary: "Delete a task and its subtasks, as Delete does in HQ: their notes go to the Trash.",
+        AgentCommand(name: "task delete", summary: "Delete a task and its subtasks, as Delete does in HQ: their notes go to the Trash. A note that won't go fails it, and nothing is deleted.",
                      params: [.init(name: "task", required: true, positional: true, help: "T-12"), notMine],
                      example: "hq task delete T-12 --yes", output: "{deleted: [keys]}, or without --yes {wouldDelete: [keys]}", destructive: true) { args, model in
             let task = try ownTask(args, model)
             let keys = model.taskTree.subtree(of: task.id).compactMap { model.task($0)?.key }
             let named = keys.joined(separator: ", ")
             guard args.confirmed else { return ["wouldDelete": keys, "text": "Would delete \(named). Again with --yes to delete."] }
-            model.deleteTasks([task.id])
+            if let stayed = model.deleteTasks([task.id], tell: false) {
+                throw AgentError.failed("Didn't delete \(named): \(stayed.path) couldn't go to the Trash: \(stayed.reason) \(keys.count == 1 ? "The task stays" : "They all stay") in HQ.")
+            }
             return ["deleted": keys, "text": "Deleted \(named): \(keys.count == 1 ? "its note is" : "their notes are") in the Trash."]
         },
         AgentCommand(name: "task history", summary: "What sessions changed in a task through hq in the last 7 days, the latest first. task undo reverts the latest.",
@@ -239,13 +241,15 @@ enum AgentCommands {
                               .init(name: "replace", help: "an exact text of the note, found once, to change"),
                               .init(name: "with", help: "what --replace becomes (empty removes it)")],
                      example: "hq file write \"2026-11-03 - Push plan\" --section \"Next steps\" --body -", output: fileOutput) { args, model in try writeFileCommand(args, model) },
-        AgentCommand(name: "file delete", summary: "Delete a note, as Delete does in HQ: it goes to the Trash.",
+        AgentCommand(name: "file delete", summary: "Delete a note, as Delete does in HQ: it goes to the Trash, or the command fails and the note stays.",
                      params: [.init(name: "file", required: true, positional: true, help: "its name as file new printed it (.md optional), its path, or its title")],
                      example: "hq file delete \"2026-11-03 - Push plan\" --yes", output: "{deleted: name}, or without --yes {wouldDelete: name}",
                      destructive: true) { args, model in
             let file = try findFile(args, model)
             guard args.confirmed else { return ["wouldDelete": file.id, "text": "Would delete “\(file.title)” (\(file.id)). Again with --yes to delete."] }
-            model.deleteFile(file.id)
+            if let stayed = model.deleteFile(file.id, tell: false) {
+                throw AgentError.failed("Didn't delete “\(file.title)”: its note couldn't go to the Trash: \(stayed.reason)")
+            }
             return ["deleted": file.id, "text": "Deleted “\(file.title)”: its note is in the Trash."]
         },
         AgentCommand(name: "artifact add", summary: "Add a claude.ai artifact HQ didn't capture, by its URL. Again with the same URL updates it.",
